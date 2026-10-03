@@ -223,6 +223,16 @@ def audit(tenant_id: int | None, actor_user_id: int | None, action: str, metadat
 # --- helpers ---------------------------------------------------------------------------
 
 
+def get_lead(lid: int) -> dict | None:
+    with connect() as c:
+        return row(c, "SELECT * FROM leads WHERE id = ?", lid)
+
+
+def get_conversation(conv_id: int) -> dict | None:
+    with connect() as c:
+        return row(c, "SELECT * FROM conversations WHERE id = ?", conv_id)
+
+
 def _json(value: Any) -> str:
     import json
     return json.dumps(value or {})
