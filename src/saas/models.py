@@ -21,6 +21,7 @@ class User(BaseModel):
     tenant_id: int
     email: str
     display_name: str | None = None
+    hashed_password: str | None = None
     role: str = "owner"
     metadata: dict[str, Any] = Field(default_factory=dict)
 

@@ -79,8 +79,8 @@ def get_user_by_email(tenant_id: int, email: str) -> User | None:
 
 
 def _user_from(r: dict) -> User:
-    return User(id=r["id"], tenant_id=r["tenant_id"], email=r["email"], display_name=r["display_name"], role=r["role"],
-                metadata=_loads(r["metadata"]))
+    return User(id=r["id"], tenant_id=r["tenant_id"], email=r["email"], display_name=r["display_name"],
+                hashed_password=r.get("hashed_password"), role=r["role"], metadata=_loads(r["metadata"]))
 
 
 # --- domains ---------------------------------------------------------------------------

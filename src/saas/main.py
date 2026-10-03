@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -38,7 +38,7 @@ def hosted_concierge(tenant_slug: str) -> HTMLResponse:
     tenant = get_tenant_by_slug(tenant_slug)
     if not tenant:
         raise HTTPException(status_code=404, detail="tenant not found")
-    path = ROOT / "src" / "saas" / "templates" / "hosted.html"
+    path = ROOT / "saas" / "templates" / "hosted.html"
     html = path.read_text(encoding="utf-8").replace("{tenant_name}", tenant.name).replace("{client_key}", _public_key(tenant.id))
     return HTMLResponse(html)
 

@@ -33,11 +33,16 @@ from saas.public_api import public_app
 def _clean_db():
     with connect() as c:
         for stmt in [
+            "DELETE FROM notifications",
+            "DELETE FROM messages",
+            "DELETE FROM memberships",
             "DELETE FROM analytics_events",
             "DELETE FROM api_keys",
             "DELETE FROM domains",
+            "DELETE FROM widget_settings",
+            "DELETE FROM email_settings",
+            "DELETE FROM business_rules",
             "DELETE FROM tenant_settings",
-            "DELETE FROM messages",
             "DELETE FROM conversations",
             "DELETE FROM leads",
             "DELETE FROM audit_logs",
