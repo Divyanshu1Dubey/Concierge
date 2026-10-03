@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from saas.config import get_settings
-from saas.public_api import admin_app, public_app
+from saas.database import connect, rows
+from saas.public_api import admin_app, public_app, _tenant_config
 from saas.repositories import get_tenant_by_slug
 
 settings = get_settings()
@@ -38,9 +39,73 @@ def hosted_concierge(tenant_slug: str) -> HTMLResponse:
     tenant = get_tenant_by_slug(tenant_slug)
     if not tenant:
         raise HTTPException(status_code=404, detail="tenant not found")
-    path = ROOT / "saas" / "templates" / "hosted.html"
+    path = ROOT / "src" / "saas" / "templates" / "hosted.html"
     html = path.read_text(encoding="utf-8").replace("{tenant_name}", tenant.name).replace("{client_key}", _public_key(tenant.id))
     return HTMLResponse(html)
+
+
+@app.get("/install")
+def install_guide() -> HTMLResponse:
+    path = ROOT / "docs" / "installation.md"
+    markdown = path.read_text(encoding="utf-8")
+    app_url = str(settings.app_url).rstrip("/")
+    snippet = (
+        "<script\n"
+        "  async\n"
+        "  src=\"{app_url}/widget.js\"\n"
+        "  data-heyjarvis-client=\"YOUR_PUBLIC_KEY\"\n"
+        "  data-heyjarvis-form=\"false\"\n"
+        "  data-heyjarvis-auto-open=\"false\"\n"
+        "></script>"
+    ).replace("{app_url}", app_url)
+    html = (
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        "<title>Installation Guide — HeyJarvis Concierge</title>"
+        "<style>"
+        ":root{--primary:#1f3b2e;--accent:#3a7d6e;--bg:#f6f7f8;--card:#fff;--border:#e5e7eb;--text:#1a1a1a;--muted:#6b7280;}"
+        "*{box-sizing:border-box;margin:0;padding:0;}"
+        "body{font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica Neue,Arial,sans-serif;background:var(--bg);color:var(--text);}"
+        ".wrap{max-width:860px;margin:0 auto;padding:24px;}"
+        ".header{padding:20px 24px;background:linear-gradient(135deg,#1a3c2a 0%,#2d6a4f 100%);color:#fff;border-radius:14px;margin-bottom:18px;}"
+        ".header h1{font-size:22px;margin-bottom:6px;}.header p{opacity:.85;font-size:14px;}"
+        ".card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px;box-shadow:0 2px 6px rgba(0,0,0,.04);}"
+        ".card h2{font-size:16px;margin-bottom:10px;}.card p{color:#374151;margin-bottom:10px;}"
+        ".code{background:#f5f5f5;border:1px solid #ddd;border-radius:10px;padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;word-break:break-all;white-space:pre-wrap;color:#1f3b2e;}"
+        ".btn{display:inline-block;margin-top:8px;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:0;background:var(--primary);color:#fff;}"
+        "ol,ul{margin-left:18px;margin-bottom:12px;color:#374151;}li{margin-bottom:6px;}"
+        "a{color:var(--primary);}@media(max-width:420px){.wrap{padding:14px;}}"
+        "</style></head><body><div class=\"wrap\">"
+        "<div class=\"header\"><h1>Installation Guide</h1><p>Add HeyJarvis Concierge to your website in minutes.</p></div>"
+        "<div class=\"card\"><h2>Quick Start</h2><p>Paste this snippet before <code>&lt;/body&gt;</code> and replace <code>YOUR_PUBLIC_KEY</code> with your public API key from the HeyJarvis dashboard.</p>"
+        "<div class=\"code\">" + snippet + "</div>"
+        "<button class=\"btn\" onclick=\"navigator.clipboard.writeText(this.parentElement.querySelector('.code').textContent).then(()=>alert('Copied!'))\">Copy snippet</button>"
+        "</div>"
+        + markdown
+        + "</div></body></html>"
+    )
+    return HTMLResponse(html)
+
+
+@app.get("/api/v1/public/widget-config/{tenant_slug}")
+def public_widget_config(tenant_slug: str, request: Request) -> dict:
+    tenant = get_tenant_by_slug(tenant_slug)
+    if not tenant or not tenant.enabled:
+        raise HTTPException(status_code=404, detail="tenant not found")
+    origin = request.headers.get("origin", "").replace("https://", "").replace("http://", "").split("/")[0].lower()
+    domain_ok = False
+    if origin:
+        with connect() as c:
+            d = rows(c, "SELECT 1 FROM domains WHERE tenant_id = ? AND domain = ?", tenant.id, origin)
+        domain_ok = bool(d)
+    cfg = _tenant_config(tenant.id)
+    return {
+        "tenant_id": tenant.id,
+        "tenant_name": tenant.name,
+        "tenant_slug": tenant.slug,
+        "greeting": cfg.get("greeting"),
+        "allowed_origin": domain_ok,
+        "widget_config": cfg,
+    }
 
 
 def _public_key(tenant_id: int) -> str:

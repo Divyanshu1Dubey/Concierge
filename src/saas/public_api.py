@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ from fastapi.responses import FileResponse
 from saas.auth import get_current, require_roles
 from saas.config import get_settings
 from saas.conversation import ConversationEngine, DEFAULT_GREETING, State
-from saas.database import connect, now_iso, rows
+from saas.database import connect, now_iso, row, rows
 from saas.emailer import (
     send_lead_notification,
     send_test_email,
@@ -1172,6 +1173,237 @@ _dashboard_template = """<!doctype html>
 </script>
 </body>
 </html>"""
+
+
+@admin_app.get("/admin/dashboard/{tenant_id}")
+def admin_dashboard(tenant_id: int, cu: Any = Depends(get_current)):
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(403)
+    tenant = _load_tenant(tenant_id)
+    tenant_name = tenant.get("name", "My Business")
+    tenant_slug = tenant.get("slug", "")
+    tenant_timezone = tenant.get("timezone", "UTC")
+    public_key = tenant.get("public_key", "")
+    status_class = "ok" if tenant.get("enabled") else "off"
+    status_dot = "active" if tenant.get("enabled") else "inactive"
+    status_text = "Active" if tenant.get("enabled") else "Disabled"
+
+    app_url = os.environ.get("APP_URL", "http://localhost:8000").rstrip("/")
+    widget_url = app_url + "/widget.js"
+    concierge_url = app_url + "/concierge/" + tenant_slug
+
+    with connect() as c:
+        conversations_count = c.execute("SELECT COUNT(*) FROM conversations WHERE tenant_id=?", (tenant_id,)).fetchone()[0]
+        new_leads_count = c.execute("SELECT COUNT(*) FROM leads WHERE tenant_id=? AND status='new'", (tenant_id,)).fetchone()[0]
+        leads_count = c.execute("SELECT COUNT(*) FROM leads WHERE tenant_id=?", (tenant_id,)).fetchone()[0]
+        emails_sent_count = c.execute("SELECT COUNT(*) FROM notifications WHERE tenant_id=? AND status='sent'", (tenant_id,)).fetchone()[0]
+        total_leads = leads_count or 1
+        completion_rate = min(100, round(((conversations_count or 0) / max(total_leads, 1)) * 100))
+        recent = rows(c, "SELECT id, visitor_name, visitor_email, intent, status, created_at FROM conversations WHERE tenant_id=? ORDER BY id DESC LIMIT 8", tenant_id)
+        recent_leads = rows(c, "SELECT id, name, email, intent, status, created_at FROM leads WHERE tenant_id=? ORDER BY id DESC LIMIT 5", tenant_id)
+        conv_rows = rows(c, "SELECT id, visitor_name, visitor_email, intent, status, created_at FROM conversations WHERE tenant_id=? ORDER BY id DESC LIMIT 50", tenant_id)
+        lead_rows = rows(c, "SELECT id, name, email, intent, status, created_at FROM leads WHERE tenant_id=? ORDER BY id DESC LIMIT 50", tenant_id)
+        api_keys = rows(c, "SELECT id, label, public_key, created_at FROM api_keys WHERE tenant_id=?", tenant_id)
+        members = rows(c, "SELECT id, email, role, display_name FROM users WHERE tenant_id=? AND role != 'owner'", tenant_id)
+
+    # Analytics
+    analytics = rows(c, "SELECT event_type, COUNT(*) as cnt FROM analytics WHERE tenant_id=? GROUP BY event_type ORDER BY cnt DESC", tenant_id) if False else []
+
+    recent_html = ""
+    if recent:
+        recent_html += "<table><tr><th>ID</th><th>Visitor</th><th>Email</th><th>Intent</th><th>Status</th><th>Date</th></tr>"
+        for r in recent:
+            recent_html += f"<tr><td>{r.get('id')}</td><td>{r.get('visitor_name','')}</td><td>{r.get('visitor_email','')}</td><td>{r.get('intent','')}</td><td>{r.get('status','')}</td><td>{r.get('created_at','')}</td></tr>"
+        recent_html += "</table>"
+    else:
+        recent_html = "<p class='empty'>No conversations yet.</p>"
+
+    conv_html = ""
+    if conv_rows:
+        conv_html += "<table><tr><th>ID</th><th>Visitor</th><th>Email</th><th>Intent</th><th>Status</th><th>Date</th></tr>"
+        for r in conv_rows:
+            conv_html += f"<tr><td><a href='#'>{r.get('id')}</a></td><td>{r.get('visitor_name','')}</td><td>{r.get('visitor_email','')}</td><td>{r.get('intent','')}</td><td>{r.get('status','')}</td><td>{r.get('created_at','')}</td></tr>"
+        conv_html += "</table>"
+    else:
+        conv_html = "<p class='empty'>No conversations yet.</p>"
+
+    leads_html = ""
+    if lead_rows:
+        leads_html += "<table><tr><th>ID</th><th>Name</th><th>Email</th><th>Intent</th><th>Status</th><th>Date</th></tr>"
+        for r in lead_rows:
+            leads_html += f"<tr><td>{r.get('id')}</td><td>{r.get('name','')}</td><td>{r.get('email','')}</td><td>{r.get('intent','')}</td><td>{r.get('status','')}</td><td>{r.get('created_at','')}</td></tr>"
+        leads_html += "</table>"
+    else:
+        leads_html = "<p class='empty'>No leads yet.</p>"
+
+    team_html = ""
+    if members:
+        team_html += "<table><tr><th>Email</th><th>Name</th><th>Role</th></tr>"
+        for m in members:
+            team_html += f"<tr><td>{m.get('email','')}</td><td>{m.get('display_name','')}</td><td>{m.get('role','')}</td></tr>"
+        team_html += "</table>"
+    else:
+        team_html = "<p class='empty'>No additional team members.</p>"
+
+    api_keys_html = ""
+    if api_keys:
+        api_keys_html = "<table><tr><th>Label</th><th>Public Key</th><th>Created</th><th>Actions</th></tr>"
+        for k in api_keys:
+            api_keys_html += f"<tr><td>{k.get('label','')}</td><td><span class='code'>{k.get('public_key','')}</span></td><td>{k.get('created_at','')}</td><td><button class='btn btn-sm' onclick='alert(\"Revoke via API\")'>Revoke</button></td></tr>"
+        api_keys_html += "</table>"
+    else:
+        api_keys_html = "<p class='empty'>No API keys yet.</p>"
+
+    analytics_html = ""
+    if analytics:
+        analytics_html = "<table><tr><th>Event</th><th>Count</th></tr>"
+        for a in analytics:
+            analytics_html += f"<tr><td>{a.get('event_type','')}</td><td>{a.get('cnt',0)}</td></tr>"
+        analytics_html += "</table>"
+    else:
+        analytics_html = "<p class='empty'>No analytics yet.</p>"
+
+    # Email settings
+    from saas.repositories import get_tenant_email, get_templates
+    email_settings = get_tenant_email(tenant_id) or {}
+    templates = get_templates(tenant_id)
+    template_body = ""
+    template_subject = "New Appointment Request"
+    if templates:
+        for t in templates:
+            if t.get("name") == "appointment_request":
+                template_subject = t.get("subject", template_subject)
+                template_body = t.get("body", "")
+                break
+
+    # Business rules
+    from saas.repositories import _loads
+    rules_raw = ""
+    with connect() as c:
+        row_br = row(c, "SELECT rules FROM business_rules WHERE tenant_id=?", tenant_id)
+    rules = _loads(row_br.get("rules") if row_br else "")
+    br = rules if isinstance(rules, dict) else {}
+
+    # Settings flags
+    flags = {}
+    with connect() as c:
+        row_s = row(c, "SELECT flags FROM tenant_settings WHERE tenant_id=?", tenant_id)
+    flags = _loads(row_s.get("flags") if row_s else "")
+    if not isinstance(flags, dict):
+        flags = {}
+
+    # Fields
+    custom_fields = flags.get("custom_fields", [
+        {"key": "name", "label": "Name", "type": "text", "required": True},
+        {"key": "email", "label": "Email", "type": "email", "required": True},
+        {"key": "phone", "label": "Phone", "type": "tel", "required": True},
+        {"key": "service", "label": "Service", "type": "select", "required": True},
+        {"key": "preferred_date", "label": "Preferred Date", "type": "text", "required": False},
+        {"key": "preferred_time", "label": "Preferred Time", "type": "text", "required": False},
+        {"key": "message", "label": "Message", "type": "textarea", "required": False},
+    ])
+    fields_list_html = "<table><tr><th>Label</th><th>Type</th><th>Required</th><th>Enabled</th></tr>"
+    for field in custom_fields:
+        fields_list_html += f"""<tr class="field-row" data-key="{field.get('key','')}">
+          <td><input class="f-label" value="{field.get('label','')}"></td>
+          <td><select class="f-type"><option {'selected' if field.get('type')=='text' else ''}>text</option><option {'selected' if field.get('type')=='email' else ''}>email</option><option {'selected' if field.get('type')=='tel' else ''}>tel</option><option {'selected' if field.get('type')=='textarea' else ''}>textarea</option><option {'selected' if field.get('type')=='select' else ''}>select</option><option {'selected' if field.get('type')=='checkbox' else ''}>checkbox</option></select></td>
+          <td><input type="checkbox" class="f-required" {'checked' if field.get('required') else ''}></td>
+          <td><input type="checkbox" class="f-enabled" {'checked' if field.get('enabled', True) else ''}></td>
+        </tr>"""
+    fields_list_html += "</table>"
+
+    concierge_mode = flags.get("concierge_mode", "chatbot")
+    concierge_auto_open = flags.get("concierge_auto_open", "instant")
+    widget_settings = flags.get("widget_settings", {})
+    if isinstance(widget_settings, dict):
+        ws = widget_settings
+    else:
+        ws = {}
+
+    widget_title = ws.get("title", tenant_name)
+    widget_greeting = ws.get("greeting", "Hi! How can we help today?")
+    widget_color = ws.get("brand_color", "#1f3b2e")
+    widget_position = ws.get("position", "bottom-right")
+    widget_launcher = ws.get("launcher_text", "Chat with us")
+
+    notif_email_on = 'selected' if flags.get("email_notifications", True) else ""
+    notif_email_off = 'selected' if not flags.get("email_notifications", True) else ""
+    notif_handoff_on = 'selected' if flags.get("human_handoff", True) else ""
+    notif_handoff_off = 'selected' if not flags.get("human_handoff", True) else ""
+    handoff_msg = flags.get("handoff_message", "Let me connect you with our front desk.")
+    webhook_url = flags.get("webhook_url", "")
+
+    html = _dashboard_template.format(
+        dashboard_title=tenant_name + " - Dashboard",
+        tenant_id=tenant_id,
+        tenant_name=tenant_name,
+        tenant_slug=tenant_slug,
+        tenant_timezone=tenant_timezone,
+        public_client_key=public_key,
+        status_class=status_class,
+        status_dot=status_dot,
+        status_text=status_text,
+        widget_url=widget_url,
+        concierge_url=concierge_url,
+        conversations_count=conversations_count or 0,
+        leads_count=leads_count or 0,
+        new_leads_count=new_leads_count or 0,
+        emails_sent_count=emails_sent_count or 0,
+        completion_rate=completion_rate,
+        recent_conversations_html=recent_html,
+        conversations_table_html=conv_html,
+        leads_table_html=leads_html,
+        team_members_html=team_html,
+        api_keys_html=api_keys_html,
+        analytics_html=analytics_html,
+        fields_list_html=fields_list_html,
+        widget_title=widget_title,
+        widget_greeting=widget_greeting,
+        widget_color=widget_color,
+        widget_position=widget_position,
+        widget_launcher=widget_launcher,
+        widget_pos_br='selected' if widget_position == 'bottom-right' else '',
+        widget_pos_bl='selected' if widget_position == 'bottom-left' else '',
+        email_from_name=email_settings.get("from_name", tenant_name),
+        email_from=email_settings.get("from_email", ""),
+        email_reply_to=email_settings.get("reply_to", ""),
+        email_front_desk=email_settings.get("front_desk_email", ""),
+        email_backup=email_settings.get("backup_email", ""),
+        smtp_host=email_settings.get("smtp_host", ""),
+        smtp_port=email_settings.get("smtp_port", ""),
+        smtp_username=email_settings.get("smtp_username", ""),
+        smtp_password=email_settings.get("smtp_password", ""),
+        smtp_tls='selected' if email_settings.get("smtp_security", "tls") == "tls" else '',
+        smtp_ssl='selected' if email_settings.get("smtp_security") == "ssl" else '',
+        smtp_none='selected' if not email_settings.get("smtp_security") else '',
+        delivery_draft='selected' if email_settings.get("delivery_mode", "email_draft") == "email_draft" else '',
+        delivery_direct='selected' if email_settings.get("delivery_mode") == "direct_email" else '',
+        template_subject=template_subject,
+        template_body=template_body,
+        br_new_patient=br.get("new_patient_minutes", 90),
+        br_normal=br.get("normal_appointment_minutes", 30),
+        br_emergency=br.get("emergency_minutes", 60),
+        br_doctors=br.get("doctor_columns", 2),
+        br_hygiene=br.get("hygiene_columns", 1),
+        br_confirm_hours=br.get("confirmation_hours", 48),
+        br_no_show_fee=br.get("no_show_fee", "$65"),
+        notif_email_on=notif_email_on,
+        notif_email_off=notif_email_off,
+        notif_handoff_on=notif_handoff_on,
+        notif_handoff_off=notif_handoff_off,
+        notif_handoff_msg=handoff_msg,
+        webhook_url=webhook_url,
+        concierge_mode_chatbot='selected' if concierge_mode == 'chatbot' else '',
+        concierge_mode_form='selected' if concierge_mode == 'form' else '',
+        concierge_mode_hybrid='selected' if concierge_mode == 'chat+form' else '',
+        auto_open_instant='selected' if concierge_auto_open == 'instant' else '',
+        auto_open_3s='selected' if concierge_auto_open == '3s' else '',
+        auto_open_5s='selected' if concierge_auto_open == '5s' else '',
+        auto_open_10s='selected' if concierge_auto_open == '10s' else '',
+        auto_open_never='selected' if concierge_auto_open == 'never' else '',
+        auth_token=cu.token_claims.get("access_token") if hasattr(cu, "token_claims") else "",
+    )
+    return HTMLResponse(content=html)
 
 @admin_app.get("/api/admin/tenants/{tenant_id}/audit")
 def admin_audit_log(tenant_id: int, limit: int = 50, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:

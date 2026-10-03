@@ -233,6 +233,30 @@ def get_conversation(conv_id: int) -> dict | None:
         return row(c, "SELECT * FROM conversations WHERE id = ?", conv_id)
 
 
+def get_tenant_email(tenant_id: int) -> dict | None:
+    with connect() as c:
+        r = row(c, "SELECT * FROM email_settings WHERE tenant_id = ?", tenant_id)
+    if not r:
+        return None
+    return {
+        "from_name": r.get("from_name"),
+        "from_email": r.get("from_email"),
+        "reply_to": r.get("reply_to"),
+        "front_desk_email": r.get("front_desk_email"),
+        "backup_email": r.get("backup_email"),
+        "smtp_host": r.get("smtp_host"),
+        "smtp_port": r.get("smtp_port"),
+        "smtp_username": r.get("smtp_user"),
+        "smtp_password": r.get("smtp_password_enc"),
+        "smtp_security": r.get("provider", "tls"),
+    }
+
+
+def get_templates(tenant_id: int) -> list[dict]:
+    with connect() as c:
+        return rows(c, "SELECT * FROM email_templates WHERE tenant_id = ?", tenant_id)
+
+
 def _json(value: Any) -> str:
     import json
     return json.dumps(value or {})

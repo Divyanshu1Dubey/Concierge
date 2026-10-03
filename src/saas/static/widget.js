@@ -1,13 +1,18 @@
 /* HeyJarvis Concierge — Production Embeddable Widget v2
  *
- * Install:
+ * Embed on any site:
  *   <script async src="https://YOUR-HOST/widget.js"
  *           data-heyjarvis-client="pk_xxx"
  *           data-heyjarvis-form="false"
  *           data-heyjarvis-auto-open="false"></script>
  *
+ * Hosted full-screen mode (server-rendered shell):
+ *   Set window.__HJ_CONFIG = { clientKey: 'pk_xxx', hosted: true } before loading widget.js
+ *   Provide mount elements with ids: hj-title, hj-body, hj-msg, hj-send, hj-reset
+ *
  * Modes:  conversational (default) | form (data-heyjarvis-form="true")
- * Isolated via Shadow DOM. IIFE — no global pollution.
+ * Isolated via Shadow DOM for embed mode; direct DOM for hosted mode.
+ * IIFE — no global pollution.
  */
 (function () {
   'use strict';
@@ -15,7 +20,8 @@
     var script = document.currentScript;
     if (!script) return;
 
-    var clientKey = (script.getAttribute('data-heyjarvis-client') || '').trim();
+    var cfg = window.__HJ_CONFIG || {};
+    var clientKey = (script.getAttribute('data-heyjarvis-client') || cfg.clientKey || '').trim();
     if (!clientKey) return;
 
     var scriptSrc = (script.getAttribute('src') || '').replace(/\/widget\.js\/?$/, '');
@@ -23,6 +29,198 @@
     if (!apiBase) return;
 
     var formMode = (script.getAttribute('data-heyjarvis-form') || '').toLowerCase() === 'true';
+    var hosted = !!(script.getAttribute('data-heyjarvis-hosted') || cfg.hosted);
+
+    if (hosted) {
+      initHosted(clientKey, apiBase, formMode);
+      return;
+    }
+
+    // ── Hosted mode ───────────────────────────────────────────────────────────
+    function initHosted(clientKey, apiBase, formMode) {
+      var bodyEl = document.getElementById('hj-body');
+      var msgEl = document.getElementById('msg');
+      var sendEl = document.getElementById('send');
+      var resetEl = document.getElementById('resetBtn');
+      var titleEl = document.getElementById('title');
+      if (!bodyEl || !msgEl || !sendEl) return;
+
+      var conversationId = null;
+      var submitted = false;
+      var emergencyDetected = false;
+      var fields = {};
+      var config = null;
+
+      function esc(str) {
+        if (str == null) return '';
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+
+      function bubble(html, isUser) {
+        var el = document.createElement('div');
+        el.className = 'bubble ' + (isUser ? 'user' : 'bot');
+        el.innerHTML = html;
+        bodyEl.appendChild(el);
+        bodyEl.scrollTop = bodyEl.scrollHeight;
+      }
+
+      function clearEmpty() {
+        var empty = document.getElementById('empty');
+        if (empty) empty.remove();
+      }
+
+      function appendBubble(html, isUser) {
+        clearEmpty();
+        bubble(html, isUser);
+      }
+
+      function showTyping() {
+        clearEmpty();
+        var el = document.createElement('div');
+        el.className = 'typing';
+        el.id = 'hj-typing';
+        el.innerHTML = '<span></span><span></span><span></span>';
+        bodyEl.appendChild(el);
+        bodyEl.scrollTop = bodyEl.scrollHeight;
+      }
+
+      function hideTyping() {
+        var el = document.getElementById('hj-typing');
+        if (el) el.remove();
+      }
+
+      function setDisabled(state) {
+        msgEl.disabled = state;
+        sendEl.disabled = state;
+      }
+
+      function api(path, options) {
+        return fetch(apiBase + path, {
+          method: options && options.method || 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          body: options && options.body ? JSON.stringify(options.body) : undefined,
+        }).then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        });
+      }
+
+      function loadConfig() {
+        return api('/api/v1/public/config?client_key=' + encodeURIComponent(clientKey))
+          .then(function (c) {
+            config = c;
+            if (titleEl && c.tenant_name) titleEl.textContent = c.tenant_name + ' — Concierge';
+            if (c.greeting) {
+              appendBubble(esc(c.greeting));
+            }
+            if (c.form_mode === true || c.form_mode === 'true') {
+              switchToForm();
+            }
+            return c;
+          });
+      }
+
+      function startConversation() {
+        return api('/api/v1/public/conversations?client_key=' + encodeURIComponent(clientKey), {
+          method: 'POST',
+          body: {},
+        }).then(function (data) {
+          conversationId = data.conversation_id;
+          if (data.reply) appendBubble(esc(data.reply));
+          return data;
+        });
+      }
+
+      function sendMessage(text) {
+        if (!text || !conversationId) return Promise.resolve({});
+        return api('/api/v1/public/conversations/' + conversationId + '/messages?client_key=' + encodeURIComponent(clientKey), {
+          method: 'POST',
+          body: { message: text },
+        }).then(function (data) {
+          return data;
+        });
+      }
+
+      function initSession() {
+        showTyping();
+        loadConfig().then(function () {
+          hideTyping();
+          return startConversation();
+        }).catch(function () {
+          hideTyping();
+          appendBubble("We're having trouble connecting right now. Please try again later, or call us directly.");
+        });
+      }
+
+      function switchToForm() {
+        // For now, keep hosted page in conversational mode.
+        // If form mode is enabled, host should serve a form-oriented shell.
+      }
+
+      function resetChat() {
+        bodyEl.innerHTML = '<div class="empty-state" id="empty"><div class="icon">&#128172;</div><div><strong>Chat Reset</strong></div><div>Starting a new conversation...</div></div>';
+        submitted = false;
+        conversationId = null;
+        fields = {};
+        setDisabled(false);
+        initSession();
+      }
+
+      sendEl.addEventListener('click', function () {
+        var text = msgEl.value.trim();
+        if (!text || submitted) return;
+        appendBubble(esc(text), true);
+        msgEl.value = '';
+        showTyping();
+        sendMessage(text).then(function (data) {
+          hideTyping();
+          if (!data) return;
+          if (data.reply) appendBubble(esc(data.reply));
+          if (data.state === 'submitted' || data.state === 'complete') {
+            markSubmitted(data);
+          }
+        }).catch(function () {
+          hideTyping();
+          appendBubble('Connection issue. Please try again or call us directly.');
+        });
+      });
+
+      msgEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendEl.click();
+        }
+      });
+
+      if (resetEl) {
+        resetEl.addEventListener('click', resetChat);
+      }
+
+      function markSubmitted(data) {
+        submitted = true;
+        setDisabled(true);
+        var tenant = config && config.tenant_name ? config.tenant_name : 'us';
+        setTimeout(function () {
+          clearEmpty();
+          bodyEl.innerHTML =
+            '<div class="empty-state">' +
+              '<div class="icon">&#9989;</div>' +
+              '<div><strong>Message Sent!</strong></div>' +
+              '<div>Thank you for reaching out to ' + esc(tenant) + '. We\'ll get back to you shortly.</div>' +
+            '</div>';
+        }, 400);
+      }
+
+      initSession();
+    }
+
+    // ── Embed mode ────────────────────────────────────────────────────────────
+    var hosted = !!(script.getAttribute('data-heyjarvis-hosted') || cfg.hosted);
+
+    if (hosted) {
+      initHosted(clientKey, apiBase, formMode);
+      return;
+    }
 
     // ── CSS (all rules scoped via Shadow DOM) ────────────────────────────────
     var css = [

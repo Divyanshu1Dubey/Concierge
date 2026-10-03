@@ -2,26 +2,263 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Concierge - {tenant_name}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#1f3b2e">
+<meta name="description" content="{tenant_name} — AI-powered front desk assistant. Chat with us to book appointments, ask questions, and get help.">
+<meta name="keywords" content="concierge, appointment booking, front desk, chat assistant">
+<meta property="og:title" content="{tenant_name} Concierge">
+<meta property="og:description" content="Chat with our AI front desk assistant">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{tenant_name} Concierge">
+<meta name="twitter:description" content="Chat with our AI front desk assistant">
+<title>{tenant_name} — Concierge</title>
 <style>
-  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; background: #f6f7f8; color: #222; }
-  .wrap { max-width: 960px; margin: 0 auto; padding: 24px; display: grid; gap: 16px; }
-  .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 14px; padding: 18px; box-shadow: 0 6px 14px rgba(0,0,0,.06); }
-  .launch { display: inline-block; margin-top: 10px; padding: 12px 14px; background: #1f3b2e; color: #fff; border-radius: 12px; font-weight: 700; text-decoration: none; }
+  :root {
+    --primary: #1f3b2e;
+    --accent: #3a7d6e;
+    --bg: #f6f7f8;
+    --surface: #ffffff;
+    --border: #e5e7eb;
+    --text: #1a1a1a;
+    --muted: #6b7280;
+    --user-bubble: linear-gradient(135deg, #1a3c2a, #2d6a4f);
+    --bot-bubble: #f2f6f4;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    max-width: 860px;
+    margin: 0 auto;
+    background: var(--surface);
+    box-shadow: 0 0 0 1px var(--border);
+  }
+  .header {
+    flex-shrink: 0;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, #1a3c2a 0%, #2d6a4f 100%);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .header-brand {
+    width: 38px; height: 38px;
+    border-radius: 10px;
+    background: rgba(255,255,255,.15);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+  .header-text { min-width: 0; }
+  .header-title {
+    font-weight: 700; font-size: 16px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .header-sub {
+    font-size: 12px; opacity: .85;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .header-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .icon-btn {
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,.25);
+    background: rgba(255,255,255,.12);
+    color: #fff;
+    cursor: pointer;
+    font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s;
+  }
+  .icon-btn:hover { background: rgba(255,255,255,.22); }
+  .body {
+    flex: 1;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .bubble {
+    max-width: 82%;
+    padding: 10px 15px;
+    border-radius: 18px;
+    font-size: 14px;
+    line-height: 1.55;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    animation: fadeIn .22s ease;
+  }
+  .bubble.bot { align-self: flex-start; background: var(--bot-bubble); color: var(--text); border-bottom-left-radius: 6px; }
+  .bubble.user { align-self: flex-end; background: var(--user-bubble); color: #fff; border-bottom-right-radius: 6px; }
+  .bubble.system { align-self: center; background: #fff; border: 1px dashed var(--border); color: var(--muted); font-size: 12px; padding: 8px 12px; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .typing {
+    align-self: flex-start;
+    display: flex; gap: 5px; padding: 8px 10px;
+    background: var(--bot-bubble); border-radius: 18px; border-bottom-left-radius: 6px;
+  }
+  .typing span {
+    width: 8px; height: 8px; background: #bbb; border-radius: 50%;
+    animation: bounce 1.4s ease-in-out infinite;
+  }
+  .typing span:nth-child(2) { animation-delay: .18s; }
+  .typing span:nth-child(3) { animation-delay: .36s; }
+  @keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-7px); }
+  }
+  .options {
+    align-self: flex-start;
+    display: flex; flex-wrap: wrap; gap: 8px;
+    max-width: 82%;
+  }
+  .chip {
+    border: 1.5px solid var(--border);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 13px;
+    background: #fff;
+    color: var(--primary);
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .chip:hover { border-color: var(--accent); background: #eaf5ee; }
+  .chip.picked { border-color: var(--accent); background: #d4ead9; }
+  .footer {
+    flex-shrink: 0;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    background: #fff;
+  }
+  .input {
+    flex: 1;
+    font: 14px/1.4 inherit;
+    padding: 11px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: 14px;
+    outline: none;
+    background: #fafafa;
+    color: var(--text);
+    min-width: 0;
+  }
+  .input:focus { border-color: var(--accent); background: #fff; }
+  .input:disabled { opacity: .5; }
+  .send {
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #1a3c2a, #2d6a4f);
+    color: #fff;
+    padding: 10px 16px;
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    transition: opacity .15s;
+    flex-shrink: 0;
+  }
+  .send:disabled { opacity: .4; cursor: not-allowed; }
+  .form-card {
+    align-self: stretch;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    font: 14px/1.5 inherit;
+    padding: 10px 13px;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    outline: none;
+    background: #fafafa;
+    color: var(--text);
+  }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); background: #fff; }
+  .field textarea { resize: vertical; min-height: 80px; }
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--muted);
+    text-align: center;
+    padding: 24px;
+  }
+  .empty-state .icon { font-size: 38px; }
+  @media (max-width: 420px) {
+    .header { padding: 12px 14px; }
+    .body { padding: 10px; }
+    .bubble { max-width: 88%; }
+  }
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>{tenant_name} Concierge</h1>
-      <p>Chat with our front desk assistant.</p>
-      <div id="concierge-form"></div>
+  <div class="app">
+    <header class="header">
+      <div class="header-brand" aria-hidden="true">&#128172;</div>
+      <div class="header-text">
+        <div class="header-title" id="title">{tenant_name} Concierge</div>
+        <div class="header-sub">Front Desk Assistant</div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" id="resetBtn" aria-label="Reset chat" title="Reset">&#8635;</button>
+      </div>
+    </header>
+
+    <div class="body" id="body">
+      <div class="empty-state" id="empty">
+        <div class="icon">&#128172;</div>
+        <div><strong>Welcome to {tenant_name}</strong></div>
+        <div>Start a conversation below.</div>
+      </div>
     </div>
+
+    <footer class="footer">
+      <input class="input" id="msg" type="text" autocomplete="off" placeholder="Type a message..." aria-label="Message" maxlength="2000"/>
+      <button class="send" id="send">Send</button>
+    </footer>
   </div>
+
   <script>
     window.__HJ_CONFIG = window.__HJ_CONFIG || {};
     window.__HJ_CONFIG.clientKey = '{client_key}';
+    window.__HJ_CONFIG.hosted = true;
   </script>
   <script src="/static/widget.js" defer></script>
 </body>
