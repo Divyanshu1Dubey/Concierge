@@ -157,6 +157,8 @@ def widget() -> FileResponse:
 def local_only(request: Request) -> None:
     if os.environ.get("CONCIERGE_DEMO", "1") == "0":
         raise HTTPException(404)
+    if os.environ.get("CONCIERGE_ALLOW_REMOTE_DASHBOARD") == "1" or os.environ.get("CONCIERGE_ALLOW_REMOTE") == "1":
+        return
     if (request.client.host if request.client else "") not in LOCAL_HOSTS:
         raise HTTPException(403, "dashboards are localhost-only until auth is added")
 

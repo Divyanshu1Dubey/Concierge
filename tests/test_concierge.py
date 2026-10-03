@@ -335,6 +335,15 @@ def test_dashboards_can_be_disabled(client, monkeypatch):
     assert client.get("/desk").status_code == 404
 
 
+def test_dashboards_allow_remote(frozen, monkeypatch):
+    c = TestClient(api.app, client=("198.51.100.1", 12345))
+    # Without env var, remote client gets 403
+    assert c.get("/desk").status_code == 403
+    # With CONCIERGE_ALLOW_REMOTE_DASHBOARD=1, remote client gets 200
+    monkeypatch.setenv("CONCIERGE_ALLOW_REMOTE_DASHBOARD", "1")
+    assert c.get("/desk").status_code == 200
+
+
 def test_webhook_requires_token(client, monkeypatch):
     monkeypatch.setenv("CONCIERGE_TOKEN", "s3cret")
     assert client.post("/requests", json={"message": "hi"}).status_code == 401
