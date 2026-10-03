@@ -197,14 +197,13 @@ def admin_get_tenant(tenant_id: int, _: Any = Depends(require_roles("owner", "ad
 
 
 @admin_app.patch("/api/admin/tenants/{tenant_id}")
-def admin_update_tenant(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+def admin_update_tenant(tenant_id: int, body: dict[str, Any], cu: Any = Depends(get_current)) -> dict:
     from saas.repositories import update_tenant
     allowed = {"name", "enabled", "plan"}
     fields = {k: v for k, v in body.items() if k in allowed}
     update_tenant(tenant_id, **fields)
     from saas.repositories import audit
-    actor_id = current.user.id if hasattr(current, "user") else None
-    audit(tenant_id, actor_id, "tenant_updated", {"fields": list(fields.keys())})
+    audit(tenant_id, cu.user.id, "tenant_updated", {"fields": list(fields.keys())})
     return _load_tenant(tenant_id)
 
 
@@ -503,7 +502,676 @@ def admin_update_settings(tenant_id: int, body: dict[str, Any], _: Any = Depends
     return _tenant_config(tenant_id)
 
 
-# ── Audit Logs Admin ─────────────────────────────────────────────────────────
+# ── Dashboard Template ────────────────────────────────────────────────────────
+
+_dashboard_template = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{dashboard_title}</title>
+<style>
+  :root {{ --primary: #1f3b2e; --accent: #3a7d6e; --bg: #f0f2f4; --card: #fff; --border: #e5e5e5; --text: #222; --muted: #888; }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font: 14px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--text); display: flex; min-height: 100vh; }}
+  .sidebar {{ width: 230px; background: var(--primary); color: #fff; flex-shrink: 0; padding: 20px 0; }}
+  .sidebar .logo {{ padding: 0 20px 20px; font-size: 20px; font-weight: 800; border-bottom: 1px solid rgba(255,255,255,.15); margin-bottom: 10px; }}
+  .sidebar a {{ display: block; padding: 9px 20px; color: rgba(255,255,255,.85); text-decoration: none; font-size: 13px; border-left: 3px solid transparent; }}
+  .sidebar a:hover, .sidebar a.active {{ background: rgba(255,255,255,.1); border-left-color: var(--accent); color: #fff; }}
+  .sidebar .section {{ font-size: 11px; text-transform: uppercase; color: rgba(255,255,255,.4); padding: 14px 20px 4px; letter-spacing: .08em; }}
+  .main {{ flex: 1; padding: 24px 28px; overflow: auto; }}
+  .topbar {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }}
+  .topbar h1 {{ font-size: 22px; }}
+  .badge {{ display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }}
+  .badge.ok {{ background: #e6f4ea; color: #1e7e34; }}
+  .badge.warn {{ background: #fff3cd; color: #856404; }}
+  .badge.off {{ background: #fde8e8; color: #c0392b; }}
+  .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }}
+  .stat {{ background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }}
+  .stat .v {{ font-size: 26px; font-weight: 800; color: var(--primary); }}
+  .stat .l {{ font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }}
+  .card {{ background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.04); }}
+  .card h3 {{ font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+  th {{ text-align: left; padding: 8px 6px; border-bottom: 2px solid var(--border); color: var(--muted); font-weight: 600; }}
+  td {{ padding: 8px 6px; border-bottom: 1px solid var(--border); }}
+  .btn {{ display: inline-block; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 0; text-decoration: none; }}
+  .btn-primary {{ background: var(--primary); color: #fff; }}
+  .btn-sm {{ padding: 5px 10px; font-size: 12px; }}
+  .code {{ background: #f5f5f5; border: 1px solid #ddd; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 12px; word-break: break-all; }}
+  .copy-row {{ display: flex; gap: 8px; align-items: center; }}
+  .nav {{ display: flex; gap: 10px; margin-bottom: 18px; }}
+  .nav a {{ font-size: 13px; color: var(--primary); font-weight: 600; text-decoration: none; }}
+  .empty {{ color: var(--muted); font-size: 13px; padding: 16px 0; }}
+  .status-dot {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }}
+  .status-dot.active {{ background: #28a745; }}
+  .status-dot.inactive {{ background: #dc3545; }}
+  .tab-bar {{ display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }}
+  .tab {{ padding: 8px 14px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--muted); }}
+  .tab.active {{ border-bottom-color: var(--primary); color: var(--primary); font-weight: 600; }}
+  input[type="text"], input[type="email"], input[type="password"], input[type="number"], select, textarea {{ width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; }}
+  textarea {{ min-height: 80px; resize: vertical; }}
+  label {{ display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }}
+  .form-row {{ margin-bottom: 12px; }}
+</style>
+</head>
+<body>
+<nav class="sidebar">
+  <div class="logo">HeyJarvis</div>
+  <a href="/admin/dashboard/{tenant_id}" class="active">Dashboard</a>
+  <div class="section">Core</div>
+  <a href="/admin/dashboard/{tenant_id}?tab=concierge">Concierge</a>
+  <a href="/admin/dashboard/{tenant_id}?tab=conversations">Conversations</a>
+  <a href="/admin/dashboard/{tenant_id}?tab=leads">Leads</a>
+  <a href="/admin/dashboard/{tenant_id}?tab=installation">Installation</a>
+  <div class="section">Configuration</div>
+  <a href="/admin/dashboard/{tenant_id}?tab=widget">Widget</a>
+  <a href="/admin/dashboard/{tenant_id}?tab=questions">Questions & Fields</a>
+  <a href="/admin/dashboard/{tenant_id}?tab=email">Email</a>
+  <a href="/admin/dashboard/{tenant_id}?tab=templates">Templates</a>
+  <a href="/admin/dashboard/{tenant_id}?tab=business-rules">Business Rules</a>
+  <a href="/admin/dashboard/{tenant_id}?tab=notifications">Notifications</a>
+  <div class="section">System</div>
+  <a href="/admin/dashboard/{tenant_id}?tab=integrations">Integrations</a>
+  <a href="/admin/dashboard/{tenant_id}?tab=team">Team</a>
+  <a href="/admin/dashboard/{tenant_id}?tab=security">Security & API</a>
+  <a href="/admin/dashboard/{tenant_id}?tab=analytics">Analytics</a>
+  <a href="/admin/dashboard/{tenant_id}?tab=settings">Settings</a>
+</nav>
+<div class="main">
+  <div class="topbar">
+    <h1>{tenant_name} Dashboard</h1>
+    <span class="badge {status_class}"><span class="status-dot {status_dot}"></span>{status_text}</span>
+  </div>
+
+  <div id="tab-dashboard" class="tab-content">
+    <div class="grid">
+      <div class="stat"><div class="v" id="s-conversations">{conversations_count}</div><div class="l">Conversations</div></div>
+      <div class="stat"><div class="v" id="s-leads">{leads_count}</div><div class="l">Leads</div></div>
+      <div class="stat"><div class="v" id="s-new-leads">{new_leads_count}</div><div class="l">New Leads</div></div>
+      <div class="stat"><div class="v" id="s-emails">{emails_sent_count}</div><div class="l">Emails Sent</div></div>
+      <div class="stat"><div class="v" id="s-completion">{completion_rate}%</div><div class="l">Completion Rate</div></div>
+    </div>
+    <div class="card">
+      <h3>Recent Conversations</h3>
+      {recent_conversations_html}
+    </div>
+  </div>
+
+  <div id="tab-concierge" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Concierge Behavior</h3>
+      <p>Manage how your Concierge interacts with visitors.</p>
+      <br>
+      <div class="form-row">
+        <label>Mode</label>
+        <select id="concierge-mode">
+          <option value="chatbot" {concierge_mode_chatbot}>Chatbot</option>
+          <option value="form" {concierge_mode_form}>Form</option>
+          <option value="chat+form" {concierge_mode_hybrid}>Chat + Form</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Auto-open</label>
+        <select id="concierge-auto-open">
+          <option value="instant" {auto_open_instant}>Instant</option>
+          <option value="3s" {auto_open_3s}>After 3 seconds</option>
+          <option value="5s" {auto_open_5s}>After 5 seconds</option>
+          <option value="10s" {auto_open_10s}>After 10 seconds</option>
+          <option value="never" {auto_open_never}>Never auto-open</option>
+        </select>
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveConcierge()">Save Concierge Settings</button>
+      <span id="concierge-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-conversations" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>All Conversations</h3>
+      {conversations_table_html}
+    </div>
+  </div>
+
+  <div id="tab-leads" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>All Leads</h3>
+      {leads_table_html}
+    </div>
+  </div>
+
+  <div id="tab-installation" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Installation</h3>
+      <p>Add one of these snippets to your website to enable the Concierge.</p>
+      <br>
+      <h4>JavaScript Snippet (Recommended)</h4>
+      <br>
+      <div class="code" id="install-snippet">&lt;script
+  src="{widget_url}"
+  data-heyjarvis-client="{public_client_key}"
+  async&gt;
+&lt;/script&gt;</div>
+      <br>
+      <button class="btn btn-primary btn-sm" onclick="copySnippet()">Copy Snippet</button>
+      <br><br>
+      <h4>Direct Link</h4>
+      <div class="code"><a href="{concierge_url}" target="_blank">{concierge_url}</a></div>
+      <br>
+      <h4>WordPress</h4>
+      <p>Use the HeyJarvis WordPress plugin. Install it from your WP admin dashboard and enter your public client key.</p>
+      <br>
+      <h4>Google Tag Manager</h4>
+      <p>Create a Custom HTML tag in GTM and paste the script snippet above. Trigger on All Pages.</p>
+    </div>
+  </div>
+
+  <div id="tab-widget" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Widget Customization</h3>
+      <div class="form-row">
+        <label>Widget Title</label>
+        <input type="text" id="widget-title" value="{widget_title}">
+      </div>
+      <div class="form-row">
+        <label>Greeting</label>
+        <input type="text" id="widget-greeting" value="{widget_greeting}">
+      </div>
+      <div class="form-row">
+        <label>Brand Color</label>
+        <input type="text" id="widget-color" value="{widget_color}" placeholder="#1f3b2e">
+      </div>
+      <div class="form-row">
+        <label>Position</label>
+        <select id="widget-position">
+          <option value="bottom-right" {widget_pos_br}>Bottom Right</option>
+          <option value="bottom-left" {widget_pos_bl}>Bottom Left</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Launcher Text</label>
+        <input type="text" id="widget-launcher" value="{widget_launcher}">
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveWidget()">Save Widget Settings</button>
+      <span id="widget-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-questions" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Questions & Fields</h3>
+      <p>Configure which fields your Concierge collects from visitors.</p>
+      <br>
+      {fields_list_html}
+      <br>
+      <button class="btn btn-primary" onclick="saveFields()">Save Field Configuration</button>
+      <span id="fields-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-email" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Email Configuration</h3>
+      <div class="tab-bar">
+        <div class="tab active" onclick="showEmailTab('general')">General</div>
+        <div class="tab" onclick="showEmailTab('smtp')">Custom SMTP</div>
+        <div class="tab" onclick="showEmailTab('delivery')">Delivery Mode</div>
+      </div>
+      <div id="email-tab-general">
+        <div class="form-row">
+          <label>From Name</label>
+          <input type="text" id="email-from-name" value="{email_from_name}">
+        </div>
+        <div class="form-row">
+          <label>From Email</label>
+          <input type="email" id="email-from" value="{email_from}">
+        </div>
+        <div class="form-row">
+          <label>Reply-To</label>
+          <input type="email" id="email-reply-to" value="{email_reply_to}">
+        </div>
+        <div class="form-row">
+          <label>Front Desk Email</label>
+          <input type="email" id="email-front-desk" value="{email_front_desk}">
+        </div>
+        <div class="form-row">
+          <label>Backup Email</label>
+          <input type="email" id="email-backup" value="{email_backup}">
+        </div>
+      </div>
+      <div id="email-tab-smtp" style="display:none">
+        <p class="empty">Leave blank to use HeyJarvis default email delivery.</p>
+        <div class="form-row">
+          <label>SMTP Host</label>
+          <input type="text" id="smtp-host" value="{smtp_host}" placeholder="smtp.gmail.com">
+        </div>
+        <div class="form-row">
+          <label>SMTP Port</label>
+          <input type="number" id="smtp-port" value="{smtp_port}" placeholder="587">
+        </div>
+        <div class="form-row">
+          <label>SMTP Username</label>
+          <input type="text" id="smtp-username" value="{smtp_username}">
+        </div>
+        <div class="form-row">
+          <label>SMTP Password</label>
+          <input type="password" id="smtp-password" value="{smtp_password}" placeholder="Enter password">
+        </div>
+        <div class="form-row">
+          <label>SMTP Security</label>
+          <select id="smtp-security">
+            <option value="tls" {smtp_tls}>TLS</option>
+            <option value="ssl" {smtp_ssl}>SSL</option>
+            <option value="none" {smtp_none}>None</option>
+          </select>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="testSMTP()">Test SMTP Connection</button>
+        <span id="smtp-test-msg" style="margin-left:10px;font-size:13px;"></span>
+      </div>
+      <div id="email-tab-delivery" style="display:none">
+        <div class="form-row">
+          <label>Delivery Mode</label>
+          <select id="email-delivery-mode">
+            <option value="email_draft" {delivery_draft}>Email Draft (front desk sends manually)</option>
+            <option value="direct_email" {delivery_direct}>Direct Email (sent automatically)</option>
+          </select>
+        </div>
+        <p style="font-size:12px;color:#888;">Email Draft creates a draft email for your front desk to review and send. Direct Email sends automatically.</p>
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveEmail()">Save Email Settings</button>
+      <button class="btn btn-sm" onclick="testEmail()" style="margin-left:8px;">Send Test Email</button>
+      <span id="email-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-templates" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Email Templates</h3>
+      <p>Customize the emails sent to your front desk for each type of request.</p>
+      <br>
+      <div class="form-row">
+        <label>Template Type</label>
+        <select id="template-type" onchange="loadTemplate()">
+          <option value="appointment_request">New Appointment Request</option>
+          <option value="emergency">Emergency Request</option>
+          <option value="general_inquiry">General Inquiry</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Subject</label>
+        <input type="text" id="template-subject" value="{template_subject}">
+      </div>
+      <div class="form-row">
+        <label>Body</label>
+        <textarea id="template-body" placeholder="Use {{patient_name}}, {{phone}}, {{email}}, {{service}}, etc.">{template_body}</textarea>
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveTemplate()">Save Template</button>
+      <button class="btn btn-sm" onclick="restoreTemplate()" style="margin-left:8px;">Restore Default</button>
+      <span id="template-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-business-rules" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Business Rules</h3>
+      <p>Configure appointment durations, staffing, and business policies.</p>
+      <br>
+      <div class="form-row">
+        <label>New Patient Duration (minutes)</label>
+        <input type="number" id="br-new-patient" value="{br_new_patient}">
+      </div>
+      <div class="form-row">
+        <label>Normal Appointment Duration (minutes)</label>
+        <input type="number" id="br-normal" value="{br_normal}">
+      </div>
+      <div class="form-row">
+        <label>Emergency Duration (minutes)</label>
+        <input type="number" id="br-emergency" value="{br_emergency}">
+      </div>
+      <div class="form-row">
+        <label>Doctor Columns</label>
+        <input type="number" id="br-doctors" value="{br_doctors}">
+      </div>
+      <div class="form-row">
+        <label>Hygiene Columns</label>
+        <input type="number" id="br-hygiene" value="{br_hygiene}">
+      </div>
+      <div class="form-row">
+        <label>Confirmation Hours</label>
+        <input type="number" id="br-confirm-hours" value="{br_confirm_hours}">
+      </div>
+      <div class="form-row">
+        <label>Broken/No-Show Fee</label>
+        <input type="text" id="br-no-show-fee" value="{br_no_show_fee}">
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveBusinessRules()">Save Business Rules</button>
+      <span id="br-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-notifications" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Notifications</h3>
+      <p>Configure how and when notifications are sent to your front desk.</p>
+      <div class="form-row">
+        <label>Enable Email Notifications</label>
+        <select id="notif-email">
+          <option value="true" {notif_email_on}>On</option>
+          <option value="false" {notif_email_off}>Off</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Enable Human Handoff</label>
+        <select id="notif-handoff">
+          <option value="true" {notif_handoff_on}>On</option>
+          <option value="false" {notif_handoff_off}>Off</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Handoff Message</label>
+        <textarea id="notif-handoff-msg">{notif_handoff_msg}</textarea>
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveNotifications()">Save Notifications</button>
+      <span id="notif-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-integrations" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Integrations</h3>
+      <p>Connect HeyJarvis to your other tools.</p>
+      <br>
+      <div class="stat"><div class="l">Webhook URL</div><input type="text" id="webhook-url" value="{webhook_url}" placeholder="https://..." style="margin-top:6px;"></div>
+      <br>
+      <button class="btn btn-primary btn-sm" onclick="saveIntegrations()">Save</button>
+      <span id="int-save-msg" style="margin-left:10px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-team" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Team Members</h3>
+      {team_members_html}
+      <br>
+      <h4 style="font-size:13px;margin-bottom:8px;">Add Team Member</h4>
+      <input type="email" id="team-email" placeholder="Email" style="width:280px;display:inline-block;margin-right:8px;">
+      <select id="team-role" style="width:140px;display:inline-block;">
+        <option value="admin">Admin</option>
+        <option value="member">Member</option>
+        <option value="viewer">Viewer</option>
+      </select>
+      <button class="btn btn-primary btn-sm" onclick="addTeamMember()">Add</button>
+      <span id="team-save-msg" style="margin-left:10px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-security" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Security & API Keys</h3>
+      <p>Public client key (safe to use in your website): <span class="code">{public_client_key}</span></p>
+      <br>
+      <h4>API Keys</h4>
+      <table>
+        <tr><th>Label</th><th>Public Key</th><th>Created</th><th>Actions</th></tr>
+        {api_keys_html}
+      </table>
+      <br>
+      <button class="btn btn-primary btn-sm" onclick="createApiKey()">Create New API Key</button>
+      <span id="api-key-msg" style="margin-left:10px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-analytics" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Analytics</h3>
+      {analytics_html}
+    </div>
+  </div>
+
+  <div id="tab-settings" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Tenant Settings</h3>
+      <div class="form-row">
+        <label>Business Name</label>
+        <input type="text" id="settings-name" value="{tenant_name}">
+      </div>
+      <div class="form-row">
+        <label>Slug</label>
+        <input type="text" id="settings-slug" value="{tenant_slug}" disabled>
+      </div>
+      <div class="form-row">
+        <label>Timezone</label>
+        <input type="text" id="settings-timezone" value="{tenant_timezone}">
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+      <span id="settings-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+</div>
+<script>
+  const API_BASE = '/api/admin';
+  const TENANT_ID = '{tenant_id}';
+  const TOKEN = '{auth_token}';
+  const headers = {{ Authorization: 'Bearer ' + TOKEN }};
+
+  function showTab(name) {{
+    document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.sidebar a').forEach(a => a.classList.remove('active'));
+    document.querySelector('.sidebar a[href*=\"' + name + '\"]')?.classList.add('active');
+    const t = document.getElementById('tab-' + name);
+    if (t) t.style.display = 'block';
+    else document.getElementById('tab-dashboard').style.display = 'block';
+  }}
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const initTab = urlParams.get('tab') || 'dashboard';
+  showTab(initTab);
+
+  async function api(method, path, body) {{
+    const r = await fetch(API_BASE + path, {{ method, headers, body: body ? JSON.stringify(body) : undefined }});
+    return r.ok ? r.json() : r.json().then(d => {{ throw d }});
+  }}
+
+  async function saveConcierge() {{
+    try {{
+      await api('PUT', '/tenants/' + TENANT_ID + '/settings', {{
+        concierge_mode: document.getElementById('concierge-mode').value,
+        concierge_auto_open: document.getElementById('concierge-auto-open').value,
+      }});
+      showMsg('concierge-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('concierge-save-msg', 'Error'); }}
+  }}
+
+  async function saveWidget() {{
+    try {{
+      await api('PUT', '/tenants/' + TENANT_ID + '/widget', {{
+        title: document.getElementById('widget-title').value,
+        greeting: document.getElementById('widget-greeting').value,
+        brand_color: document.getElementById('widget-color').value,
+        launcher_text: document.getElementById('widget-launcher').value,
+        position: document.getElementById('widget-position').value,
+      }});
+      showMsg('widget-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('widget-save-msg', 'Error'); }}
+  }}
+
+  async function saveEmail() {{
+    try {{
+      await api('PUT', '/tenants/' + TENANT_ID + '/email', {{
+        from_name: document.getElementById('email-from-name').value,
+        from_email: document.getElementById('email-from').value,
+        reply_to: document.getElementById('email-reply-to').value,
+        front_desk_email: document.getElementById('email-front-desk').value,
+        backup_email: document.getElementById('email-backup').value,
+        smtp_host: document.getElementById('smtp-host').value,
+        smtp_port: parseInt(document.getElementById('smtp-port').value) || 0,
+        smtp_username: document.getElementById('smtp-username').value,
+        smtp_password: document.getElementById('smtp-password').value,
+        smtp_security: document.getElementById('smtp-security').value,
+        delivery_mode: document.querySelector('input[name=\"delivery-mode\"]:checked')?.value || 'email_draft',
+      }});
+      showMsg('email-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('email-save-msg', 'Error'); }}
+  }}
+
+  async function testEmail() {{
+    const m = document.getElementById('email-save-msg');
+    try {{
+      const r = await api('POST', '/tenants/' + TENANT_ID + '/email/test', {{}});
+      m.textContent = 'Sent!'; m.style.color = '#28a745';
+    }} catch(e) {{ m.textContent = 'Error'; m.style.color = '#dc3545'; }}
+  }}
+
+  async function testSMTP() {{
+    const m = document.getElementById('smtp-test-msg');
+    try {{
+      const r = await api('POST', '/tenants/' + TENANT_ID + '/email/test-smtp', {{
+        smtp_host: document.getElementById('smtp-host').value,
+        smtp_port: parseInt(document.getElementById('smtp-port').value) || 587,
+        smtp_username: document.getElementById('smtp-username').value,
+        smtp_password: document.getElementById('smtp-password').value,
+        smtp_security: document.getElementById('smtp-security').value,
+      }});
+      m.textContent = 'Connected!'; m.style.color = '#28a745';
+    }} catch(e) {{ m.textContent = 'Failed'; m.style.color = '#dc3545'; }}
+  }}
+
+  async function saveBusinessRules() {{
+    try {{
+      await api('PUT', '/tenants/' + TENANT_ID + '/business-rules', {{
+        new_patient_minutes: parseInt(document.getElementById('br-new-patient').value) || 90,
+        normal_appointment_minutes: parseInt(document.getElementById('br-normal').value) || 30,
+        emergency_minutes: parseInt(document.getElementById('br-emergency').value) || 60,
+        doctor_columns: parseInt(document.getElementById('br-doctors').value) || 2,
+        hygiene_columns: parseInt(document.getElementById('br-hygiene').value) || 1,
+        confirmation_hours: parseInt(document.getElementById('br-confirm-hours').value) || 48,
+        no_show_fee: document.getElementById('br-no-show-fee').value,
+      }});
+      showMsg('br-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('br-save-msg', 'Error'); }}
+  }}
+
+  async function saveNotifications() {{
+    try {{
+      await api('PUT', '/tenants/' + TENANT_ID + '/settings', {{
+        email_notifications: document.getElementById('notif-email').value === 'true',
+        human_handoff: document.getElementById('notif-handoff').value === 'true',
+        handoff_message: document.getElementById('notif-handoff-msg').value,
+      }});
+      showMsg('notif-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('notif-save-msg', 'Error'); }}
+  }}
+
+  async function saveIntegrations() {{
+    try {{
+      await api('PUT', '/tenants/' + TENANT_ID + '/settings', {{
+        webhook_url: document.getElementById('webhook-url').value,
+      }});
+      showMsg('int-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('int-save-msg', 'Error'); }}
+  }}
+
+  async function saveSettings() {{
+    try {{
+      await api('PATCH', '/tenants/' + TENANT_ID, {{
+        name: document.getElementById('settings-name').value,
+        timezone: document.getElementById('settings-timezone').value,
+      }});
+      showMsg('settings-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('settings-save-msg', 'Error'); }}
+  }}
+
+  async function saveTemplate() {{
+    try {{
+      const type = document.getElementById('template-type').value;
+      await api('PUT', '/tenants/' + TENANT_ID + '/templates/' + type, {{
+        subject: document.getElementById('template-subject').value,
+        body: document.getElementById('template-body').value,
+      }});
+      showMsg('template-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('template-save-msg', 'Error'); }}
+  }}
+
+  async function restoreTemplate() {{
+    try {{
+      const type = document.getElementById('template-type').value;
+      await api('PUT', '/tenants/' + TENANT_ID + '/templates/' + type, {{ restore_default: true }});
+      loadTemplate();
+      showMsg('template-save-msg', 'Restored');
+    }} catch(e) {{ showMsg('template-save-msg', 'Error'); }}
+  }}
+
+  async function loadTemplate() {{
+    const type = document.getElementById('template-type').value;
+    try {{
+      const d = await api('GET', '/tenants/' + TENANT_ID + '/templates');
+      const t = (d.find(x => x.name === type) || d[0] || {{}});
+      document.getElementById('template-subject').value = t.subject || '';
+      document.getElementById('template-body').value = t.body || '';
+    }} catch(e) {{}}
+  }}
+
+  function showMsg(id, msg) {{
+    const el = document.getElementById(id); if (!el) return;
+    el.textContent = msg; el.style.color = '#28a745';
+    setTimeout(() => {{ el.textContent = ''; }}, 2000);
+  }}
+
+  async function saveFields() {{
+    try {{
+      const fields = [];
+      document.querySelectorAll('.field-row').forEach(row => {{
+        fields.push({{
+          key: row.dataset.key,
+          label: row.querySelector('.f-label')?.value || '',
+          type: row.querySelector('.f-type')?.value || 'text',
+          required: row.querySelector('.f-required')?.checked || false,
+          enabled: row.querySelector('.f-enabled')?.checked !== false,
+        }});
+      }});
+      await api('PUT', '/tenants/' + TENANT_ID + '/settings', {{ custom_fields: fields }});
+      showMsg('fields-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('fields-save-msg', 'Error'); }}
+  }}
+
+  function showEmailTab(name) {{
+    ['general','smtp','delivery'].forEach(t => document.getElementById('email-tab-'+t).style.display = t === name ? 'block' : 'none');
+    document.querySelectorAll('#tab-email .tab').forEach((t,i) => t.classList.toggle('active', ['general','smtp','delivery'][i] === name));
+  }}
+
+  async function addTeamMember() {{
+    const email = document.getElementById('team-email').value;
+    const role = document.getElementById('team-role').value;
+    if (!email) return;
+    try {{
+      await api('POST', '/tenants/' + TENANT_ID + '/members', {{ email, role }});
+      document.getElementById('team-email').value = '';
+      showMsg('team-save-msg', 'Added');
+    }} catch(e) {{ showMsg('team-save-msg', 'Error'); }}
+  }}
+
+  async function createApiKey() {{
+    try {{
+      const d = await api('POST', '/tenants/' + TENANT_ID + '/api-keys', {{ label: 'new' }});
+      showMsg('api-key-msg', 'Created: ' + d.public_key);
+    }} catch(e) {{ showMsg('api-key-msg', 'Error'); }}
+  }}
+
+  function copySnippet() {{
+    const text = document.getElementById('install-snippet').textContent.trim();
+    navigator.clipboard.writeText(text).then(() => alert('Copied!'));
+  }}
+</script>
+</body>
+</html>"""
 
 @admin_app.get("/api/admin/tenants/{tenant_id}/audit")
 def admin_audit_log(tenant_id: int, limit: int = 50, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
