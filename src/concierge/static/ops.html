@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Concierge Operations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@600&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/dashboard.css">
+<style>
+main { padding: 14px; display: grid; gap: 14px; max-width: 1280px; margin: 0 auto; }
+.cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.cols2 { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 1000px) { .cols { grid-template-columns: 1fr 1fr; } .cols2 { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .cols { grid-template-columns: 1fr; } main { padding: 10px; } }
+.live { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.colchart svg { display: block; width: 100%; height: 180px; overflow: visible; }
+.colchart .bar { fill: var(--series); }
+.colchart .bar:hover, .colchart .hit:hover + .bar { opacity: .8; }
+.colchart .axis { stroke: var(--line); }
+.colchart text { fill: var(--muted); font-size: 10px; font-family: inherit; }
+.colchart text.v { fill: var(--ink); font-size: 11px; }
+.chain { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.pill { font-size: 11px; border-radius: 99px; padding: 1px 8px; border: 1px solid var(--line); white-space: nowrap; }
+.pill.fail { color: var(--bad); border-color: currentColor; }
+.pill.ok { color: var(--good); border-color: currentColor; }
+.tablewrap { overflow-x: auto; }
+.seg { display: flex; gap: 4px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="eyebrow">HeyJarvis Concierge</span><h1>Operations</h1></div>
+  <nav aria-label="Dashboards"><a href="/desk">Front Desk</a><a href="/ops" aria-current="page">Operations</a><a href="/">Patient site</a></nav>
+  <div class="chips" id="chips"></div>
+</header>
+
+<main>
+  <div class="panel"><div class="panel-body live" id="live" aria-live="polite"></div></div>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <div class="seg" role="group" aria-label="Time range">
+      <button class="btn sm" data-days="1" aria-pressed="false">Today</button>
+      <button class="btn sm" data-days="7" aria-pressed="false">7 days</button>
+      <button class="btn sm" data-days="14" aria-pressed="true">14 days</button>
+      <button class="btn sm" data-days="30" aria-pressed="false">30 days</button>
+    </div>
+    <span class="small muted" id="updated"></span>
+  </div>
+
+  <section class="tiles" id="tiles" aria-label="Key numbers"></section>
+
+  <div class="cols2">
+    <section class="panel"><div class="panel-head"><h2>Requests per day</h2><span class="small muted">all request types</span></div>
+      <div class="panel-body colchart" id="perDay"></div></section>
+    <section class="panel"><div class="panel-head"><h2>Desk funnel</h2></div><div class="panel-body hbars" id="funnel"></div></section>
+  </div>
+
+  <div class="cols">
+    <section class="panel"><div class="panel-head"><h2>Who read each request</h2></div><div class="panel-body hbars" id="handlers"></div></section>
+    <section class="panel"><div class="panel-head"><h2>Median time to draft</h2><span class="small muted">by who answered</span></div><div class="panel-body hbars" id="latency"></div></section>
+    <section class="panel"><div class="panel-head"><h2>Request types</h2></div><div class="panel-body hbars" id="types"></div></section>
+  </div>
+
+  <div class="cols2">
+    <section class="panel"><div class="panel-head"><h2>Recent runs</h2><span class="small muted">the fallback chain, request by request</span></div>
+      <div class="panel-body tablewrap"><table class="t" id="recent"></table></div></section>
+    <section class="panel"><div class="panel-head"><h2>Model failures</h2><span class="small muted">handed off to the next model</span></div>
+      <div class="panel-body tablewrap"><table class="t" id="fails"></table></div></section>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const api = p => fetch(p).then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
+const secs = ms => ms == null ? "–" : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+const TYPE = { new_patient: "New patient", emergency: "Emergency", existing_patient: "Existing patient", reschedule: "Reschedule", cancel: "Cancel", question: "Question" };
+const SPARK = '<svg class="spark" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f7dff"/><stop offset=".5" stop-color="#9b5cff"/><stop offset="1" stop-color="#2fb59a"/></linearGradient></defs><path fill="url(#g)" d="M12 2c.5 4.6 2.9 7.5 8 8-5.1.5-7.5 3.4-8 8-.5-4.6-2.9-7.5-8-8 5.1-.5 7.5-3.4 8-8z"/></svg>';
+let days = 14;
+
+/* hover tooltip shared by every chart */
+const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; document.body.append(tip);
+document.addEventListener("mouseover", e => { const t = e.target.closest("[data-tip]"); if (!t) { tip.hidden = true; return; } tip.textContent = t.dataset.tip; tip.hidden = false; });
+document.addEventListener("mousemove", e => { if (!tip.hidden) { tip.style.left = Math.min(e.clientX + 12, innerWidth - tip.offsetWidth - 8) + "px"; tip.style.top = (e.clientY + 14) + "px"; } });
+
+function hbars(el, items, fmt = v => v, unit = "") {
+  if (!items.length) { el.innerHTML = `<div class="muted small">No data yet.</div>`; return; }
+  const max = Math.max(...items.map(i => i.value), 1);
+  el.innerHTML = items.map(i => `<div class="hbar"><span class="lbl" title="${esc(i.label)}">${esc(i.label)}</span>
+    <span class="track" data-tip="${esc(i.label)}: ${esc(fmt(i.value))}${unit}${i.extra ? " · " + esc(i.extra) : ""}">
+      <span class="fill" style="width:calc(${(i.value / max) * 100}% - 60px)"></span><span class="val">${esc(fmt(i.value))}${unit}</span></span></div>`).join("");
+}
+
+function columns(el, data) {
+  const W = 600, H = 180, pad = { t: 18, b: 22, l: 4, r: 4 };
+  const max = Math.max(...data.map(d => d.count), 1);
+  const bw = (W - pad.l - pad.r) / data.length, gap = Math.min(6, bw * .3);
+  const y = v => pad.t + (H - pad.t - pad.b) * (1 - v / max);
+  const peak = data.reduce((a, d, i) => d.count > data[a].count ? i : a, 0);
+  const label = d => new Date(d.date + "T12:00").toLocaleDateString([], { month: "short", day: "numeric" });
+  const every = Math.ceil(data.length / 7);
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Requests per day">
+    <line class="axis" x1="0" x2="${W}" y1="${H - pad.b}" y2="${H - pad.b}"/>
+    ${data.map((d, i) => { const x = pad.l + i * bw + gap / 2, h = H - pad.b - y(d.count), w = bw - gap;
+      const r = Math.min(4, w / 2, h);
+      return `<g data-tip="${label(d)}: ${d.count} request${d.count === 1 ? "" : "s"}">
+        <rect class="hit" x="${pad.l + i * bw}" y="${pad.t}" width="${bw}" height="${H - pad.t - pad.b}" fill="transparent"/>
+        ${d.count ? `<path class="bar" d="M${x},${H - pad.b} V${y(d.count) + r} Q${x},${y(d.count)} ${x + r},${y(d.count)} H${x + w - r} Q${x + w},${y(d.count)} ${x + w},${y(d.count) + r} V${H - pad.b} Z"/>` : ""}
+        ${(i === peak && d.count) || i === data.length - 1 ? `<text class="v" x="${x + w / 2}" y="${y(d.count) - 5}" text-anchor="middle">${d.count}</text>` : ""}
+        ${i % every === 0 || i === data.length - 1 ? `<text x="${x + w / 2}" y="${H - 6}" text-anchor="middle">${label(d)}</text>` : ""}
+      </g>`; }).join("")}
+  </svg>
+  <table class="sr-only"><caption>Requests per day</caption>${data.map(d => `<tr><th>${d.date}</th><td>${d.count}</td></tr>`).join("")}</table>`;
+}
+
+function tiles(t) {
+  const items = [
+    ["Requests", t.requests, `${t.today} today`],
+    ["Read by AI", t.ai_handled_pct == null ? "–" : t.ai_handled_pct + "%", "rest by keyword rules"],
+    ["First model answered", t.first_try_pct == null ? "–" : t.first_try_pct + "%", "no fallback needed"],
+    ["Median time to draft", secs(t.p50_ms), `p95 ${secs(t.p95_ms)}`],
+    ["Waiting for desk", t.awaiting_desk, t.errors ? `${t.errors} processing errors` : "no processing errors"],
+    ["Replies sent", t.replies_sent, t.send_failures ? `${t.send_failures} failed sends` : "no failed sends"],
+    ["Appointments booked", t.booked, `${t.confirmations_sent} confirmation${t.confirmations_sent === 1 ? "" : "s"} sent`],
+  ];
+  $("tiles").innerHTML = items.map(([k, v, s]) => `<div class="tile"><div class="k">${k}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`).join("");
+}
+
+async function load() {
+  const s = await api(`/api/stats?days=${days}`);
+  tiles(s.totals);
+  columns($("perDay"), s.per_day);
+  hbars($("funnel"), s.funnel.map(f => ({ label: f.stage, value: f.count })));
+  hbars($("handlers"), s.by_handler.map(([k, v]) => ({ label: k, value: v })));
+  hbars($("types"), s.by_type.map(([k, v]) => ({ label: TYPE[k] || k, value: v })));
+  hbars($("latency"), Object.entries(s.handler_latency).sort((a, b) => a[1].p50 - b[1].p50)
+    .map(([k, v]) => ({ label: k, value: v.p50, extra: `${v.n} requests` })), v => (v / 1000).toFixed(1), " s");
+  $("fails").innerHTML = s.failures.length ? `<thead><tr><th>Model</th><th>Times</th><th>Most common reason</th></tr></thead><tbody>` +
+    s.failures.map(f => `<tr><td>${esc(f.model)}</td><td>${f.count}</td><td class="small">${esc(f.top_reason)}</td></tr>`).join("") + "</tbody>"
+    : `<tbody><tr><td class="muted">No model failures in this range.</td></tr></tbody>`;
+  $("recent").innerHTML = s.recent.length ? `<thead><tr><th>#</th><th>Type</th><th>Chain</th><th>Time</th><th>Status</th></tr></thead><tbody>` +
+    s.recent.map(r => `<tr><td>${r.id}</td><td><span class="tag t-${r.type}">${esc(TYPE[r.type] || r.type)}</span></td>
+      <td><div class="chain">${r.chain.length ? r.chain.map(c => `<span class="pill ${c.kind === "fail" ? "fail" : "ok"}" data-tip="${esc(c.model)} · ${c.kind === "fail" ? esc(c.reason) : "answered"} · ${secs(c.ms)}">${c.kind === "fail" ? "✕" : "✓"} ${esc(c.model)}</span>`).join('<span class="muted">→</span>') : `<span class="pill">${esc(r.handler)}</span>`}</div></td>
+      <td>${secs(r.ms)}</td><td class="small">${esc(r.status)}</td></tr>`).join("") + "</tbody>"
+    : `<tbody><tr><td class="muted">No requests yet.</td></tr></tbody>`;
+  $("updated").textContent = "Updated " + new Date().toLocaleTimeString();
+}
+
+async function loadLive() {
+  const open = await api("/api/requests?view=open");
+  const busy = open.filter(r => r.status === "processing");
+  if (!busy.length) { $("live").innerHTML = `${SPARK}<span class="muted">All quiet. New requests are read here live.</span>`; return; }
+  const r = busy[0];
+  const ev = await api(`/api/requests/${r.id}/events`);
+  const attempts = ev.events.filter(e => e.kind === "attempt");
+  const last = attempts[attempts.length - 1]?.data;
+  const thought = ev.events.filter(e => e.kind === "thought").map(e => e.data.text).join("").slice(-140);
+  $("live").innerHTML = `<div class="ai-frame live" style="flex:1"><div class="ai-inner live">
+    ${SPARK} <span class="shimmer-text">${last ? esc((last.provider === "groq" ? "Groq" : last.provider === "gemini" ? "Gemini" : "Keyword rules") + " · " + last.model) : "Concierge"} is reading request #${r.id}…</span>
+    ${busy.length > 1 ? `<span class="small muted"> +${busy.length - 1} more in line</span>` : ""}
+    ${thought ? `<div class="thought caret" style="margin-top:8px">…${esc(thought)}</div>` : ""}</div></div>`;
+}
+
+async function loadStatus() {
+  const s = await api("/api/status");
+  const P = { gemini: "Gemini", groq: "Groq", keywords: "Keyword rules" };
+  $("chips").innerHTML = s.providers.map((p, i) => `<span class="chip"><span class="dot ${p.ready ? "on" : ""}"></span>${i + 1}. ${P[p.provider]} · ${esc(p.model)}</span>`).join("") +
+    `<span class="chip" title="${esc(s.smtp.detail)}"><span class="dot ${s.smtp.mode === "dry-run" ? "warn" : s.smtp.ok ? "on" : "bad"}"></span>SMTP · ${s.smtp.mode === "dry-run" ? "dry-run" : s.smtp.ok ? "live" : "login failed"}</span>`;
+}
+
+document.querySelectorAll("[data-days]").forEach(b => b.onclick = () => {
+  days = +b.dataset.days; document.querySelectorAll("[data-days]").forEach(x => x.setAttribute("aria-pressed", x === b)); load(); });
+loadStatus().catch(() => {}); load(); loadLive();
+setInterval(load, 8000); setInterval(loadLive, 1200);
+</script>
+</body>
+</html>

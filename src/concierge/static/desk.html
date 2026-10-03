@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Front Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@600&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/dashboard.css">
+<style>
+.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr) 340px; gap: 14px; padding: 14px; align-items: start; }
+@media (max-width: 1200px) { .layout { grid-template-columns: 280px minmax(0, 1fr); } .right { grid-column: 1 / -1; } }
+@media (max-width: 760px) { .layout { grid-template-columns: 1fr; padding: 10px; } }
+.q-tabs { display: flex; gap: 4px; }
+.q-list { list-style: none; margin: 0; padding: 6px; display: grid; gap: 4px; max-height: calc(100vh - 170px); overflow: auto; }
+@media (max-width: 760px) { .q-list { max-height: 50vh; } }
+.q-item { padding: 10px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; display: grid; gap: 4px; }
+.q-item:hover { background: var(--panel-2); }
+.q-item[aria-selected="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.q-top { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+.q-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-snip { font-size: 12px; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.center { display: grid; gap: 14px; min-width: 0; }
+.pt-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+.quote { margin: 10px 0 0; padding: 10px 12px; background: var(--panel-2); border-left: 3px solid var(--line); border-radius: 0 8px 8px 0;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-head { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.ai-title { display: flex; gap: 8px; align-items: center; }
+.slots { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.slot { border: 1px solid var(--line); background: var(--panel-2); border-radius: 10px; padding: 8px 10px; cursor: pointer; text-align: left; display: grid; gap: 2px; }
+.slot:hover { border-color: var(--accent); }
+.slot[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.slot b { font-size: 13px; } .slot span { font-size: 11px; color: var(--muted); }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 560px) { .row2 { grid-template-columns: 1fr; } }
+.slotwarn { background: var(--slot); color: var(--slot-ink); border-radius: 8px; padding: 6px 10px; font-size: 12px; margin-top: 8px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.right { display: grid; gap: 14px; }
+.grid-wrap { overflow-x: auto; }
+.sched { position: relative; display: grid; min-width: 280px; }
+.sched-cols { display: grid; grid-template-columns: 44px repeat(var(--n), minmax(70px, 1fr)); font-size: 11px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .05em; }
+.sched-cols div { padding: 4px; text-align: center; }
+.sched-body { position: relative; display: grid; grid-template-columns: 44px repeat(var(--n), minmax(70px, 1fr)); }
+.sched-times div { height: var(--row); font-size: 10px; color: var(--muted); text-align: right; padding-right: 6px; transform: translateY(-6px); font-variant-numeric: tabular-nums; }
+.sched-col { position: relative; border-left: 1px solid var(--line);
+  background-image: linear-gradient(var(--line) 1px, transparent 1px); background-size: 100% var(--row); }
+.blk { position: absolute; left: 3px; right: 3px; border-radius: 6px; padding: 3px 5px; font-size: 11px; line-height: 1.25; overflow: hidden;
+  background: var(--accent-soft); border: 1px solid var(--accent); color: var(--ink); }
+.blk.k-emergency { background: color-mix(in srgb, var(--bad) 18%, var(--panel)); border-color: var(--bad); }
+.blk.lunch { background: repeating-linear-gradient(45deg, var(--panel-2), var(--panel-2) 4px, var(--line) 4px, var(--line) 5px);
+  border: 0; color: var(--muted); }
+.nowline { position: absolute; left: 44px; right: 0; height: 0; border-top: 2px solid var(--bad); z-index: 2; }
+.trace li.thought-row { grid-template-columns: 18px 1fr; }
+.contact { display: grid; gap: 10px; margin-top: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.contact .phone { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.contact .line { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.contact .lbl { width: 46px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.hist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.hist li { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 2px; }
+.hist li.link { cursor: pointer; } .hist li.link:hover { border-color: var(--accent); }
+.p-search { padding: 8px 8px 0; }
+.conf { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.conf li { display: flex; gap: 8px; justify-content: space-between; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); padding: 0; width: min(560px, calc(100% - 32px)); }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+.samples { display: flex; flex-wrap: wrap; gap: 6px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="eyebrow">HeyJarvis Concierge</span>
+    <h1>Front Desk</h1>
+  </div>
+  <nav aria-label="Dashboards"><a href="/desk" aria-current="page">Front Desk</a><a href="/ops">Operations</a><a href="/">Patient site</a></nav>
+  <div class="chips" id="chips"></div>
+</header>
+
+<main class="layout">
+  <!-- queue -->
+  <section class="panel" aria-labelledby="qh">
+    <div class="panel-head">
+      <h2 id="qh">Requests</h2>
+      <div class="q-tabs">
+        <button class="btn sm" id="tabOpen" aria-pressed="true">Open</button>
+        <button class="btn sm" id="tabAll" aria-pressed="false">All</button>
+        <button class="btn sm" id="tabPatients" aria-pressed="false">Patients</button>
+      </div>
+    </div>
+    <div style="padding:8px 8px 0" id="simWrap"><button class="btn" style="width:100%;justify-content:center" id="simBtn">＋ Simulate patient request</button></div>
+    <div class="p-search" id="pSearchWrap" hidden><input id="pSearch" type="search" placeholder="Search name, email or phone" aria-label="Search patients"></div>
+    <ul class="q-list" id="queue" role="listbox" aria-label="Patient requests"></ul>
+  </section>
+
+  <!-- detail -->
+  <section class="center" id="detail" aria-live="polite">
+    <div class="panel"><div class="empty">Pick a request on the left, or simulate one to watch the AI read it.</div></div>
+  </section>
+
+  <!-- schedule + confirmations -->
+  <aside class="right">
+    <section class="panel" aria-labelledby="ch">
+      <div class="panel-head">
+        <h2 id="ch">Confirmations due <span class="muted small" id="confHours"></span></h2>
+        <button class="btn sm" id="confAll" disabled>Send all</button>
+      </div>
+      <div class="panel-body"><ul class="conf" id="conf"></ul><div class="small muted" id="confMode" style="margin-top:8px"></div></div>
+    </section>
+    <section class="panel" aria-labelledby="sh">
+      <div class="panel-head">
+        <button class="btn sm" id="dayPrev" aria-label="Previous day">‹</button>
+        <h2 id="sh" style="text-align:center;flex:1">Schedule</h2>
+        <button class="btn sm" id="dayNext" aria-label="Next day">›</button>
+      </div>
+      <div class="panel-body grid-wrap"><div id="sched"></div></div>
+    </section>
+  </aside>
+</main>
+
+<dialog id="sim">
+  <form method="dialog" id="simForm">
+    <div class="panel-head"><h2>Simulate a patient request</h2><button class="btn sm" value="cancel" formnovalidate>Close</button></div>
+    <div class="panel-body">
+      <div class="samples" id="samples"></div>
+      <label class="f" for="sMsg">Message</label>
+      <textarea id="sMsg" rows="4" required maxlength="10000"></textarea>
+      <div class="row2">
+        <div><label class="f" for="sName">Name</label><input id="sName"></div>
+        <div><label class="f" for="sEmail">Email</label><input id="sEmail" type="email"></div>
+      </div>
+      <div class="actions"><button class="btn primary" id="simGo" value="go">Send to Concierge</button></div>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const api = async (path, opts) => {
+  const r = await fetch(path, opts && { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(opts) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || r.statusText);
+  return data;
+};
+const TYPE = { new_patient: "New patient", emergency: "Emergency", existing_patient: "Existing patient",
+  reschedule: "Reschedule", cancel: "Cancel", question: "Question" };
+const PROVIDER = { gemini: "Gemini", groq: "Groq", keywords: "Keyword rules" };
+const SPARK = '<svg class="spark" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f7dff"/><stop offset=".5" stop-color="#9b5cff"/><stop offset="1" stop-color="#2fb59a"/></linearGradient></defs><path fill="url(#g)" d="M12 2c.5 4.6 2.9 7.5 8 8-5.1.5-7.5 3.4-8 8-.5-4.6-2.9-7.5-8-8 5.1-.5 7.5-3.4 8-8z"/></svg>';
+const ago = iso => { const s = (Date.now() - new Date(iso)) / 1000; return s < 60 ? "just now" : s < 3600 ? `${Math.floor(s/60)}m ago` : s < 86400 ? `${Math.floor(s/3600)}h ago` : new Date(iso).toLocaleDateString(); };
+const secs = ms => ms == null ? "" : ms < 1000 ? `${ms} ms` : `${(ms/1000).toFixed(1)} s`;
+function toast(msg, bad) { const t = document.createElement("div"); t.className = "toast" + (bad ? " bad" : ""); t.textContent = msg; t.setAttribute("role", "status"); document.body.append(t); setTimeout(() => t.remove(), 4200); }
+
+let view = "open", selected = null, lastEvent = 0, pollTimer = null, cur = null, chosenSlot = null, insertedTime = null, day = null, status = null;
+
+/* ---------- status chips ---------- */
+async function loadStatus() {
+  status = await api("/api/status");
+  $("chips").innerHTML = status.providers.map((p, i) =>
+    `<span class="chip"><span class="dot ${p.ready ? "on" : ""}"></span>${i + 1}. ${esc(PROVIDER[p.provider])} · ${esc(p.model)}</span>`).join("") +
+    `<span class="chip" title="${esc(status.smtp.detail)}"><span class="dot ${status.smtp.mode === "dry-run" ? "warn" : status.smtp.ok ? "on" : "bad"}"></span>SMTP · ${esc(status.smtp.mode === "dry-run" ? "dry-run" : status.smtp.ok ? "live" : "login failed")}</span>`;
+  $("confHours").textContent = `(next ${status.confirm_hours}h)`;
+  $("confMode").textContent = status.auto_confirm ? "Auto-send is on: due confirmations go out every 5 minutes." : "Auto-send is off: send them here.";
+}
+
+/* ---------- queue ---------- */
+async function loadQueue() {
+  if (view === "patients") return loadPatients();
+  const items = await api(`/api/requests?view=${view}`);
+  const q = $("queue");
+  if (!items.length) { q.innerHTML = `<li class="empty">No ${view === "open" ? "open " : ""}requests.</li>`; return; }
+  q.innerHTML = items.map(r => `
+    <li class="q-item" role="option" tabindex="0" data-id="${r.id}" aria-selected="${r.id === selected}">
+      <div class="q-top"><span class="q-name">${esc(r.name || r.email || "Unknown patient")}</span><span class="small muted">${ago(r.created_at)}</span></div>
+      <div>${r.status === "processing" ? `<span class="tag"><span class="spinner"></span> AI reading…</span>`
+        : r.status === "error" ? `<span class="tag" style="color:var(--bad)">error</span>`
+        : `<span class="tag t-${r.request_type}">${esc(TYPE[r.request_type] || r.request_type)}</span>`}
+        ${r.status === "sent" ? '<span class="tag">✓ sent</span>' : ""}${r.status === "done" ? '<span class="tag">done</span>' : ""}</div>
+      <div class="q-snip">${esc(r.snippet)}</div>
+    </li>`).join("");
+}
+const openItem = li => li.dataset.pid ? selectPatient(+li.dataset.pid) : select(+li.dataset.id);
+$("queue").addEventListener("click", e => { const li = e.target.closest(".q-item"); if (li) openItem(li); });
+$("queue").addEventListener("keydown", e => { const li = e.target.closest(".q-item"); if (li && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openItem(li); } });
+const TABS = { tabOpen: "open", tabAll: "all", tabPatients: "patients" };
+function setView(v) {
+  view = v;
+  for (const [id, val] of Object.entries(TABS)) $(id).setAttribute("aria-pressed", val === v);
+  $("qh").textContent = v === "patients" ? "Patients" : "Requests";
+  $("pSearchWrap").hidden = v !== "patients"; $("simWrap").hidden = v === "patients";
+  loadQueue();
+}
+for (const [id, v] of Object.entries(TABS)) $(id).onclick = () => setView(v);
+
+/* ---------- patients ---------- */
+let selectedPatient = null, searchTimer = null;
+$("pSearch").oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadPatients, 200); };
+async function loadPatients() {
+  const list = await api(`/api/patients?q=${encodeURIComponent($("pSearch").value)}`);
+  if (view !== "patients") return;
+  $("queue").innerHTML = list.length ? list.map(p => `
+    <li class="q-item" role="option" tabindex="0" data-pid="${p.id}" aria-selected="${p.id === selectedPatient}">
+      <div class="q-top"><span class="q-name">${esc(p.name || p.email || p.phone)}</span><span class="small muted">${p.requests} request${p.requests === 1 ? "" : "s"}</span></div>
+      <div class="small">${p.phone ? "📞 " + esc(p.phone) : '<span class="muted">no phone</span>'}</div>
+      <div class="small muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.email || "no email")}</div>
+      ${p.next_visit ? `<div class="small">Next visit: ${esc(new Date(p.next_visit).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</div>` : ""}
+    </li>`).join("") : `<li class="empty">No patients${$("pSearch").value ? " match" : " yet"}.</li>`;
+}
+const dialable = phone => String(phone).replace(/[^\d+]/g, "");
+function contactBar(p, { profile = true } = {}) {
+  if (!p) return `<div class="contact small muted">No email or phone given, so there's no patient record yet.</div>`;
+  return `<div class="contact">
+    <div class="line"><span class="lbl">Phone</span>${p.phone ? `<span class="phone">${esc(p.phone)}</span>
+      <a class="btn sm primary" href="tel:${dialable(p.phone)}" data-log="call" data-pid="${p.id}">📞 Call</a>
+      <a class="btn sm" href="sms:${dialable(p.phone)}" data-log="sms" data-pid="${p.id}">💬 Text</a>
+      <button class="btn sm" data-copy="${esc(p.phone)}">Copy</button>` : `<span class="muted small">no phone number</span>`}</div>
+    <div class="line"><span class="lbl">Email</span>${p.email ? `<span style="overflow-wrap:anywhere">${esc(p.email)}</span>
+      <button class="btn sm" data-email="${p.id}">✉ Email</button><button class="btn sm" data-copy="${esc(p.email)}">Copy</button>` : `<span class="muted small">no email</span>`}
+      ${profile ? `<button class="btn sm" data-profile="${p.id}" style="margin-left:auto">Patient profile →</button>` : ""}</div>
+  </div>`;
+}
+document.addEventListener("click", async e => {
+  const t = e.target.closest("[data-copy],[data-email],[data-profile],[data-log]");
+  if (!t) return;
+  if (t.dataset.copy) { await navigator.clipboard.writeText(t.dataset.copy); toast("Copied " + t.dataset.copy); }
+  else if (t.dataset.email) { e.preventDefault(); selectPatient(+t.dataset.email, { compose: true }); }
+  else if (t.dataset.profile) { e.preventDefault(); selectPatient(+t.dataset.profile); }
+  else if (t.dataset.log) {
+    api(`/api/patients/${t.dataset.pid}/log`, { channel: t.dataset.log,
+      note: t.dataset.log === "call" ? "Call started from the dashboard" : "Text started from the dashboard" }).catch(() => {});
+  }
+});
+
+async function selectPatient(pid, { compose = false } = {}) {
+  selectedPatient = pid; selected = null; clearTimeout(pollTimer);
+  document.querySelectorAll(".q-item").forEach(li => li.setAttribute("aria-selected", +li.dataset.pid === pid));
+  const d = await api(`/api/patients/${pid}`), p = d.patient;
+  const fmtTs = iso => new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const CH = { email: "✉ Email", call: "📞 Call", sms: "💬 Text", note: "📝 Note" };
+  const draft = `${d.greeting}\n\n\n\nIf you have any questions, call us at ${d.clinic_phone}.\n\n${d.signature}`;
+  $("detail").innerHTML = `
+    <div class="panel"><div class="panel-body">
+      <div class="pt-head">
+        <div><div class="eyebrow">Patient profile</div><h2 style="font-size:19px">${esc(p.name || "Unnamed patient")}</h2>
+          <div class="small muted">Patient since ${new Date(p.created_at).toLocaleDateString()}</div></div>
+        <button class="btn sm" id="editBtn">Edit details</button>
+      </div>
+      ${contactBar(p, { profile: false })}
+      <form id="editForm" hidden style="margin-top:10px">
+        <div class="row2"><div><label class="f" for="eName">Name</label><input id="eName" value="${esc(p.name || "")}"></div>
+          <div><label class="f" for="ePhone">Phone</label><input id="ePhone" type="tel" value="${esc(p.phone || "")}"></div></div>
+        <label class="f" for="eEmail">Email</label><input id="eEmail" type="email" value="${esc(p.email || "")}">
+        <div class="actions"><button class="btn primary">Save</button><button class="btn" type="button" id="editCancel">Cancel</button></div>
+      </form>
+    </div></div>
+
+    <div class="panel" id="composePanel">
+      <div class="panel-head"><h2>Email ${esc(p.name ? d.greeting.slice(3, -1) : "patient")}</h2>
+        <span class="small muted">${status?.smtp.mode === "dry-run" ? "SMTP dry-run: saved to outbox/sent" : "Sent by SMTP from " + esc(status?.smtp.from || "")}</span></div>
+      <div class="panel-body">
+        ${p.email ? `<label class="f" for="cSubject">Subject</label><input id="cSubject" value="Message from ${esc(status?.clinic || "the office")}">
+        <label class="f" for="cBody">Message</label><textarea id="cBody" rows="8"></textarea>
+        <div class="actions"><button class="btn primary" id="cSend">Send email</button></div>`
+        : `<div class="small muted">No email address on file. Use <b>Edit details</b> to add one.</div>`}
+      </div>
+    </div>
+
+    <div class="panel"><div class="panel-head"><h2>Log a call or note</h2></div><div class="panel-body">
+      <div class="row2"><div><label class="f" for="lChannel">Type</label><select id="lChannel"><option value="call">Phone call</option><option value="sms">Text message</option><option value="note">Note</option></select></div>
+        <div><label class="f" for="lNote">What happened</label><input id="lNote" placeholder="e.g. Left a voicemail, will call back Monday"></div></div>
+      <div class="actions"><button class="btn" id="lSave">Save to history</button></div>
+    </div></div>
+
+    <div class="panel"><div class="panel-head"><h2>History</h2></div><div class="panel-body" style="display:grid;gap:14px">
+      <div><div class="eyebrow" style="margin-bottom:6px">Appointments</div>
+        <ul class="hist">${d.appointments.length ? d.appointments.map(a => `<li><b>${esc(a.when)}</b><span class="small muted">${esc(TYPE[a.kind] || a.kind)} · ${esc(a.status)}${a.confirmed_at ? " · confirmation sent" : ""}</span></li>`).join("") : '<li class="small muted">None yet.</li>'}</ul></div>
+      <div><div class="eyebrow" style="margin-bottom:6px">Requests</div>
+        <ul class="hist">${d.requests.map(r => `<li class="link" data-rid="${r.id}" tabindex="0"><span><span class="tag t-${r.request_type}">${esc(TYPE[r.request_type] || "Reading…")}</span> <span class="small muted">${fmtTs(r.created_at)} · ${esc(r.status)}</span></span><span class="small">${esc(r.snippet)}</span></li>`).join("") || '<li class="small muted">None.</li>'}</ul></div>
+      <div><div class="eyebrow" style="margin-bottom:6px">Contact log</div>
+        <ul class="hist">${d.contacts.length ? d.contacts.map(c => `<li><span><b>${CH[c.channel] || esc(c.channel)}</b> <span class="small muted">${fmtTs(c.created_at)}${c.ok === 0 ? ' · <span style="color:var(--bad)">failed</span>' : ""}</span></span>
+          ${c.subject ? `<span class="small">${esc(c.subject)}</span>` : ""}${c.body && c.channel !== "email" ? `<span class="small">${esc(c.body)}</span>` : ""}${c.error ? `<span class="small" style="color:var(--bad)">${esc(c.error)}</span>` : ""}</li>`).join("") : '<li class="small muted">No contact yet.</li>'}</ul></div>
+    </div></div>`;
+  if ($("cBody")) $("cBody").value = draft;
+  $("editBtn").onclick = () => { $("editForm").hidden = false; $("eName").focus(); };
+  $("editCancel").onclick = () => { $("editForm").hidden = true; };
+  $("editForm").onsubmit = async e => { e.preventDefault();
+    try { await api(`/api/patients/${pid}`, { name: $("eName").value, email: $("eEmail").value, phone: $("ePhone").value });
+      toast("Saved"); selectPatient(pid); loadQueue(); }
+    catch (err) { toast(err.message, true); } };
+  $("cSend")?.addEventListener("click", async () => {
+    const b = $("cSend"); b.disabled = true; b.textContent = "Sending…";
+    try { const r = await api(`/api/patients/${pid}/email`, { subject: $("cSubject").value, body: $("cBody").value });
+      toast(r.mode === "dry-run" ? "Saved to outbox/sent (SMTP dry-run)" : "Email sent ✓"); selectPatient(pid); }
+    catch (err) { toast(err.message, true); b.disabled = false; b.textContent = "Send email"; } });
+  $("lSave").onclick = async () => {
+    await api(`/api/patients/${pid}/log`, { channel: $("lChannel").value, note: $("lNote").value });
+    toast("Saved to history"); selectPatient(pid); };
+  $("detail").querySelectorAll("[data-rid]").forEach(li => li.onclick = () => { setView("all"); select(+li.dataset.rid); });
+  if (compose && $("cBody")) {
+    $("composePanel").scrollIntoView({ behavior: "smooth", block: "start" });
+    const b = $("cBody"); b.focus(); b.setSelectionRange(d.greeting.length + 2, d.greeting.length + 2);
+  }
+}
+
+/* ---------- detail ---------- */
+async function select(id) {
+  selected = id; selectedPatient = null; clearTimeout(pollTimer); chosenSlot = null; insertedTime = null;
+  document.querySelectorAll(".q-item").forEach(li => li.setAttribute("aria-selected", +li.dataset.id === id));
+  cur = await api(`/api/requests/${id}`);
+  renderDetail();
+  lastEvent = 0; $("trace").innerHTML = ""; traceState = {};
+  applyEvents(cur.events, false);
+  if (cur.request.status === "processing") poll();
+}
+
+function renderDetail() {
+  const r = cur.request;
+  const processing = r.status === "processing";
+  $("detail").innerHTML = `
+    <div class="panel"><div class="panel-body">
+      <div class="pt-head">
+        <div><div class="eyebrow">Patient</div><h2 style="font-size:17px">${esc(cur.patient?.name || r.name || "Unknown patient")}</h2></div>
+        <div class="small muted">#${r.id} · ${esc(r.source || "")} · ${new Date(r.created_at).toLocaleString()}</div>
+      </div>
+      ${contactBar(cur.patient)}
+      <div class="quote">${esc(r.message)}</div>
+    </div></div>
+
+    <div class="ai-frame ${processing ? "live" : ""}" id="aiFrame"><div class="ai-inner">
+      <div class="ai-head">
+        <div class="ai-title">${SPARK}<span id="aiTitle" class="${processing ? "shimmer-text" : ""}">${processing ? "Thinking…" : "AI reasoning"}</span></div>
+        <span class="small muted" id="aiMeta"></span>
+      </div>
+      <ol class="trace" id="trace"></ol>
+    </div></div>
+
+    <div class="panel" id="replyPanel" ${processing ? "hidden" : ""}></div>`;
+  if (!processing) renderReply();
+}
+
+/* events → trace rows. Live thoughts type themselves out. */
+let traceState = {};
+function row(ico, cls, html, ms, li = document.createElement("li")) {
+  li.innerHTML = `<span class="ico ${cls}">${ico}</span><span>${html}</span><span class="ms">${secs(ms)}</span>`;
+  if (!li.isConnected) $("trace").append(li);
+  return li;
+}
+/* each model attempt gets its own reasoning box, right under its row */
+function thoughtBox() {
+  if (!traceState.box) {
+    const li = document.createElement("li"); li.className = "thought-row";
+    li.innerHTML = `<span></span><div class="thought"></div>`;
+    $("trace").append(li); traceState.box = li.querySelector(".thought");
+  }
+  return traceState.box;
+}
+let typeQueue = Promise.resolve();
+function typeOut(text, live) {
+  const box = thoughtBox();
+  if (!live) { box.textContent += text; return; }
+  typeQueue = typeQueue.then(() => new Promise(done => {
+    box.classList.add("caret"); let i = 0;
+    const step = () => { if (!document.body.contains(box)) return done();
+      box.textContent += text.slice(i, i + 3); i += 3;
+      box.scrollTop = box.scrollHeight;
+      if (i < text.length) setTimeout(step, 14); else { box.classList.remove("caret"); done(); } };
+    step();
+  }));
+}
+function applyEvents(evs, live) {
+  for (const e of evs) {
+    lastEvent = Math.max(lastEvent, e.id);
+    const d = e.data;
+    switch (e.kind) {
+      case "step": row("•", "info", esc(d.text), e.t_ms); break;
+      case "attempt":
+        traceState.pending = row('<span class="spinner"></span>', "", `Asking <b>${esc(PROVIDER[d.provider])}</b> · ${esc(d.model)}…`, null);
+        traceState.box = null;
+        if (live) $("aiTitle").textContent = `${PROVIDER[d.provider]} is thinking…`; break;
+      case "thought": typeOut(d.text, live); break;
+      case "fail":
+        row("✕", "bad", `<b>${esc(d.model)}</b> couldn't answer (${esc(d.reason)}). Handing off to the next model.`, d.ms, traceState.pending);
+        traceState.pending = null; break;
+      case "success":
+        row("✓", "ok", d.provider === "keywords" ? "AI unavailable. Read with the clinic's keyword rules."
+          : `<b>${esc(PROVIDER[d.provider])} · ${esc(d.model)}</b> understood the request${traceState.box ? ". Its reasoning:" : ""}`, d.ms, traceState.pending);
+        traceState.pending = null;
+        traceState.model = d.provider === "keywords" ? "keyword rules" : `${PROVIDER[d.provider]} · ${d.model}`; break;
+      case "classified":
+        row("✓", "ok", `Looks like <span class="tag t-${d.request_type}">${esc(TYPE[d.request_type])}</span> ${esc(d.reason || "")}` +
+          (d.preferred_times ? ` · prefers <b>${esc(d.preferred_times)}</b>` : "") + (d.cost_question ? " · asked about cost" : ""), e.t_ms); break;
+      case "slots":
+        row(d.count ? "✓" : "!", d.count ? "ok" : "bad", d.count ? `Found ${d.count} openings, earliest <b>${esc(d.first)}</b>` : "No openings found in the next two weeks", e.t_ms);
+        if (d.note) row("i", "info", esc(d.note)); break;
+      case "done":
+        $("aiMeta").textContent = `${traceState.model || ""} · ${secs(d.ms)}`; break;
+      case "sent":
+        row(d.ok ? "✓" : "✕", d.ok ? "ok" : "bad", d.ok ? `Reply sent${d.mode === "dry-run" ? " (dry-run, saved to outbox)" : " by SMTP"}${d.when ? ` for <b>${esc(d.when)}</b>` : ""}` : `Send failed: ${esc(d.error)}`); break;
+      case "confirmation":
+        row(d.ok ? "✓" : "✕", d.ok ? "ok" : "bad", d.ok ? `48h confirmation sent${d.mode === "dry-run" ? " (dry-run)" : ""}` : `Confirmation failed: ${esc(d.error)}`); break;
+      case "error": row("✕", "bad", esc(d.text)); break;
+    }
+  }
+}
+async function poll() {
+  const id = selected;
+  try {
+    const res = await api(`/api/requests/${id}/events?after=${lastEvent}`);
+    if (id !== selected) return;
+    applyEvents(res.events, true);
+    if (res.status === "processing") { pollTimer = setTimeout(poll, 500); return; }
+    await typeQueue;
+    $("aiFrame").classList.remove("live"); $("aiTitle").className = ""; $("aiTitle").textContent = "AI reasoning";
+    cur = await api(`/api/requests/${id}`);
+    $("replyPanel").hidden = false; renderReply(); loadQueue();
+  } catch (e) { pollTimer = setTimeout(poll, 1500); }
+}
+
+/* ---------- reply: slots, edit, send ---------- */
+const BOOKABLE = ["new_patient", "emergency", "existing_patient", "reschedule"];
+function renderReply() {
+  const r = cur.request, p = $("replyPanel");
+  if (r.status === "error") { p.innerHTML = `<div class="panel-body">Processing failed. See the reasoning above.</div>`; return; }
+  const sent = r.status === "sent";
+  const bookable = BOOKABLE.includes(r.request_type);
+  const lengthField = ["existing_patient", "reschedule"].includes(r.request_type);
+  const upcoming = cur.upcoming || [];
+  p.innerHTML = `
+    <div class="panel-head"><h2>${sent ? "Sent reply" : "Reply to patient"}</h2>
+      <span class="small muted">${esc(r.desk_hint || "")}</span></div>
+    <div class="panel-body">
+      ${bookable && !sent ? `
+        <div style="display:flex;justify-content:space-between;align-items:end;gap:8px;flex-wrap:wrap">
+          <div><div class="eyebrow">Suggested times</div><div class="small muted" id="slotNote"></div></div>
+          <div style="display:flex;gap:6px;align-items:end">
+            ${lengthField ? `<label class="small">Length <input id="len" type="number" min="15" step="15" value="${r.minutes || 60}" style="width:74px"> min</label>` : ""}
+            ${r.preferred_times ? `<button class="btn sm" id="anyTime" aria-pressed="false">Ignore preference</button>` : ""}
+          </div>
+        </div>
+        <div class="slots" id="slots"><span class="small muted"><span class="spinner"></span> Checking chairs…</span></div>
+        <div class="row2" style="margin-top:8px">
+          <div><label class="f" for="otherTime">Or type another time (not added to the schedule)</label><input id="otherTime" placeholder="e.g. Friday at 3:30 PM"></div>
+          <div style="align-self:end"><button class="btn" id="useOther">Use this time</button></div>
+        </div>` : ""}
+      ${upcoming.length && !sent ? `<div style="margin-top:12px"><div class="eyebrow">Their upcoming appointments</div>
+        ${upcoming.map(a => `<label class="small" style="display:flex;gap:6px;align-items:center;margin-top:4px">
+          <input type="checkbox" class="cancelAppt" value="${a.id}" style="width:auto" ${["reschedule", "cancel"].includes(r.request_type) ? "checked" : ""}>
+          Cancel ${esc(new Date(a.start).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))} (${esc(a.kind)}) when sending</label>`).join("")}</div>` : ""}
+      <label class="f" for="to">To</label><input id="to" type="email" value="${esc(r.email || "")}" ${sent ? "readonly" : ""} placeholder="patient@email.com">
+      <label class="f" for="subject">Subject</label><input id="subject" value="${esc(r.subject || "")}" ${sent ? "readonly" : ""}>
+      <label class="f" for="body">Message</label><textarea id="body" rows="14" ${sent ? "readonly" : ""}>${esc(r.body || "")}</textarea>
+      <div class="slotwarn" id="slotWarn" hidden>Pick a time above. The yellow >>> … <<< part (with the booking note) is replaced by it.</div>
+      ${sent ? "" : `<div class="actions">
+        <button class="btn primary" id="send">Send to patient</button>
+        <button class="btn" id="dismiss">Mark done without sending</button>
+        <span class="small muted">${status?.smtp.mode === "dry-run" ? "SMTP dry-run: emails are saved to outbox/sent, not sent." : `From ${esc(status?.smtp.from || "")}`}</span>
+      </div>`}
+    </div>`;
+  if (sent) return;
+  $("body").oninput = checkSlot; checkSlot();
+  $("send").onclick = send;
+  $("dismiss").onclick = async () => { await api(`/api/requests/${r.id}/dismiss`, {}); toast("Marked done"); loadQueue(); select(r.id); };
+  if (bookable) {
+    loadSlots();
+    $("len")?.addEventListener("change", loadSlots);
+    $("anyTime")?.addEventListener("click", e => { const on = e.target.getAttribute("aria-pressed") !== "true"; e.target.setAttribute("aria-pressed", on); loadSlots(); });
+    $("useOther").onclick = () => { const t = $("otherTime").value.trim(); if (t) { chosenSlot = null; markSlots(); setTime(t); } };
+  }
+}
+function checkSlot() { $("slotWarn").hidden = !/>>> [\s\S]*? <<</.test($("body").value); }
+function setTime(text) {
+  const b = $("body");
+  if (/>>> [\s\S]*? <<</.test(b.value)) b.value = b.value.replace(/>>> [\s\S]*? <<</, text);
+  else if (insertedTime && b.value.includes(insertedTime)) b.value = b.value.replace(insertedTime, text);
+  insertedTime = text; checkSlot();
+}
+let slotData = [];
+async function loadSlots() {
+  const params = new URLSearchParams();
+  if ($("len")) params.set("minutes", $("len").value);
+  if ($("anyTime")?.getAttribute("aria-pressed") === "true") params.set("any_time", "true");
+  const res = await api(`/api/requests/${cur.request.id}/slots?${params}`);
+  slotData = res.slots;
+  $("slotNote").textContent = res.note || (cur.request.preferred_times ? `Matching “${cur.request.preferred_times}”` : "");
+  $("slots").innerHTML = res.slots.length ? res.slots.map((s, i) =>
+    `<button class="slot" data-i="${i}" aria-pressed="false"><b>${esc(s.label)}</b><span>${esc(s.note)}${s.same_day ? " · today" : ""}</span></button>`).join("")
+    : `<span class="small muted">No openings found. Type a time below.</span>`;
+  $("slots").querySelectorAll(".slot").forEach(b => b.onclick = () => { chosenSlot = slotData[+b.dataset.i]; markSlots(); setTime(chosenSlot.label); });
+}
+function markSlots() { document.querySelectorAll(".slot").forEach(b => b.setAttribute("aria-pressed", chosenSlot === slotData[+b.dataset.i])); }
+async function send() {
+  const btn = $("send"); btn.disabled = true; btn.textContent = "Sending…";
+  try {
+    const res = await api(`/api/requests/${cur.request.id}/send`, {
+      to: $("to").value.trim(), subject: $("subject").value, body: $("body").value, slot: chosenSlot,
+      cancel_appointment_ids: [...document.querySelectorAll(".cancelAppt:checked")].map(c => +c.value) });
+    toast(res.mode === "dry-run" ? "Saved to outbox/sent (SMTP dry-run)" : "Sent to patient ✓");
+    await Promise.all([loadQueue(), loadSchedule(), loadConfirmations()]);
+    select(cur.request.id);
+  } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "Send to patient"; }
+}
+
+/* ---------- schedule grid ---------- */
+const ROW = 22; // px per 30 min
+const toMin = hm => { const [h, m] = hm.split(":").map(Number); return h * 60 + m; };
+const COLNAME = c => c.startsWith("dr") ? `Dr ${c.slice(2)}` : `Hyg ${c.slice(3)}`;
+async function loadSchedule() {
+  const s = await api(`/api/schedule${day ? `?day=${day}` : ""}`);
+  day = s.date;
+  const d = new Date(s.date + "T12:00");
+  $("sh").textContent = d.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+  const open = toMin(s.open), close = toMin(s.close), px = ROW / 30;
+  const times = []; for (let m = open; m < close; m += 30) times.push(m);
+  const fmt = m => { const h = Math.floor(m / 60), mm = m % 60; return `${(h % 12) || 12}${mm ? ":" + String(mm).padStart(2, "0") : ""}${h < 12 ? "a" : "p"}`; };
+  const blocks = Object.fromEntries(s.columns.map(c => [c, []]));
+  for (const a of s.appointments) for (const seg of a.segments) {
+    const st = new Date(seg.start), en = new Date(seg.end);
+    const local = x => { const p = x.toLocaleTimeString("en-US", { timeZone: status?.timezone, hour12: false, hour: "2-digit", minute: "2-digit" }); return toMin(p); };
+    blocks[seg.column]?.push({ top: (local(st) - open) * px, h: (local(en) - local(st)) * px, a });
+  }
+  const lunch = s.lunch.length === 2 ? { top: (toMin(s.lunch[0]) - open) * px, h: (toMin(s.lunch[1]) - toMin(s.lunch[0])) * px } : null;
+  $("sched").innerHTML = `<div class="sched" style="--n:${s.columns.length};--row:${ROW}px">
+    <div class="sched-cols"><div></div>${s.columns.map(c => `<div>${COLNAME(c)}</div>`).join("")}</div>
+    <div class="sched-body" style="height:${times.length * ROW}px">
+      <div class="sched-times">${times.map(m => `<div>${fmt(m)}</div>`).join("")}</div>
+      ${s.columns.map(c => `<div class="sched-col">
+        ${lunch ? `<div class="blk lunch" style="top:${lunch.top}px;height:${lunch.h}px">lunch</div>` : ""}
+        ${blocks[c].map(b => `<div class="blk k-${b.a.kind}" style="top:${b.top}px;height:${Math.max(b.h - 2, 14)}px" title="${esc(b.a.patient_name || "")} · ${esc(TYPE[b.a.kind] || b.a.kind)}">
+          <b>${esc((b.a.patient_name || "Patient").split(" ")[0])}</b><br>${esc(TYPE[b.a.kind] || b.a.kind)}</div>`).join("")}
+      </div>`).join("")}
+      <div id="nowline"></div>
+    </div></div>`;
+  const now = new Date(); const nowLocal = toMin(now.toLocaleTimeString("en-US", { timeZone: status?.timezone, hour12: false, hour: "2-digit", minute: "2-digit" }));
+  const todayLocal = now.toLocaleDateString("en-CA", { timeZone: status?.timezone });
+  if (todayLocal === s.date && nowLocal > open && nowLocal < close) $("nowline").outerHTML = `<div class="nowline" style="top:${(nowLocal - open) * px}px" aria-label="now"></div>`;
+}
+function shiftDay(n) { const d = new Date(day + "T12:00"); d.setDate(d.getDate() + n); day = d.toISOString().slice(0, 10); loadSchedule(); }
+$("dayPrev").onclick = () => shiftDay(-1); $("dayNext").onclick = () => shiftDay(1);
+
+/* ---------- confirmations ---------- */
+async function loadConfirmations() {
+  const list = await api("/api/confirmations");
+  $("confAll").disabled = !list.length;
+  $("conf").innerHTML = list.length ? list.map(a => `<li><div><b>${esc(a.patient_name || a.patient_email || "Patient")}</b><div class="small muted">${esc(a.when)}</div></div>
+    <button class="btn sm" data-id="${a.id}">Send</button></li>`).join("") : `<li class="small muted" style="border:0;padding:0">Nothing due. Visits get a confirmation ${status?.confirm_hours ?? 48}h ahead.</li>`;
+  $("conf").querySelectorAll("button").forEach(b => b.onclick = () => sendConf([+b.dataset.id]));
+}
+async function sendConf(ids) {
+  try {
+    const res = await api("/api/confirmations/send", { ids });
+    const ok = res.results.filter(r => r.ok).length, bad = res.results.length - ok;
+    toast(bad ? `${ok} sent, ${bad} failed: ${res.results.find(r => !r.ok).error}` : `${ok} confirmation${ok === 1 ? "" : "s"} sent${res.results[0]?.mode === "dry-run" ? " (dry-run)" : ""}`, !!bad);
+    loadConfirmations();
+  } catch (e) { toast(e.message, true); }
+}
+$("confAll").onclick = () => sendConf(null);
+
+/* ---------- simulate ---------- */
+const SAMPLES = [
+  ["New patient", "Hi, I'm Maria Lopez, just moved to Raleigh and looking for a new dentist. Can I get a checkup? Weekday mornings are best. Do you take CareCredit?", "Maria Lopez", "maria@example.com"],
+  ["Emergency", "my back tooth cracked on a popcorn kernel last night and it really hurts, any chance I can come in today?", "Sam Patel", "sam@example.com"],
+  ["Cleaning", "Hi it's Dana, I'm due for my cleaning. Tuesday afternoons work best.", "Dana Kim", "dana@example.com"],
+  ["Reschedule", "Hey it's Tom Reed, need to push my cleaning to next week sometime, afternoons pls", "Tom Reed", "tom@example.com"],
+  ["Question", "Do you accept Delta Dental PPO? And how much is whitening?", "", "lee@example.com"],
+];
+for (const [label, m, n, e] of SAMPLES) {
+  const b = document.createElement("button"); b.type = "button"; b.className = "btn sm"; b.textContent = label;
+  // Fills the message; name/email only when those boxes are empty, so typed details are kept.
+  b.onclick = () => { $("sMsg").value = m; if (!$("sName").value) $("sName").value = n; if (!$("sEmail").value) $("sEmail").value = e; };
+  $("samples").append(b);
+}
+$("simBtn").onclick = () => $("sim").showModal();
+$("simForm").onsubmit = async e => {
+  if (e.submitter?.value !== "go") return;
+  e.preventDefault();
+  if (!$("sMsg").value.trim()) return;
+  const res = await api("/api/simulate", { message: $("sMsg").value, name: $("sName").value || null, email: $("sEmail").value || null, source: "simulated" });
+  $("sim").close(); $("simForm").reset();
+  await loadQueue(); select(res.id);
+};
+
+/* ---------- boot ---------- */
+(async () => {
+  await loadStatus().catch(() => {});
+  await Promise.all([loadQueue(), loadSchedule(), loadConfirmations()]);
+  const first = document.querySelector(".q-item"); if (first) select(+first.dataset.id);
+  setInterval(() => { loadQueue(); loadConfirmations(); }, 4000);
+  setInterval(loadSchedule, 30000);
+})();
+</script>
+</body>
+</html>

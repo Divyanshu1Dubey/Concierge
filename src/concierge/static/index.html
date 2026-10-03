@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Request an Appointment</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@600&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/dashboard.css">
+<style>
+main { max-width: 560px; margin: 0 auto; padding: 28px 16px 48px; }
+.samples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px; }
+.site { background: #fff; color: #222; border-radius: 14px; border: 1px solid var(--line); overflow: hidden; box-shadow: var(--shadow); }
+.site header { background: #1f3b2e; color: #fff; padding: 18px 20px; }
+.site header h2 { font-family: Lora, Georgia, serif; font-size: 19px; }
+.site header p { margin: 4px 0 0; font-size: 13px; color: #cfdcd4; }
+.site .inner { padding: 20px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="eyebrow">HeyJarvis Concierge</span><h1>Demo</h1></div>
+  <nav aria-label="Dashboards"><a href="/" aria-current="page">Patient site</a><a href="/desk">Front Desk</a><a href="/ops">Operations</a></nav>
+  <span></span>
+</header>
+<main>
+  <section class="site" aria-label="Clinic website">
+    <header>
+      <h2>Raleigh Comprehensive and Cosmetic Dentistry</h2>
+      <p>Request an appointment</p>
+    </header>
+    <div class="inner"><div id="concierge-form"></div></div>
+  </section>
+</main>
+<script src="/widget.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; color: #222; }
+  .layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+  .side { background: #0f231a; color: #dfe8e3; padding: 18px; }
+  .side a { color: #cfdcd4; display: block; padding: 8px 6px; text-decoration: none; border-radius: 8px; }
+  .side a:hover { background: rgba(255,255,255,.08); }
+  main { padding: 18px; }
+  .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 14px; padding: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .tile { background: #fff; border: 1px solid #e5e5e5; border-radius: 14px; padding: 14px; }
+  .k { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: .08em; }
+  .v { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .s { font-size: 12px; color: #888; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #eee; font-size: 14px; }
+  .btn { border: 0; background: #1f3b2e; color: #fff; padding: 10px 12px; border-radius: 10px; cursor: pointer; }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <nav class="side">
+      <div style="font-weight:700;margin-bottom:14px">HeyJarvis</div>
+      <a href="#">Dashboard</a>
+      <a href="#">Conversations</a>
+      <a href="#">Leads</a>
+      <a href="#">Installation</a>
+      <a href="#">Email</a>
+      <a href="#">Widget</a>
+      <a href="#">Settings</a>
+    </nav>
+    <main>
+      <div class="grid">
+        <div class="tile"><div class="k">Conversations</div><div class="v">0</div><div class="s">today</div></div>
+        <div class="tile"><div class="k">Leads</div><div class="v">0</div><div class="s">new</div></div>
+        <div class="tile"><div class="k">Sent</div><div class="v">0</div><div class="s">emails</div></div>
+        <div class="tile"><div class="k">Errors</div><div class="v">0</div><div class="s">last 24h</div></div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <h2 style="margin-top:0">Recent leads</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Email</th><th>Intent</th><th>Status</th></tr></thead>
+          <tbody><tr><td colspan="4" style="color:#888">No leads yet.</td></tr></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
