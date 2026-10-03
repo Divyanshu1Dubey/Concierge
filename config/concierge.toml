@@ -1,0 +1,48 @@
+# Concierge config: Raleigh Comprehensive and Cosmetic Dentistry
+# Booking rules come from the HeyJarvis one-pager (Oct 1, 2026).
+# All patient-facing wording must be approved by Avi before go-live.
+
+[clinic]
+name = "Raleigh Comprehensive and Cosmetic Dentistry"
+doctor = "Dr. Vraj Gajjar"
+phone = "(919) 000-0000"            # TODO: real number from Avi
+front_desk_email = "frontdesk@example.com"  # TODO: real address from Avi
+signature = "Front Desk\nRaleigh Comprehensive and Cosmetic Dentistry"
+
+[schedule]
+doctor_columns = 2
+hygiene_columns = 1
+confirm_hours_before = 48
+broken_appointment_fee = 65          # USD, broken / no-show
+financing = ["Cherry", "CareCredit"]
+
+[appointments.new_patient]
+minutes = 90
+doctor_minutes = 30
+hygiene_minutes = 60
+# If hygiene is unavailable: full 90 with the doctor on the second column.
+fallback_doctor_column = 2
+
+[appointments.emergency]
+minutes = 60
+same_day_when_room = true
+
+# Not in the one-pager: default length for returning-patient visits.
+# The desk can change the length per booking in the dashboard. TODO: confirm with Avi.
+[appointments.existing_patient]
+minutes = 60
+column = "hygiene"   # hygiene | doctor
+
+# Office hours for slot suggestions. TODO: real hours from Avi.
+[hours]
+timezone = "America/New_York"
+days = ["mon", "tue", "wed", "thu", "fri"]
+open = "08:00"
+close = "17:00"
+lunch = ["12:00", "13:00"]
+slot_step_minutes = 30
+search_days = 14
+
+[safety]
+# Shown on emergency drafts. Clinic must approve this wording.
+emergency_warning = "If you have swelling that affects your breathing or swallowing, a high fever, or bleeding that will not stop, please call 911 or go to the nearest emergency room right away."
