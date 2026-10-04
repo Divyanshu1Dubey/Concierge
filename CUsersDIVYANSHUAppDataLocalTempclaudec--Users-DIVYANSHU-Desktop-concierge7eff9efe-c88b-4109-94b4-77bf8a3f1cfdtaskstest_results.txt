@@ -1,0 +1,24 @@
+============================= test session starts =============================
+collecting ... collected 112 items
+
+test_saas_widget.py::TestWidgetLoad::test_widget_js_served PASSED        [  0%]
+test_saas_widget.py::TestWidgetLoad::test_widget_js_is_cacheable PASSED  [  1%]
+test_saas_widget.py::TestConversationStart::test_start_creates_conversation PASSED [  2%]
+test_saas_widget.py::TestConversationStart::test_start_tracks_analytics_event PASSED [  3%]
+test_saas_widget.py::TestConversationStart::test_start_uses_custom_greeting PASSED [  4%]
+test_saas_widget.py::TestConversationStart::test_start_requires_valid_client_key PASSED [  5%]
+test_saas_widget.py::TestConversationStart::test_start_creates_message_record PASSED [  6%]
+test_saas_widget.py::TestMessageSending::test_send_message_returns_reply PASSED [  7%]
+test_saas_widget.py::TestMessageSending::test_send_message_persists_both_messages PASSED [  8%]
+test_saas_widget.py::TestMessageSending::test_send_message_increments_turn_count PASSED [  8%]
+test_saas_widget.py::TestMessageSending::test_tenant_isolation_for_messages PASSED [  9%]
+test_saas_widget.py::TestMessageSending::test_message_nonexistent_conversation PASSED [ 10%]
+test_saas_widget.py::TestFieldExtraction::test_extract_name PASSED       [ 11%]
+test_saas_widget.py::TestFieldExtraction::test_extract_email PASSED      [ 12%]
+test_saas_widget.py::TestFieldExtraction::test_extract_emergency_intent PASSED [ 13%]
+test_saas_widget.py::TestFieldExtraction::test_extract_appointment_intent PASSED [ 14%]
+test_saas_widget.py::TestFieldExtraction::test_missing_fields_prompts_next PASSED [ 15%]
+test_saas_widget.py::TestFieldExtraction::test_ask_for_known_field PASSED [ 16%]
+test_saas_widget.py::TestFieldExtraction::test_ask_for_unknown_field PASSED [ 16%]
+test_saas_widget.py::TestErrorHandling::test_invalid_client_key_rejected PASSED [ 17%]
+test_saas_widget.py::TestErrorHandling::test_revoked_key_rejected 

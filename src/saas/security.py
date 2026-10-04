@@ -25,9 +25,11 @@ def verify_password(raw: str, hashed: str) -> bool:
     return pwd_ctx.verify(raw, hashed)
 
 
-def create_access_token(subject: str, expires_minutes: int | None = None) -> str:
+def create_access_token(subject: str, expires_minutes: int | None = None, tenant_id: int | None = None) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes or settings.jwt_expires_minutes)
     payload: dict[str, Any] = {"sub": subject, "exp": expire}
+    if tenant_id is not None:
+        payload["tid"] = tenant_id
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 

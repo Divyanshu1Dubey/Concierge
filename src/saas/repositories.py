@@ -53,7 +53,7 @@ def list_tenants(limit: int = 100, offset: int = 0) -> list[Tenant]:
 # --- users / memberships ---------------------------------------------------------------------------
 
 
-def create_user(tenant_id: int, email: str, password: str | None = None, display_name: str | None = None,
+def create_user(tenant_id: int, email: str, display_name: str | None = None, password: str | None = None,
                 role: str = "owner") -> User:
     with connect() as c:
         uid = c.execute(
@@ -252,9 +252,80 @@ def get_tenant_email(tenant_id: int) -> dict | None:
     }
 
 
+def get_notification(nid: int) -> dict | None:
+    with connect() as c:
+        r = row(c, "SELECT * FROM notifications WHERE id = ?", nid)
+    return r
+
+
+def create_notification(tenant_id: int, lead_id: int, channel: str, status: str, payload: dict | None = None, error: str | None = None) -> dict:
+    with connect() as c:
+        nid = insert(c, "notifications", tenant_id=tenant_id, lead_id=lead_id, channel=channel, status=status,
+                     payload=_json(payload), error=error or "", created_at=now_iso(), sent_at=now_iso() if status == "sent" else None)
+    return {"id": nid, "tenant_id": tenant_id, "status": status}
+
+
 def get_templates(tenant_id: int) -> list[dict]:
     with connect() as c:
         return rows(c, "SELECT * FROM email_templates WHERE tenant_id = ?", tenant_id)
+
+
+def create_or_update_email(tenant_id: int, **fields) -> None:
+    fields["updated_at"] = now_iso()
+    with connect() as c:
+        existing = rows(c, "SELECT id FROM email_settings WHERE tenant_id = ?", tenant_id)
+        if existing:
+            sets = ", ".join(f"{k} = ?" for k in fields)
+            vals = list(fields.values()) + [tenant_id]
+            c.execute(f"UPDATE email_settings SET {sets} WHERE tenant_id = ?", vals)
+        else:
+            keys = ", ".join(["tenant_id"] + list(fields.keys()) + ["updated_at"])
+            marks = ", ".join(["?"] * (len(fields) + 2))
+            c.execute(f"INSERT INTO email_settings ({keys}) VALUES ({marks})", [tenant_id] + list(fields.values()) + [now_iso()])
+
+
+def create_or_update_business_rules(tenant_id: int, rules: dict[str, Any]) -> dict:
+    import json as _json
+    payload = _json.dumps(rules or {})
+    with connect() as c:
+        existing = rows(c, "SELECT id FROM business_rules WHERE tenant_id = ?", tenant_id)
+        now = now_iso()
+        if existing:
+            c.execute("UPDATE business_rules SET rules = ?, updated_at = ? WHERE tenant_id = ?", (payload, now, tenant_id))
+        else:
+            c.execute("INSERT INTO business_rules (tenant_id, rules, updated_at) VALUES (?, ?, ?)", (tenant_id, payload, now))
+    return rules
+
+
+def get_business_rules(tenant_id: int) -> dict | None:
+    with connect() as c:
+        r = row(c, "SELECT rules FROM business_rules WHERE tenant_id = ?", tenant_id)
+    if not r:
+        return None
+    import json as _json
+    try:
+        return _json.loads(r["rules"] or "{}")
+    except Exception:
+        return {}
+
+
+def save_template(tenant_id: int, name: str, subject: str, body: str) -> None:
+    import json as _json
+    now = now_iso()
+    with connect() as c:
+        existing = rows(c, "SELECT id FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", tenant_id)
+        if existing:
+            current = {}
+            try:
+                current = _json.loads(existing[0].get("value") or "{}")
+            except Exception:
+                pass
+            current[name] = {"subject": subject, "body": body}
+            c.execute("UPDATE tenant_settings SET value = ?, updated_at = ? WHERE tenant_id = ? AND key = 'email_templates'",
+                      (_json.dumps(current), now, tenant_id))
+        else:
+            c.execute("INSERT INTO tenant_settings (tenant_id, key, value, updated_at) VALUES (?, ?, ?, ?)",
+                      (tenant_id, "email_templates", _json.dumps({name: {"subject": subject, "body": body}}), now))
 
 
 def _json(value: Any) -> str:

@@ -90,6 +90,15 @@ async def lifespan(_app):
 
 app = FastAPI(title="HeyJarvis Concierge", version="0.3.0", lifespan=lifespan)
 _origins = [o.strip() for o in os.environ.get("CONCIERGE_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+if not _origins:
+    _origins = [
+        "http://localhost:8000",
+        "http://localhost:8002",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:8002",
+        "null",
+        "*",
+    ]
 app.add_middleware(CORSMiddleware, allow_origins=_origins, allow_methods=["POST"], allow_headers=["Content-Type"])
 
 

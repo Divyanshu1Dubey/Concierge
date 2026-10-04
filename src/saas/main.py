@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -14,11 +15,20 @@ from saas.public_api import admin_app, public_app, _tenant_config
 from saas.repositories import get_tenant_by_slug
 
 settings = get_settings()
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 STATIC = ROOT / "src" / "saas" / "static"
 STATIC.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="HeyJarvis Concierge Platform", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="saas-static")
 app.mount("/api", public_app)
 app.mount("/api/admin", admin_app)

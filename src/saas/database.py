@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -11,8 +10,10 @@ from pathlib import Path
 
 from saas.config import get_settings
 
-settings = get_settings()
 _lock = threading.Lock()
+
+def _get_settings():
+    return get_settings()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tenants (
@@ -84,9 +85,13 @@ CREATE TABLE IF NOT EXISTS email_settings (
     smtp_port INTEGER,
     smtp_user TEXT,
     smtp_password_enc TEXT,
+    smtp_security TEXT DEFAULT 'tls',
     from_name TEXT,
     from_email TEXT,
     reply_to TEXT,
+    front_desk_email TEXT,
+    backup_email TEXT,
+    delivery_mode TEXT NOT NULL DEFAULT 'email_draft',
     updated_at TEXT NOT NULL,
     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
@@ -119,6 +124,15 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL,
     metadata TEXT NOT NULL DEFAULT '{}',
     FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+);
+CREATE TABLE IF NOT EXISTS conversation_fields (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL,
+    field_key TEXT NOT NULL,
+    field_value TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id),
+    UNIQUE(conversation_id, field_key)
 );
 CREATE TABLE IF NOT EXISTS leads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,19 +197,55 @@ CREATE TABLE IF NOT EXISTS tenant_settings (
     updated_at TEXT NOT NULL,
     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
+CREATE TABLE IF NOT EXISTS email_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    intent TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+CREATE TABLE IF NOT EXISTS integration_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL UNIQUE,
+    webhook_url TEXT,
+    webhook_secret_enc TEXT,
+    crm_provider TEXT,
+    crm_config_enc TEXT,
+    sms_provider TEXT,
+    sms_config_enc TEXT,
+    calendar_provider TEXT,
+    calendar_config_enc TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+CREATE TABLE IF NOT EXISTS rate_limit_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL,
+    window_start TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(key, window_start)
+);
 CREATE INDEX IF NOT EXISTS idx_leads_tenant ON leads(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_tenant ON conversations(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_tenant ON analytics_events(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_public ON api_keys(public_key);
 CREATE INDEX IF NOT EXISTS idx_domains_domain ON domains(domain);
+CREATE INDEX IF NOT EXISTS idx_notifications_tenant ON notifications(tenant_id);
 """
 
 
 def db_path() -> Path:
-    return Path(settings.database_url)
+    return Path(_get_settings().database_url)
 
 
 _ready: set[str] = set()
+
+
+def reset_schema_cache() -> None:
+    _ready.clear()
 
 
 @contextmanager
@@ -215,6 +265,55 @@ def connect():
         finally:
             conn.commit()
             conn.close()
+
+
+def reset_database() -> None:
+    path = db_path()
+    _ready.discard(str(path))
+    if path.exists():
+        path.unlink()
+    if path.exists():
+        path.unlink()
+
+
+def migrate() -> None:
+    """Additive migration: add new columns to existing tables if missing."""
+    with connect() as c:
+        # email_settings: new columns
+        for col in ["smtp_security", "front_desk_email", "backup_email", "delivery_mode"]:
+            try:
+                c.execute(f"ALTER TABLE email_settings ADD COLUMN {col} TEXT")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+        # integration_settings table
+        try:
+            c.execute("""CREATE TABLE IF NOT EXISTS integration_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id INTEGER NOT NULL UNIQUE,
+                webhook_url TEXT,
+                webhook_secret_enc TEXT,
+                crm_provider TEXT,
+                crm_config_enc TEXT,
+                sms_provider TEXT,
+                sms_config_enc TEXT,
+                calendar_provider TEXT,
+                calendar_config_enc TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+            )""")
+        except sqlite3.OperationalError:
+            pass
+        # rate_limit_entries table
+        try:
+            c.execute("""CREATE TABLE IF NOT EXISTS rate_limit_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT NOT NULL,
+                window_start TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(key, window_start)
+            )""")
+        except sqlite3.OperationalError:
+            pass
 
 
 def now_iso() -> str:

@@ -1,13 +1,13 @@
-/* HeyJarvis Concierge — Production-Ready Dental Widget
+/* HeyJarvis Concierge - Production-Ready Dental Widget
  *
  * Embed on any site:
- *   <script async src="https://YOUR-HOST/widget.js"></script>
+ *   <script async src="https://YOUR-HOST/widget.js"><\/script>
  *
  * Features:
  * - Matches exact site design ("Plan your visit" style)
  * - AI-powered appointment booking conversation
  * - Form collection as fallback
- * - Local API: http://localhost:8002/public/requests
+ * - Local API: /public/requests
  * - Floating launcher + panel
  * - Accessible, responsive, mobile-friendly
  */
@@ -17,7 +17,9 @@
     var script = document.currentScript;
     if (!script) return;
 
-    var apiBase = (script.getAttribute('src') || '').replace(/\/widget\.js\/?$/, '');
+    var apiBase = (script.getAttribute('data-heyjarvis-api') || '')
+      || (script.getAttribute('src') || '').replace(/\/widget\.js\/?$/, '')
+      || 'http://localhost:8000';
     if (!apiBase) return;
 
     var STATE = { CLOSED: 'closed', OPEN: 'open', CHAT: 'chat', FORM: 'form', SENDING: 'sending', SENT: 'sent' };
@@ -118,7 +120,7 @@
         '<div class="hj-field"><label for="hj-message">Tell us more</label><textarea id="hj-message" maxlength="10000"></textarea></div>' +
         '<button id="hj-submit" type="submit">Request appointment</button>' +
       '</form>' +
-      '<p id="hj-disclosure">Guided assistance — Our team confirms appointments.<br>Please don’t share private medical information here.</p>';
+      '<p id="hj-disclosure">Guided assistance  -  Our team confirms appointments.<br>Please don’t share private medical information here.</p>';
     document.body.appendChild(panel);
 
     var launcherBtn = document.getElementById('hj-launcher');
@@ -185,18 +187,31 @@
     closeBtn.addEventListener('click', closePanel);
 
     function api(path, options) {
-      return fetch(apiBase + path, {
-        method: options && options.method || 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        body: options && options.body ? JSON.stringify(options.body) : undefined,
-      }).then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      });
+      var candidates = [];
+      if (path.indexOf('/public/') === 0) {
+        candidates.push(apiBase.replace(/\/$/, '') + '/api/v1/public/requests');
+      }
+      candidates.push(apiBase + path);
+      var lastErr;
+      function attempt(i) {
+        if (i >= candidates.length) return Promise.reject(lastErr || new Error('API failed'));
+        return fetch(candidates[i], {
+          method: options && options.method || 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          body: options && options.body ? JSON.stringify(options.body) : undefined,
+        }).then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status + ':' + candidates[i]);
+          return r.json();
+        }).catch(function (err) {
+          lastErr = err;
+          return attempt(i + 1);
+        });
+      }
+      return attempt(0);
     }
 
     function startConversation() {
-      return api('/public/requests', { method: 'POST', body: { source: 'website:' + location.hostname } })
+      return api('/public/requests', { method: 'POST', body: { source: 'website:' + location.hostname, message: 'Conversation started from website widget.' } })
         .then(function (data) {
           conversationId = data.conversation_id || ('local-' + Date.now());
           startGreeting();
@@ -328,8 +343,8 @@
       submitForm();
     });
 
-    // Start on load, but keep closed
-    api('/public/requests', { method: 'POST', body: { source: 'website:' + location.hostname } })
+    // Pre-warm conversation id
+    api('/public/requests', { method: 'POST', body: { source: 'website:' + location.hostname, message: 'Widget pre-warm.' } })
       .then(function (data) {
         conversationId = data.conversation_id || ('local-' + Date.now());
       })

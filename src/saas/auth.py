@@ -38,7 +38,7 @@ def authenticate(tenant_id: int, email: str, password: str | None = None) -> Use
 
 def login_for_token(tenant_id: int, form_data: OAuth2PasswordRequestForm) -> TokenOut:
     user = authenticate(tenant_id, form_data.username, form_data.password)
-    token = create_access_token(subject=str(user.id))
+    token = create_access_token(subject=str(user.id), tenant_id=tenant_id)
     return TokenOut(access_token=token, user=_user_payload(user))
 
 
@@ -48,16 +48,19 @@ def _user_payload(user: User) -> dict[str, Any]:
 
 
 async def get_current(authorization: str | None = Depends(oauth2)) -> CurrentUser:
-    if not authorization or not authorization.lower().startswith("bearer "):
+    if not authorization:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
-    token = authorization.split(" ", 1)[1].strip()
+    token = authorization.strip()
     claims = decode_token(token)
     sub = claims.get("sub")
     if not sub:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token claims")
-    user = get_user_by_email(int(claims.get("tid", 0)), "") or get_user(int(sub))
+    user = get_user(int(sub))
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="user not found")
+    tid = claims.get("tid")
+    if tid is not None and user.tenant_id != int(tid):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="wrong tenant")
     return CurrentUser(user=user, token_claims=claims)
 
 

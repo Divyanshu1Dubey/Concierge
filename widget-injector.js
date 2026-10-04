@@ -7,7 +7,7 @@
  * - Matches exact site design ("Plan your visit" style)
  * - AI-powered appointment booking conversation
  * - Form collection as fallback
- * - Local API: http://localhost:8002/public/requests
+ * - Local API: /public/requests
  * - Floating launcher + panel
  * - Accessible, responsive, mobile-friendly
  */
@@ -328,7 +328,7 @@
       submitForm();
     });
 
-    // Start on load, but keep closed
+    // Pre-warm conversation id
     api('/public/requests', { method: 'POST', body: { source: 'website:' + location.hostname } })
       .then(function (data) {
         conversationId = data.conversation_id || ('local-' + Date.now());

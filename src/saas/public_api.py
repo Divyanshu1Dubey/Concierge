@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
+import zipfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.security import OAuth2PasswordRequestForm
+from starlette import status
+from pydantic import BaseModel
 
-from saas.auth import get_current, require_roles
+from saas.auth import get_current, require_roles, login_for_token, TokenOut, CurrentUser
 from saas.config import get_settings
 from saas.conversation import ConversationEngine, DEFAULT_GREETING, State
 from saas.database import connect, now_iso, row, rows
@@ -30,6 +35,7 @@ from saas.repositories import (
     create_conversation,
     create_lead,
     get_lead,
+    get_tenant_by_slug,
     list_domains as repo_list_domains,
     list_tenants,
     remove_domain as repo_remove_domain,
@@ -50,6 +56,26 @@ public_app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
+
+
+# ── Public Auth ──────────────────────────────────────────────────────────────
+
+class LoginBody(BaseModel):
+    tenant_slug: str
+    email: str
+    password: str
+
+
+@public_app.post("/{tenant_slug}/auth/token")
+def public_tenant_login(
+    tenant_slug: str,
+    username: str = Body(...),
+    password: str = Body(...),
+) -> TokenOut:
+    tenant = get_tenant_by_slug(tenant_slug)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="tenant not found")
+    return login_for_token(tenant.id, OAuth2PasswordRequestForm(username=username, password=password))
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -85,6 +111,39 @@ def _load_tenant(tenant_id: int) -> dict[str, Any]:
     }
 
 
+def _load_integration(tenant_id: int) -> dict[str, Any]:
+    public_key = _public_key(tenant_id)
+    app_url = os.environ.get("APP_URL", "http://localhost:8000").rstrip("/")
+    with connect() as c:
+        domains = rows(c, "SELECT * FROM domains WHERE tenant_id = ? ORDER BY id", tenant_id)
+        widget_row = row(c, "SELECT config FROM widget_settings WHERE tenant_id = ?", tenant_id)
+    widget_config = {}
+    if widget_row:
+        try:
+            widget_config = json.loads(widget_row.get("config") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            widget_config = {}
+    slug = ""
+    with connect() as c2:
+        r = row(c2, "SELECT slug FROM tenants WHERE id = ?", tenant_id)
+        if r:
+            slug = r["slug"]
+    return {
+        "public_key": public_key,
+        "widget_url": app_url + "/widget.js",
+        "concierge_url": app_url + "/concierge/" + slug,
+        "domains": [{"id": d["id"], "domain": d["domain"], "verified": bool(d["verified"])} for d in domains],
+        "domain_count": len(domains),
+        "widget_config": widget_config,
+    }
+
+
+def _public_key(tenant_id: int) -> str:
+    with connect() as c:
+        r = row(c, "SELECT public_key FROM api_keys WHERE tenant_id = ? LIMIT 1", tenant_id)
+    return r["public_key"] if r else ""
+
+
 # ── Public Routes ────────────────────────────────────────────────────────────
 
 @public_app.get("/health")
@@ -92,7 +151,7 @@ def public_health() -> dict:
     return {"ok": True}
 
 
-@public_app.get("/api/v1/public/config")
+@public_app.get("/v1/public/config")
 def public_config(client_key: str, request: Request) -> dict:
     key = get_api_key_by_public(client_key)
     if not key or key.revoked_at:
@@ -118,7 +177,7 @@ def public_config(client_key: str, request: Request) -> dict:
     }
 
 
-@public_app.post("/api/v1/public/conversations")
+@public_app.post("/v1/public/conversations")
 def public_conversation_start(client_key: str, request: Request) -> dict:
     key = get_api_key_by_public(client_key)
     if not key or key.revoked_at:
@@ -139,7 +198,7 @@ def public_conversation_start(client_key: str, request: Request) -> dict:
     return result
 
 
-@public_app.post("/api/v1/public/conversations/{conversation_id}/messages")
+@public_app.post("/v1/public/conversations/{conversation_id}/messages")
 def public_conversation_message(conversation_id: int, body: dict[str, Any], client_key: str) -> dict:
     key = get_api_key_by_public(client_key)
     if not key or key.revoked_at:
@@ -148,9 +207,23 @@ def public_conversation_message(conversation_id: int, body: dict[str, Any], clie
         conv = rows(c, "SELECT id, tenant_id, status, metadata FROM conversations WHERE id = ?", conversation_id)
     if not conv or conv[0]["tenant_id"] != key.tenant_id:
         raise HTTPException(status_code=404, detail="conversation not found")
-    ctx = ConversationContext(conversation_id=conversation_id, tenant_id=conv[0]["tenant_id"])
+
+    # Load persisted fields from metadata so turns accumulate
+    meta_raw = conv[0].get("metadata") or "{}"
+    meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
+    existing_fields = meta.get("fields") or {}
+
+    ctx = ConversationContext(conversation_id=conversation_id, tenant_id=conv[0]["tenant_id"], fields=existing_fields)
     context = ConversationEngine(_tenant_config(key.tenant_id))
     result = context.handle(ctx, body.get("message", ""))
+
+    # Persist updated fields back to metadata
+    updated_meta = dict(meta)
+    updated_meta["fields"] = ctx.fields
+    with connect() as c:
+        c.execute("UPDATE conversations SET metadata = ?, updated_at = ? WHERE id = ?",
+                  (json.dumps(updated_meta), now_iso(), conversation_id))
+
     if ctx.state == State.SUBMITTED:
         lead = create_lead(key.tenant_id, {
             "conversation_id": conversation_id,
@@ -166,7 +239,7 @@ def public_conversation_message(conversation_id: int, body: dict[str, Any], clie
     return result
 
 
-@public_app.get("/api/v1/public/leads")
+@public_app.get("/v1/public/leads")
 def public_lead_status(client_key: str, lead_id: int) -> dict:
     key = get_api_key_by_public(client_key)
     if not key or key.revoked_at:
@@ -175,6 +248,41 @@ def public_lead_status(client_key: str, lead_id: int) -> dict:
     if not lead or lead["tenant_id"] != key.tenant_id:
         raise HTTPException(status_code=404, detail="lead not found")
     return {"id": lead["id"], "status": lead["status"], "updated_at": lead["updated_at"]}
+
+
+@public_app.post("/v1/public/leads")
+def public_lead_create(body: dict[str, Any], client_key: str) -> dict:
+    key = get_api_key_by_public(client_key)
+    if not key or key.revoked_at:
+        raise HTTPException(status_code=401, detail="invalid client key")
+
+    # Require minimum fields
+    if not body.get("name") or not body.get("email"):
+        raise HTTPException(status_code=400, detail="name and email are required")
+
+    lead = create_lead(key.tenant_id, {
+        "name": body.get("name"),
+        "email": body.get("email"),
+        "phone": body.get("phone"),
+        "service": body.get("service") or body.get("intent"),
+        "intent": body.get("intent"),
+        "urgency": body.get("urgency"),
+        "preferredDate": body.get("preferred_date"),
+        "preferredTime": body.get("preferred_time"),
+        "insurance": body.get("insurance"),
+        "financing": body.get("financing"),
+        "message": body.get("message"),
+        "conversationSummary": body.get("message"),
+        "source": body.get("source", "website_widget"),
+        "pageUrl": body.get("page_url"),
+        "conversationId": body.get("conversationId") or body.get("conversation_id"),
+    })
+    try:
+        send_lead_notification(key.tenant_id, lead["id"], intent=body.get("intent", "default"))
+    except Exception:
+        log.exception("lead notification failed for tenant %s lead %s", key.tenant_id, lead["id"])
+    track_event(key.tenant_id, "lead_created", {"lead_id": lead["id"]})
+    return {"ok": True, "lead_id": lead["id"]}
 
 
 @public_app.get("/widget.js")
@@ -187,18 +295,30 @@ def public_widget() -> FileResponse:
 admin_app = FastAPI(title="HeyJarvis Admin", version="1.0.0")
 
 
-@admin_app.get("/api/admin/tenants")
+@admin_app.post("/auth/login")
+def admin_login(body: LoginBody) -> TokenOut:
+    tenant = get_tenant_by_slug(body.tenant_slug)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="tenant not found")
+    return login_for_token(tenant.id, OAuth2PasswordRequestForm(username=body.email, password=body.password))
+
+
+@admin_app.get("/tenants")
 def admin_list_tenants(_: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict[str, Any]]:
     return [t.model_dump() for t in list_tenants()]
 
 
-@admin_app.get("/api/admin/tenants/{tenant_id}")
-def admin_get_tenant(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+@admin_app.get("/tenants/{tenant_id}")
+def admin_get_tenant(tenant_id: int, cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="wrong tenant")
     return _load_tenant(tenant_id)
 
 
-@admin_app.patch("/api/admin/tenants/{tenant_id}")
+@admin_app.patch("/tenants/{tenant_id}")
 def admin_update_tenant(tenant_id: int, body: dict[str, Any], cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="wrong tenant")
     from saas.repositories import update_tenant
     allowed = {"name", "enabled", "plan"}
     fields = {k: v for k, v in body.items() if k in allowed}
@@ -208,39 +328,140 @@ def admin_update_tenant(tenant_id: int, body: dict[str, Any], cu: Any = Depends(
     return _load_tenant(tenant_id)
 
 
-@admin_app.post("/api/admin/tenants/{tenant_id}/domains")
+@admin_app.post("/tenants/{tenant_id}/domains")
 def admin_add_domain(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     dom = repo_add_domain(tenant_id, body.get("domain", ""))
     return dom.model_dump()
 
 
-@admin_app.post("/api/admin/domains/{domain_id}/verify")
+@admin_app.post("/domains/{domain_id}/verify")
 def admin_verify_domain(domain_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     repo_verify_domain(domain_id)
     return {"ok": True}
 
 
-@admin_app.delete("/api/admin/domains/{domain_id}")
+@admin_app.delete("/domains/{domain_id}")
 def admin_remove_domain(domain_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     repo_remove_domain(domain_id)
     return {"ok": True}
 
 
-@admin_app.get("/api/admin/tenants/{tenant_id}/domains")
+@admin_app.get("/tenants/{tenant_id}/domains")
 def admin_list_domains(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict[str, Any]]:
     return [d.model_dump() for d in repo_list_domains(tenant_id)]
 
 
+# ── Integration Center ──────────────────────────────────────────────────────────
+
+@admin_app.get("/tenants/{tenant_id}/integration")
+def admin_get_integration(tenant_id: int, cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    return _load_integration(tenant_id)
+
+
+@admin_app.post("/tenants/{tenant_id}/integration/domains")
+def admin_add_integration_domain(tenant_id: int, body: dict[str, Any], cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    domain = (body.get("domain") or "").strip().lower().replace("https://", "").replace("http://", "").split("/")[0]
+    if not domain:
+        raise HTTPException(status_code=422, detail="domain is required")
+    with connect() as c:
+        existing = rows(c, "SELECT id FROM domains WHERE tenant_id = ? AND domain = ?", tenant_id, domain)
+        if existing:
+            raise HTTPException(status_code=409, detail="domain already added")
+        did = c.execute("INSERT INTO domains (tenant_id, domain, created_at) VALUES (?, ?, ?)",
+                        (tenant_id, domain, now_iso())).lastrowid
+        r = row(c, "SELECT * FROM domains WHERE id = ?", did)
+    from saas.repositories import audit
+    audit(tenant_id, cu.user.id, "domain_added", {"domain": domain})
+    return dict(r)
+
+
+@admin_app.delete("/tenants/{tenant_id}/integration/domains/{domain_id}")
+def admin_remove_integration_domain(tenant_id: int, domain_id: int, cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    with connect() as c:
+        r = row(c, "SELECT domain FROM domains WHERE id = ? AND tenant_id = ?", domain_id, tenant_id)
+        if not r:
+            raise HTTPException(status_code=404, detail="domain not found")
+        domain = r["domain"]
+        c.execute("DELETE FROM domains WHERE id = ?", (domain_id,))
+    from saas.repositories import audit
+    audit(tenant_id, cu.user.id, "domain_removed", {"domain": domain})
+    return {"ok": True}
+
+
+@admin_app.post("/tenants/{tenant_id}/integration/domains/{domain_id}/verify")
+def admin_verify_integration_domain(tenant_id: int, domain_id: int, cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    with connect() as c:
+        c.execute("UPDATE domains SET verified = 1 WHERE id = ? AND tenant_id = ?", (domain_id, tenant_id))
+        r = row(c, "SELECT * FROM domains WHERE id = ?", domain_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="domain not found")
+    from saas.repositories import audit
+    audit(tenant_id, cu.user.id, "domain_verified", {"domain_id": domain_id})
+    return dict(r)
+
+
+@admin_app.post("/tenants/{tenant_id}/integration/regenerate-key")
+def admin_regenerate_client_key(tenant_id: int, cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    with connect() as c:
+        rows_data = rows(c, "SELECT id FROM api_keys WHERE tenant_id = ? AND revoked_at IS NULL LIMIT 1", tenant_id)
+    if rows_data:
+        from saas.repositories import revoke_api_key
+        revoke_api_key(rows_data[0]["id"])
+    from saas.repositories import create_api_key
+    new_key = create_api_key(tenant_id, label="primary", secret=__import__("secrets").token_urlsafe(24))
+    from saas.repositories import audit
+    audit(tenant_id, cu.user.id, "api_key_regenerated", {})
+    return {"public_key": new_key.public_key, "message": "New client key generated. Update your website snippet."}
+
+
+@admin_app.post("/tenants/{tenant_id}/integration/test")
+def admin_test_integration(tenant_id: int, cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    tenant = _load_tenant(tenant_id)
+    public_key = _public_key(tenant_id)
+    if not public_key:
+        return {"status": "error", "message": "No client key found. Generate one first."}
+    with connect() as c:
+        domains = rows(c, "SELECT domain, verified FROM domains WHERE tenant_id = ?", tenant_id)
+    domain_list = [d["domain"] for d in domains]
+    if not domain_list:
+        return {
+            "status": "pending",
+            "message": "No domains configured. Add your website domain to enable origin validation.",
+            "domains": [],
+            "client_key_configured": True,
+        }
+    return {
+        "status": "ready",
+        "message": "Integration is configured. Paste the snippet on your website.",
+        "domains": domain_list,
+        "domain_count": len(domain_list),
+        "verified_domains": [d["domain"] for d in domains if d["verified"]],
+        "client_key_configured": bool(public_key),
+    }
+
+
 # ── Leads Admin ──────────────────────────────────────────────────────────────
 
-@admin_app.get("/api/admin/tenants/{tenant_id}/leads")
+@admin_app.get("/tenants/{tenant_id}/leads")
 def admin_list_leads(tenant_id: int, status: str | None = None, limit: int = 100, offset: int = 0,
                      _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
     from saas.repositories import list_leads
     return list_leads(tenant_id, status=status, limit=limit, offset=offset)
 
 
-@admin_app.get("/api/admin/leads/{lead_id}")
+@admin_app.get("/leads/{lead_id}")
 def admin_get_lead(lead_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
     lead = get_lead(lead_id)
     if not lead:
@@ -248,7 +469,7 @@ def admin_get_lead(lead_id: int, _: Any = Depends(require_roles("owner", "admin"
     return lead
 
 
-@admin_app.patch("/api/admin/leads/{lead_id}")
+@admin_app.patch("/leads/{lead_id}")
 def admin_update_lead(lead_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin", "member"))) -> dict:
     allowed = {"status", "name", "email", "phone", "intent", "service", "urgency",
                "preferred_date", "preferred_time", "insurance", "financing", "message"}
@@ -264,7 +485,7 @@ def admin_update_lead(lead_id: int, body: dict[str, Any], _: Any = Depends(requi
 
 # ── Conversations Admin ──────────────────────────────────────────────────────
 
-@admin_app.get("/api/admin/tenants/{tenant_id}/conversations")
+@admin_app.get("/tenants/{tenant_id}/conversations")
 def admin_list_conversations(tenant_id: int, status: str | None = None, limit: int = 100, offset: int = 0,
                               _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
     with connect() as c:
@@ -278,7 +499,20 @@ def admin_list_conversations(tenant_id: int, status: str | None = None, limit: i
         return rows(c, sql, *args)
 
 
-@admin_app.get("/api/admin/conversations/{conversation_id}/messages")
+@admin_app.post("/tenants/{tenant_id}/conversations")
+def admin_create_conversation(tenant_id: int, body: dict = Body(default_factory=dict), _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    body = body or {}
+    now = now_iso()
+    with connect() as c:
+        cur = c.execute(
+            "INSERT INTO conversations (tenant_id, status, page_url, summary, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (tenant_id, "new", body.get("page_url", "/"), body.get("summary"), json.dumps(body), now, now),
+        )
+        cid = cur.lastrowid
+        return rows(c, "SELECT * FROM conversations WHERE id = ?", cid)[0]
+
+
+@admin_app.get("/conversations/{conversation_id}/messages")
 def admin_get_messages(conversation_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
     with connect() as c:
         conv = rows(c, "SELECT tenant_id FROM conversations WHERE id = ?", conversation_id)
@@ -290,7 +524,7 @@ def admin_get_messages(conversation_id: int, _: Any = Depends(require_roles("own
 
 # ── Analytics Admin ──────────────────────────────────────────────────────────
 
-@admin_app.get("/api/admin/tenants/{tenant_id}/analytics")
+@admin_app.get("/tenants/{tenant_id}/analytics")
 def admin_analytics(tenant_id: int, days: int = 7, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
     since = _days_ago(days)
     with connect() as c:
@@ -315,14 +549,14 @@ def _days_ago(n: int) -> str:
 
 # ── Widget Settings Admin ────────────────────────────────────────────────────
 
-@admin_app.get("/api/admin/tenants/{tenant_id}/widget")
+@admin_app.get("/tenants/{tenant_id}/widget")
 def admin_get_widget(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
     with connect() as c:
         r = rows(c, "SELECT config FROM widget_settings WHERE tenant_id = ?", tenant_id)
     return json.loads(r[0]["config"]) if r else {}
 
 
-@admin_app.put("/api/admin/tenants/{tenant_id}/widget")
+@admin_app.put("/tenants/{tenant_id}/widget")
 def admin_update_widget(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     with connect() as c:
         existing = rows(c, "SELECT id FROM widget_settings WHERE tenant_id = ?", tenant_id)
@@ -337,9 +571,40 @@ def admin_update_widget(tenant_id: int, body: dict[str, Any], _: Any = Depends(r
     return body
 
 
+# ── Tenant Members Admin ───────────────────────────────────────────────────────
+
+@admin_app.get("/tenants/{tenant_id}/members")
+def admin_list_members(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+    with connect() as c:
+        return rows(c, "SELECT id, email, role, display_name FROM users WHERE tenant_id=? AND role != 'owner'", tenant_id)
+
+
+@admin_app.post("/tenants/{tenant_id}/members")
+def admin_add_member(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    from saas.security import hash_password
+    import secrets as _secrets
+    email = body.get("email", "").strip()
+    role = body.get("role", "member")
+    display_name = body.get("display_name", email.split("@")[0] if email else "")
+    password = body.get("password")
+    if not email:
+        raise HTTPException(status_code=422, detail="email required")
+    with connect() as c:
+        existing = rows(c, "SELECT 1 FROM users WHERE tenant_id=? AND email=?", tenant_id, email)
+        if existing:
+            raise HTTPException(status_code=409, detail="member already exists")
+        hashed = hash_password(password or _secrets.token_urlsafe(16))
+        now = now_iso()
+        cur = c.execute(
+            "INSERT INTO users (tenant_id, email, display_name, hashed_password, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (tenant_id, email, display_name, hashed, role, now, now),
+        )
+        return {"id": cur.lastrowid, "email": email, "role": role, "display_name": display_name}
+
+
 # ── Email Settings Admin ─────────────────────────────────────────────────────
 
-@admin_app.get("/api/admin/tenants/{tenant_id}/email")
+@admin_app.get("/tenants/{tenant_id}/email")
 def admin_get_email(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
     with connect() as c:
         r = rows(c, "SELECT * FROM email_settings WHERE tenant_id = ?", tenant_id)
@@ -358,7 +623,7 @@ def admin_get_email(tenant_id: int, _: Any = Depends(require_roles("owner", "adm
     }
 
 
-@admin_app.put("/api/admin/tenants/{tenant_id}/email")
+@admin_app.put("/tenants/{tenant_id}/email")
 def admin_update_email(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     from saas.security import encrypt_value
     allowed = {"provider", "smtp_host", "smtp_port", "smtp_user", "smtp_password",
@@ -384,7 +649,7 @@ def admin_update_email(tenant_id: int, body: dict[str, Any], _: Any = Depends(re
     return {"ok": True}
 
 
-@admin_app.post("/api/admin/tenants/{tenant_id}/email/test")
+@admin_app.post("/tenants/{tenant_id}/email/test")
 def admin_test_email(tenant_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     row_data = _smtp_row(tenant_id)
     to = (row_data or {}).get("from_email") or settings.default_smtp_from
@@ -392,7 +657,7 @@ def admin_test_email(tenant_id: int, _: Any = Depends(require_roles("owner", "ad
     return {"ok": result.ok, "mode": result.mode, "ref": result.ref, "error": result.error}
 
 
-@admin_app.post("/api/admin/tenants/{tenant_id}/email/test-smtp")
+@admin_app.post("/tenants/{tenant_id}/email/test-smtp")
 def admin_test_smtp(tenant_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     ok, detail = test_smtp_connection(tenant_id)
     return {"ok": ok, "detail": detail}
@@ -400,7 +665,7 @@ def admin_test_smtp(tenant_id: int, _: Any = Depends(require_roles("owner", "adm
 
 # ── Email Templates Admin ────────────────────────────────────────────────────
 
-@admin_app.get("/api/admin/tenants/{tenant_id}/templates")
+@admin_app.get("/tenants/{tenant_id}/templates")
 def admin_list_templates(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
     from saas.email_templates import DEFAULT_TEMPLATES
     with connect() as c:
@@ -416,7 +681,7 @@ def admin_list_templates(tenant_id: int, _: Any = Depends(require_roles("owner",
     return merged
 
 
-@admin_app.put("/api/admin/tenants/{tenant_id}/templates/{template_name}")
+@admin_app.put("/tenants/{tenant_id}/templates/{template_name}")
 def admin_update_template(tenant_id: int, template_name: str, body: dict[str, str],
                           _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     with connect() as c:
@@ -435,21 +700,21 @@ def admin_update_template(tenant_id: int, template_name: str, body: dict[str, st
     return body
 
 
-@admin_app.get("/api/admin/template-variables")
+@admin_app.get("/template-variables")
 def admin_template_variables(_: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict[str, str]:
     return list_template_variables()
 
 
 # ── Business Rules Admin ─────────────────────────────────────────────────────
 
-@admin_app.get("/api/admin/tenants/{tenant_id}/business-rules")
+@admin_app.get("/tenants/{tenant_id}/business-rules")
 def admin_get_business_rules(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
     with connect() as c:
         r = rows(c, "SELECT rules FROM business_rules WHERE tenant_id = ?", tenant_id)
     return json.loads(r[0]["rules"]) if r else {}
 
 
-@admin_app.put("/api/admin/tenants/{tenant_id}/business-rules")
+@admin_app.put("/tenants/{tenant_id}/business-rules")
 def admin_update_business_rules(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     with connect() as c:
         existing = rows(c, "SELECT id FROM business_rules WHERE tenant_id = ?", tenant_id)
@@ -465,12 +730,14 @@ def admin_update_business_rules(tenant_id: int, body: dict[str, Any], _: Any = D
 
 # ── Tenant Settings Admin ────────────────────────────────────────────────────
 
-@admin_app.get("/api/admin/tenants/{tenant_id}/settings")
-def admin_get_settings(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+@admin_app.get("/tenants/{tenant_id}/settings")
+def admin_get_settings(tenant_id: int, current: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    if current.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="wrong tenant")
     return _tenant_config(tenant_id)
 
 
-@admin_app.put("/api/admin/tenants/{tenant_id}/settings")
+@admin_app.put("/tenants/{tenant_id}/settings")
 def admin_update_settings(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     allowed_flags = {
         "greeting", "enabled", "ai_enabled", "lead_collection_enabled",
@@ -559,25 +826,25 @@ _dashboard_template = """<!doctype html>
 <body>
 <nav class="sidebar">
   <div class="logo">HeyJarvis</div>
-  <a href="/admin/dashboard/{tenant_id}" class="active">Dashboard</a>
+  <a href="/dashboard/{tenant_id}" class="active">Dashboard</a>
   <div class="section">Core</div>
-  <a href="/admin/dashboard/{tenant_id}?tab=concierge">Concierge</a>
-  <a href="/admin/dashboard/{tenant_id}?tab=conversations">Conversations</a>
-  <a href="/admin/dashboard/{tenant_id}?tab=leads">Leads</a>
-  <a href="/admin/dashboard/{tenant_id}?tab=installation">Installation</a>
+  <a href="/dashboard/{tenant_id}?tab=concierge">Concierge</a>
+  <a href="/dashboard/{tenant_id}?tab=conversations">Conversations</a>
+  <a href="/dashboard/{tenant_id}?tab=leads">Leads</a>
+  <a href="/dashboard/{tenant_id}?tab=installation">Installation</a>
   <div class="section">Configuration</div>
-  <a href="/admin/dashboard/{tenant_id}?tab=widget">Widget</a>
-  <a href="/admin/dashboard/{tenant_id}?tab=questions">Questions & Fields</a>
-  <a href="/admin/dashboard/{tenant_id}?tab=email">Email</a>
-  <a href="/admin/dashboard/{tenant_id}?tab=templates">Templates</a>
-  <a href="/admin/dashboard/{tenant_id}?tab=business-rules">Business Rules</a>
-  <a href="/admin/dashboard/{tenant_id}?tab=notifications">Notifications</a>
+  <a href="/dashboard/{tenant_id}?tab=widget">Widget</a>
+  <a href="/dashboard/{tenant_id}?tab=questions">Questions & Fields</a>
+  <a href="/dashboard/{tenant_id}?tab=email">Email</a>
+  <a href="/dashboard/{tenant_id}?tab=templates">Templates</a>
+  <a href="/dashboard/{tenant_id}?tab=business-rules">Business Rules</a>
+  <a href="/dashboard/{tenant_id}?tab=notifications">Notifications</a>
   <div class="section">System</div>
-  <a href="/admin/dashboard/{tenant_id}?tab=integrations">Integrations</a>
-  <a href="/admin/dashboard/{tenant_id}?tab=team">Team</a>
-  <a href="/admin/dashboard/{tenant_id}?tab=security">Security & API</a>
-  <a href="/admin/dashboard/{tenant_id}?tab=analytics">Analytics</a>
-  <a href="/admin/dashboard/{tenant_id}?tab=settings">Settings</a>
+  <a href="/dashboard/{tenant_id}?tab=integrations">Integrations</a>
+  <a href="/dashboard/{tenant_id}?tab=team">Team</a>
+  <a href="/dashboard/{tenant_id}?tab=security">Security & API</a>
+  <a href="/dashboard/{tenant_id}?tab=analytics">Analytics</a>
+  <a href="/dashboard/{tenant_id}?tab=settings">Settings</a>
 </nav>
 <div class="main">
   <div class="topbar">
@@ -1175,7 +1442,7 @@ _dashboard_template = """<!doctype html>
 </html>"""
 
 
-@admin_app.get("/admin/dashboard/{tenant_id}")
+@admin_app.get("/dashboard/{tenant_id}")
 def admin_dashboard(tenant_id: int, cu: Any = Depends(get_current)):
     if cu.user.tenant_id != tenant_id:
         raise HTTPException(403)
@@ -1405,7 +1672,7 @@ def admin_dashboard(tenant_id: int, cu: Any = Depends(get_current)):
     )
     return HTMLResponse(content=html)
 
-@admin_app.get("/api/admin/tenants/{tenant_id}/audit")
+@admin_app.get("/tenants/{tenant_id}/audit")
 def admin_audit_log(tenant_id: int, limit: int = 50, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
     with connect() as c:
         return rows(c, "SELECT * FROM audit_logs WHERE tenant_id = ? ORDER BY id DESC LIMIT ?", tenant_id, limit)
@@ -1413,7 +1680,7 @@ def admin_audit_log(tenant_id: int, limit: int = 50, _: Any = Depends(require_ro
 
 # ── API Keys Admin ────────────────────────────────────────────────────────────
 
-@admin_app.post("/api/admin/tenants/{tenant_id}/api-keys")
+@admin_app.post("/tenants/{tenant_id}/api-keys")
 def admin_create_api_key(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     from saas.repositories import create_api_key
     label = body.get("label", "default")
@@ -1422,7 +1689,7 @@ def admin_create_api_key(tenant_id: int, body: dict[str, Any], _: Any = Depends(
     return {"id": key.id, "label": key.label, "public_key": key.public_key, "secret": secret}
 
 
-@admin_app.delete("/api/admin/api-keys/{key_id}")
+@admin_app.delete("/api-keys/{key_id}")
 def admin_revoke_api_key(key_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     from saas.repositories import revoke_api_key, get_api_key
     key = get_api_key(key_id)
@@ -1430,3 +1697,22 @@ def admin_revoke_api_key(key_id: int, _: Any = Depends(require_roles("owner", "a
         raise HTTPException(status_code=404, detail="key not found")
     revoke_api_key(key_id)
     return {"ok": True}
+
+
+@admin_app.get("/tenants/{tenant_id}/integration/wordpress")
+def admin_download_wordpress(tenant_id: int, cu: Any = Depends(get_current)):
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    plugin_dir = Path(__file__).resolve().parent.parent.parent / "wordpress" / "heyjarvis-concierge"
+    if not plugin_dir.exists():
+        raise HTTPException(status_code=404, detail="plugin not found")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in plugin_dir.rglob("*"):
+            if f.is_file():
+                zf.write(f, f.relative_to(plugin_dir))
+    buf.seek(0)
+    from fastapi.responses import Response
+    return Response(content=buf.read(), media_type="application/zip",
+                    headers={"Content-Disposition": f"attachment; filename=heyjarvis-concierge.zip"})

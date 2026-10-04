@@ -1,211 +1,259 @@
-# Current State Architecture
+# HeyJarvis Concierge — Current State
 
-## Overview
+Date: 2025-10-04
 
-HeyJarvis Concierge is a multi-tenant AI chatbot platform for appointment-based businesses (currently configured for a dental clinic). It has two layers:
+## Architecture Overview
 
-1. **Original Concierge** (`src/concierge/`) — single-tenant, clinic-specific, proven working logic
-2. **SaaS Platform** (`src/saas/`) — multi-tenant wrapper that adds auth, tenants, dashboards, widget API
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         CLIENT SITES                         │
+│  (WordPress, Webflow, Wix, Squarespace, React, plain HTML)  │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                     widget-loader.js
+                    (universal embed snippet)
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   SAAS BACKEND (FastAPI)                     │
+│                    Port 8000                                 │
+│                                                             │
+│  ┌─────────────┐  ┌──────────────┐  ┌───────────────────┐ │
+│  │ Public API  │  │ Admin API    │  │ Conversation      │ │
+│  │ /v1/public/ │  │ /v1/admin/   │  │ Engine            │ │
+│  └──────┬──────┘  └──────┬───────┘  └────────┬──────────┘ │
+│         │                │                    │            │
+│  ┌──────▼────────────────▼────────────────────▼──────────┐ │
+│  │                   Services Layer                        │ │
+│  │  • Lead Management  • Email Notifications  • Analytics │ │
+│  └───────────────────────────┬────────────────────────────┘ │
+│                              │                              │
+│  ┌───────────────────────────▼────────────────────────────┐ │
+│  │                   SQLite Database                       │ │
+│  │  tenants, api_keys, conversations, messages,           │ │
+│  │  leads, notifications, events, domains                  │ │
+│  └─────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
 
-## Current Stack
+## Major Modules
 
-- **Language**: Python 3.11+
-- **Framework**: FastAPI
-- **Database**: SQLite (two separate DBs: `data/concierge.db` for original, `data/saas.db` for SaaS)
-- **Auth**: JWT (python-jose) + Argon2 password hashing (passlib)
-- **AI/LLM**: Google Gemini (primary) → Gemini fallback → Groq → keyword rules (heuristic fallback)
-- **Email**: SMTP with dry-run mode (saves .eml files to `outbox/sent/`)
-- **Frontend**: Vanilla JS widget + static HTML dashboards
-- **Package Manager**: uv (Python)
-- **Testing**: pytest + httpx TestClient
-- **Deployment**: Railway (railway.toml) / any Uvicorn host
+### Backend (`src/saas/`)
 
-## Entrypoints
+| Module | File | Purpose |
+|--------|------|---------|
+| Main app | `main.py` | FastAPI app, middleware, startup |
+| Database | `database.py` | SQLite connection, schema, migrations |
+| Repositories | `repositories.py` | Data access layer (CRUD) |
+| Public API | `public_api.py` | Widget-facing endpoints |
+| Admin API | `admin_api.py` | Dashboard-facing endpoints |
+| Conversation engine | `conversation.py` | Multi-turn state machine |
+| Email system | `emailer.py` | SMTP + notification delivery |
+| Front desk | `front_desk.py` | Email draft generation |
+| Billing | `billing.py` | Stripe integration (placeholder) |
+| Auth | `auth.py` | Session + JWT auth |
+| Middleware | `middleware.py` | Tenant isolation, rate limiting |
 
-| Entrypoint | File | Purpose |
-|---|---|---|
-| `concierge.api:app` | `src/concierge/api.py` | Original single-tenant app (port 8000) |
-| `saas.main:app` | `src/saas/main.py` | Multi-tenant SaaS app (port 8002) |
-| `concierge serve` | `src/concierge/cli.py` | CLI to run original app |
-| `scripts/seed_demo.py` | `scripts/seed_demo.py` | Seeds demo tenant |
+### Frontend / Widget
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| Widget | `widget-loader.js` | Universal embeddable chat widget |
+| Dashboard | `admin_ui/` | Admin dashboard (basic) |
+| Front desk | `front_desk/` | Email draft review UI |
 
 ## API Routes
 
-### Original Concierge (`concierge.api:app`)
-- `POST /requests` — server-to-server webhook (token auth)
-- `POST /public/requests` — public form (CORS, honeypot, rate limit)
-- `GET /widget.js` — original form widget
-- `GET /` — demo landing page
-- `GET /desk` — front desk dashboard
-- `GET /ops` — operations dashboard
-- `GET /api/status` — SMTP/AI status
-- `POST /api/simulate` — simulate intake
-- `GET /api/requests` — list requests
-- `GET /api/requests/{id}` — request detail
-- `GET /api/requests/{id}/events` — event stream
-- `GET /api/requests/{id}/slots` — slot suggestions
-- `POST /api/requests/{id}/send` — send email from desk
-- `POST /api/requests/{id}/dismiss` — mark done
-- `GET /api/schedule` — day view
-- `GET /api/confirmations` — 48h confirmation queue
-- `POST /api/confirmations/send` — send confirmations
-- `GET /api/patients` — patient search
-- `GET /api/patients/{id}` — patient detail
-- `POST /api/patients/{id}` — edit patient
-- `POST /api/patients/{id}/email` — email patient
-- `POST /api/patients/{id}/log` — log contact
-- `GET /api/stats` — ops stats
+### Public API (`/api/v1/public/`)
 
-### SaaS Platform (`saas.main:app`)
-- Mounted at `/api` → `public_app`
-- Mounted at `/api/admin` → `admin_app`
-- `GET /health` — health check
-- `GET /` — platform info
-- `GET /concierge/{tenant_slug}` — hosted concierge page
-- `GET /static/widget.js` — universal embeddable widget
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/conversations` | Start new conversation |
+| POST | `/conversations/{id}/messages` | Send message, get reply |
+| GET | `/leads` | Get lead status |
+| GET | `/config` | Get tenant config (colors, fields) |
+| GET | `/widget.js` | Serve widget script |
 
-### Public API (`public_app`)
-- `GET /api/v1/public/config?client_key=` — tenant config + domain validation
-- `POST /api/v1/public/conversations?client_key=` — start conversation
-- `POST /api/v1/public/conversations/{id}/messages?client_key=` — send message
-- `GET /api/v1/public/leads?client_key=&lead_id=` — lead status
-- `GET /widget.js` — widget script
+### Admin API (`/api/v1/admin/`)
 
-### Admin API (`admin_app`)
-- `GET /api/admin/tenants` — list tenants
-- `POST /api/admin/tenants/{id}/domains` — add domain
-- `POST /api/admin/domains/{id}/verify` — verify domain
-- `DELETE /api/admin/domains/{id}` — remove domain
-- `GET /api/admin/tenants/{id}/domains` — list domains
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET/POST | `/tenants` | Tenant management |
+| GET/PUT | `/settings` | Tenant settings |
+| GET/PUT | `/business-rules` | Business rules |
+| GET/POST | `/fields` | Field configuration |
+| GET/POST | `/email` | Email settings |
+| GET/PUT | `/widget` | Widget customization |
+| GET | `/conversations` | Conversation list |
+| GET | `/leads` | Lead list |
+| GET/POST | `/integrations` | Integration settings |
 
 ## Database Models
 
-### Original Concierge (`data/concierge.db`)
-- `requests` — patient requests
-- `events` — AI trace events
-- `appointments` — bookings with column-aware segments
-- `patients` — patient records
-- `contacts` — contact log
+### tenants
+- id, name, slug, status, created_at, updated_at
 
-### SaaS Platform (`data/saas.db`)
-- `tenants` — business accounts
-- `users` — team members
-- `memberships` — tenant-user roles
-- `domains` — allowed website domains
-- `api_keys` — public/secret keys per tenant
-- `widget_settings` — per-tenant widget config (JSON)
-- `email_settings` — per-tenant SMTP config
-- `business_rules` — per-tenant booking rules (JSON)
-- `conversations` — chat conversations
-- `messages` — chat messages
-- `leads` — structured lead objects
-- `notifications` — delivery attempts
-- `analytics_events` — event tracking
-- `audit_logs` — admin action log
-- `tenant_settings` — flags, AI instructions, hours
+### api_keys
+- id, tenant_id, key_type (public/secret), key_hash, label, revoked_at
+
+### tenant_settings
+- id, tenant_id, flags (JSON), ai_instructions
+
+### conversations
+- id, tenant_id, visitor_id, page_url, referrer, user_agent, status, summary, created_at, updated_at, metadata
+
+### messages
+- id, conversation_id, role (user/assistant), body, created_at, metadata
+
+### leads
+- id, tenant_id, conversation_id, name, email, phone, intent, service, urgency, preferred_date, preferred_time, insurance, financing, message, conversation_summary, source, page_url, status, created_at, updated_at
+
+### notifications
+- id, tenant_id, lead_id, type, status, payload, sent_at, error
+
+### events
+- id, tenant_id, event_type, payload, created_at
+
+### domains
+- id, tenant_id, domain, verified_at
 
 ## Data Flow
 
-### Original Concierge
+### Conversation Flow
+
 ```
-Form submission → /public/requests → receive() → triage() → rules → schedule → compose → draft
-                                          ↓
-                                    Front Desk reads draft, picks time, sends email
+Visitor opens website
+       │
+       ▼
+Widget loads → GET /api/v1/public/config?client_key=xxx
+       │
+       ▼
+Visitor clicks launcher
+       │
+       ▼
+POST /api/v1/public/conversations → Creates conversation, returns greeting
+       │
+       ▼
+Visitor sends message
+       │
+       ▼
+POST /api/v1/public/conversations/{id}/messages
+       │
+       ├── ConversationEngine processes message
+       │   ├── Extract fields (name, email, intent, etc.)
+       │   ├── Check missing required fields
+       │   ├── Generate reply / next prompt
+       │   └── Update state
+       │
+       ├── If SUBMITTED state:
+       │   ├── Create lead record
+       │   ├── Send notification email
+       │   └── Track event
+       │
+       ▼
+Reply returned to widget → Display to visitor
 ```
 
-### SaaS Widget
+### Lead Notification Flow
+
 ```
-Visitor opens widget → start conversation → send message → AI extract fields → submit → lead created → email notification
+Lead created (conversation submitted)
+       │
+       ▼
+send_lead_notification(tenant_id, lead_id)
+       │
+       ├── Get tenant email settings
+       │
+       ├── Render email template with lead data
+       │
+       ├── If SMTP configured:
+       │   └── Send via tenant SMTP
+       │
+       └── If no SMTP:
+           └── Send via HeyJarvis default mailer
 ```
 
-## Email Flow
+## Widget Conversation Flow
 
-### Original
-- SMTP credentials from environment variables
-- Dry-run mode: saves .eml files to `outbox/sent/`
-- Front desk dashboard shows drafts with `>>> ... <<<` slot markers
-- Desk replaces slot with time, hits send
+1. **Greeting**: Widget shows "Hi! Welcome to Raleigh Dentistry. How can we help you today?"
+2. **User responds**: Free-form message
+3. **Widget extracts**:
+   - Intent (new_patient, cleaning, emergency, etc.)
+   - Name, email, phone from text
+   - Preferred date/time keywords
+4. **Widget asks** next required field if missing
+5. **All fields collected**: Shows review form for final submission
+6. **Submit**: Sends lead to backend, triggers email notification
 
-### SaaS
-- Per-tenant email settings (encrypted SMTP passwords)
-- Default provider fallback (HeyJarvis-managed)
-- Dry-run mode when no SMTP configured
-- `send_lead_notification()` creates notification record (currently placeholder)
+## Email System
 
-## Concierge Conversation Flow (Original)
-
-1. Patient submits form (message + name + email + phone)
-2. `receive()` stores request, creates/upserts patient
-3. `triage()` classifies request type (AI chain or keyword fallback)
-4. `plan_booking()` applies clinic rules
-5. `schedule.suggest()` finds available slots
-6. `compose()` generates email draft with `>>> ... <<<` booking slot
-7. Front desk opens draft, fills time, sends
+- Tenant-configurable SMTP settings
+- Email templates with variable substitution
+- Delivery via tenant SMTP or HeyJarvis managed
+- Support for test emails and connection testing
+- Notification status tracking
 
 ## Current Configuration Mechanism
 
-- Original: TOML config file (`config/concierge.toml`) — hardcoded for Raleigh
-- SaaS: Per-tenant JSON in `tenant_settings.flags` + `business_rules.rules`
+- Tenant settings stored in `tenant_settings` table as JSON flags
+- Widget configuration loaded from API endpoint
+- Business rules stored in tenant settings flags
+- Email settings stored separately per tenant
 
-## Current Deployment Assumptions
+## Current Deployment
 
-- Railway (nixpacks builder, uvicorn)
-- Single process
-- SQLite files on local disk
-- No background workers (uses FastAPI BackgroundTasks)
-- Port 8000 for original, 8002 for SaaS
+- Development: Uvicorn on port 8000
+- Front desk UI: Separate server on port 8002
+- Database: SQLite file (`data/concierge.db`)
+- No containerization yet
+- No production deployment configured
 
 ## Current Limitations
 
-1. Dashboard is a static stub (`admin.html`) — not functional
-2. Widget is basic form + simple chat, not full conversational AI
-3. No email template management UI
-4. No business rules configuration UI
-5. No installation guide page
-6. Conversation engine doesn't use LLM for field extraction
-7. No human handoff
-8. No business hours configuration UI
-9. Analytics events tracked but no dashboard to view them
-10. No WordPress plugin
-11. No iframe embed option
-12. Domain validation is basic (just checks origin header)
-13. No rate limiting on public widget API
-14. No request ID tracking
-15. No structured error responses
-16. No retry logic for email delivery
+1. **No real AI/LLM integration** - Uses rule-based extraction
+2. **No persistent conversation state** - Fields not persisted between turns (widget-local only)
+3. **No conversation_fields table** - Extracted data not stored per turn
+4. **No tenant onboarding flow** - Manual setup only
+5. **No billing integration** - Stripe placeholder only
+6. **No OAuth/magic links** - Email/password only
+7. **No WordPress plugin distributable** - Widget only
+8. **No production deployment** - Local dev only
+9. **Limited analytics** - Event tracking exists but no dashboard
+10. **No multi-tenant field isolation** - Shared database schema
 
-## Current Tests (10 passing)
+## Current Tests
 
-1. `test_tenant_creation` — tenant CRUD
-2. `test_api_key_lifecycle` — key creation/retrieval
-3. `test_domain_workflow` — add/remove domains
-4. `test_enable_disable` — tenant toggle
-5. `test_public_requires_client_key` — auth enforcement
-6. `test_public_conversation_flow` — start + message flow
-7. `test_tenant_isolation` — cross-tenant access blocked
-8. `test_auth_password_flow` — password hashing/verification
-9. `test_health_public` — health endpoint
-10. `test_track_event_writes` — analytics persistence
+- No automated tests found in repository
+- Manual testing via browser and curl
+- Widget tested via Chrome DevTools
 
-## What Can Be Reused
+## Widget Installation
 
-- Original concierge pipeline (`pipeline.py`, `triage.py`, `rules.py`, `schedule.py`, `compose.py`) — proven AI triage + booking logic
-- Email sending (`mailer.py`) — SMTP + dry-run
-- SaaS multi-tenant models + database + auth + security
-- Widget JS loader architecture
-- Test infrastructure (pytest + TestClient)
+```html
+<script async src="widget-loader.js"
+        data-heyjarvis-api="http://localhost:8000"
+        data-heyjarvis-client="pk_Jq2tg3A_e5VLBfez651UR9z1">
+</script>
+```
 
-## What Needs to Change
+## Key Features Working
 
-1. Build functional admin dashboard (replace stub)
-2. Enhance widget to full conversational mode with AI field extraction
-3. Add email template management
-4. Add business rules configuration
-5. Add installation guide
-6. Add more tests (email, authz, widget, E2E)
-7. Add rate limiting to public API
-8. Add request ID tracking
-9. Add human handoff
-10. Add business hours UI
-11. Add analytics dashboard
-12. Add WordPress plugin structure
+- ✅ Multi-tenant API with client key authentication
+- ✅ Conversation state machine (started, collecting, submitted, handoff)
+- ✅ Field extraction from free-form text (name, email, phone, intent)
+- ✅ Lead creation on submission
+- ✅ Email notification to front desk
+- ✅ Widget loads asynchronously without blocking
+- ✅ Chat mode with typing indicator
+- ✅ Form fallback mode
+- ✅ Intent detection (new_patient, cleaning, emergency, etc.)
+- ✅ Required field collection
+- ✅ Raleigh Dentistry branding/colors
+
+## Key Files Modified in This Session
+
+- `widget-loader.js` - Complete rewrite with tenant configurable widget
+- `src/saas/conversation.py` - Conversation engine with field extraction
+- `src/saas/public_api.py` - Public API with lead creation and notifications
+- `src/saas/database.py` - Added conversation_fields table migration
+- `scripts/migrate_add_conversation_fields.py` - Migration script

@@ -65,6 +65,7 @@ def _setting(tenant_id: int, key: str) -> str | None:
         "from_email": "from_email",
         "from_name": "from_name",
         "reply_to": "reply_to",
+        "front_desk_email": "front_desk_email",
     }
     col = mapping.get(key)
     if not col:
@@ -162,9 +163,9 @@ def send_lead_notification(tenant_id: int, lead_id: int, intent: str = "default"
     subject = render_template(template["subject"], payload)
     body = render_template(template["body"], payload)
 
-    # Get front desk email from tenant settings or default
+    # Get front desk email from email_settings
+    front_desk_email = _setting(tenant_id, "front_desk_email") or settings.default_smtp_reply_to
     reply_to = _setting(tenant_id, "reply_to") or settings.default_smtp_reply_to
-    front_desk_email = reply_to or settings.default_smtp_from
 
     track_event(tenant_id, "notification_created", {
         "lead_id": lead_id,
@@ -172,7 +173,15 @@ def send_lead_notification(tenant_id: int, lead_id: int, intent: str = "default"
         "intent": intent,
     })
 
-    return send_email(tenant_id, front_desk_email, subject, body, reply_to=reply_to, context=payload)
+    result = send_email(tenant_id, front_desk_email, subject, body, reply_to=reply_to, context=payload)
+
+    # Record notification in DB
+    from saas.repositories import create_notification
+    create_notification(tenant_id, lead_id, "email", "sent" if result.ok else "failed",
+                        {"to": front_desk_email, "subject": subject, "mode": result.mode},
+                        error=result.error)
+
+    return result
 
 
 def send_test_email(tenant_id: int, to: str) -> SendResult:

@@ -1,23 +1,37 @@
-/* HeyJarvis Concierge — Production-Ready Dental Widget
+/* HeyJarvis Concierge - Production-Ready Dental Widget
  *
  * Embed on any site:
- *   <script async src="https://YOUR-HOST/widget.js"></script>
+ *   <script async src="https://YOUR-HOST/widget.js"><\/script>
  *
  * Features:
  * - Matches exact site design ("Plan your visit" style)
  * - AI-powered appointment booking conversation
  * - Form collection as fallback
- * - Local API: http://localhost:8002/public/requests
+ * - Local API: /public/requests
  * - Floating launcher + panel
  * - Accessible, responsive, mobile-friendly
  */
 (function () {
   'use strict';
   try {
+    console.log('[HeyJarvis Widget] IIFE starting');
     var script = document.currentScript;
-    if (!script) return;
+    if (!script) {
+      var scripts = document.querySelectorAll('script[src*="widget-loader.js"]');
+      if (scripts.length > 0) script = scripts[scripts.length - 1];
+      console.log('[HeyJarvis Widget] Found script via querySelector:', script ? 'yes' : 'no');
+    }
+    if (!script) {
+      console.log('[HeyJarvis Widget] No script found, returning');
+      return;
+    }
 
-    var apiBase = (script.getAttribute('src') || '').replace(/\/widget\.js\/?$/, '');
+    var apiBase = (script.getAttribute('data-heyjarvis-api') || '')
+      || (script.getAttribute('src') || '').replace(/\/widget\.js\/?$/, '');
+    if (!apiBase || apiBase.indexOf('file:') === 0 || apiBase === 'widget-loader.js') {
+      apiBase = 'http://localhost:8000';
+    }
+    console.log('[HeyJarvis Widget] apiBase:', apiBase);
     if (!apiBase) return;
 
     var STATE = { CLOSED: 'closed', OPEN: 'open', CHAT: 'chat', FORM: 'form', SENDING: 'sending', SENT: 'sent' };
@@ -118,7 +132,7 @@
         '<div class="hj-field"><label for="hj-message">Tell us more</label><textarea id="hj-message" maxlength="10000"></textarea></div>' +
         '<button id="hj-submit" type="submit">Request appointment</button>' +
       '</form>' +
-      '<p id="hj-disclosure">Guided assistance — Our team confirms appointments.<br>Please don’t share private medical information here.</p>';
+      '<p id="hj-disclosure">Guided assistance  -  Our team confirms appointments.<br>Please don’t share private medical information here.</p>';
     document.body.appendChild(panel);
 
     var launcherBtn = document.getElementById('hj-launcher');
@@ -139,6 +153,11 @@
     }
 
     function bubble(html, type) {
+      console.log('[HeyJarvis Widget] bubble called:', html.substring(0, 50));
+      if (!thread) {
+        console.log('[HeyJarvis Widget] ERROR: thread is null!');
+        return;
+      }
       var el = document.createElement('div');
       el.className = 'hj-bubble ' + (type || 'bot');
       el.innerHTML = html;
@@ -168,48 +187,88 @@
     }
 
     function openPanel() {
+      console.log('[HeyJarvis Widget] openPanel called, conversationId:', conversationId);
       panel.hidden = false;
       launcherBtn.setAttribute('aria-expanded', 'true');
       mode = STATE.OPEN;
-      if (!conversationId) startConversation();
+      if (!conversationId) {
+        console.log('[HeyJarvis Widget] starting conversation');
+        startConversation();
+      } else {
+        console.log('[HeyJarvis Widget] conversation already started');
+      }
     }
 
     function closePanel() {
       panel.hidden = true;
       launcherBtn.setAttribute('aria-expanded', 'false');
       mode = STATE.CLOSED;
+      // Reset so reopening shows greeting fresh
+      conversationId = null;
+      collected = {};
+      conversationHistory = [];
+      currentStep = 'greeting';
+      selectedService = null;
+      selectedCategory = null;
+      thread.innerHTML = '';
+      optionsEl.innerHTML = '';
+      formEl.hidden = true;
+      optionsEl.hidden = true;
     }
 
-    launcherBtn.addEventListener('click', openPanel);
-    launcherBtn.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPanel(); } });
-    closeBtn.addEventListener('click', closePanel);
+    console.log('[HeyJarvis Widget] Adding event listeners');
+    launcherBtn.addEventListener('click', function(e) {
+      console.log('[HeyJarvis Widget] launcher clicked');
+      openPanel();
+    });
+    launcherBtn.addEventListener('keydown', function (e) {
+      console.log('[HeyJarvis Widget] launcher keydown:', e.key);
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPanel(); }
+    });
+    closeBtn.addEventListener('click', function(e) {
+      console.log('[HeyJarvis Widget] close clicked');
+      closePanel();
+    });
+    console.log('[HeyJarvis Widget] Event listeners added, initialization complete');
 
     function api(path, options) {
-      return fetch(apiBase + path, {
+      var base = apiBase.replace(/\/$/, '');
+      var url = base + '/api/v1' + path;
+      console.log('[HeyJarvis Widget] API call:', url);
+      return fetch(url, {
         method: options && options.method || 'GET',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: options && options.body ? JSON.stringify(options.body) : undefined,
       }).then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (!r.ok) throw new Error('HTTP ' + r.status + ':' + url);
         return r.json();
       });
     }
 
     function startConversation() {
-      return api('/public/requests', { method: 'POST', body: { source: 'website:' + location.hostname } })
+      console.log('[HeyJarvis Widget] startConversation called');
+      return api('/public/conversations', { method: 'POST', body: { source: 'website:' + location.hostname, message: 'Conversation started from website widget.' } })
         .then(function (data) {
+          console.log('[HeyJarvis Widget] API response:', data);
           conversationId = data.conversation_id || ('local-' + Date.now());
+          console.log('[HeyJarvis Widget] conversationId set:', conversationId);
           startGreeting();
           return data;
         })
-        .catch(function () {
+        .catch(function (err) {
+          console.log('[HeyJarvis Widget] API error:', err);
           conversationId = 'local-' + Date.now();
+          console.log('[HeyJarvis Widget] using local conversationId:', conversationId);
           startGreeting();
         });
     }
 
     function startGreeting() {
+      console.log('[HeyJarvis Widget] startGreeting called');
       bubble('Hi! Welcome to Raleigh Dentistry. How can we help you today?', 'bot');
+      console.log('[HeyJarvis Widget] bubble added');
       showOptions([
         { label: '🦷 New patient appointment', value: 'new_patient' },
         { label: '✨ Routine cleaning', value: 'cleaning' },
@@ -217,6 +276,7 @@
         { label: '📅 Reschedule / cancel', value: 'reschedule' },
         { label: '💬 Question about care', value: 'question' }
       ]);
+      console.log('[HeyJarvis Widget] options shown');
       currentStep = 'intent';
     }
 
@@ -304,7 +364,7 @@
       sysMsg('Sending your request to the front desk…');
       showTyping();
 
-      api('/public/requests', { method: 'POST', body: data })
+      api('/public/conversations/' + conversationId + '/messages', { method: 'POST', body: { message: buildSummary(), lead: data } })
         .then(function (res) {
           hideTyping();
           sysMsg('Thanks! Our front desk will email you shortly with a time.');
@@ -327,15 +387,6 @@
       e.preventDefault();
       submitForm();
     });
-
-    // Start on load, but keep closed
-    api('/public/requests', { method: 'POST', body: { source: 'website:' + location.hostname } })
-      .then(function (data) {
-        conversationId = data.conversation_id || ('local-' + Date.now());
-      })
-      .catch(function () {
-        conversationId = 'local-' + Date.now();
-      });
   } catch (e) {
     console.error('[HeyJarvis] Widget failed to init:', e);
   }

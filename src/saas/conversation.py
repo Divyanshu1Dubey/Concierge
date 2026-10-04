@@ -100,7 +100,9 @@ class ConversationEngine:
     def _extract_fields(self, body: str, existing: dict[str, Any]) -> dict[str, Any]:
         lowered = body.lower()
         out: dict[str, Any] = {}
-        if any(k in lowered for k in ["my name is", "i'm ", "i am "]):
+        if "my name is" in lowered:
+            out["name"] = body.strip()
+        elif lowered.startswith("i'm ") or lowered.startswith("i am "):
             out["name"] = body.strip()
         if "@" in body and "." in body.split("@")[-1] and "email" not in existing:
             import re
@@ -116,5 +118,13 @@ class ConversationEngine:
         return out
 
     def _missing_required(self, fields: dict[str, Any]) -> list[str]:
-        required = [f.key for f in (self.config.get("fields") or []) if f.required]
-        return [f for f in required if not fields.get(f)]
+        configured = [f.key for f in (self.config.get("fields") or []) if f.required]
+        if configured:
+            required = configured
+        else:
+            required = ["name", "email"]
+            if not fields.get("intent"):
+                required.append("service")
+        missing = [f for f in required if not fields.get(f)]
+        print(f"[DEBUG] _missing_required: fields={fields}, required={required}, missing={missing}")
+        return missing
