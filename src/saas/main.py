@@ -55,6 +55,12 @@ def hosted_concierge(tenant_slug: str) -> HTMLResponse:
     return HTMLResponse(html)
 
 
+@app.get("/frontdesk")
+def frontdesk_page() -> HTMLResponse:
+    path = ROOT / "src" / "saas" / "templates" / "frontdesk.html"
+    return HTMLResponse(path.read_text(encoding="utf-8"))
+
+
 @app.get("/install")
 def install_guide() -> HTMLResponse:
     path = ROOT / "docs" / "installation.md"

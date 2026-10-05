@@ -172,6 +172,9 @@ def append_message(conversation_id: int, role: str, body: str, metadata: dict[st
     return {"id": mid, "conversation_id": conversation_id, "role": role, "body": body}
 
 
+add_message = append_message  # backward-compatible alias used by frontdesk tests
+
+
 def complete_conversation(conversation_id: int, summary: str | None, status: str = "completed") -> None:
     with connect() as c:
         c.execute("UPDATE conversations SET status = ?, summary = ?, updated_at = ? WHERE id = ?",
@@ -198,7 +201,7 @@ def list_leads(tenant_id: int, status: str | None = None, limit: int = 100, offs
     sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
     args.extend([limit, offset])
     with connect() as c:
-        return rows(c, sql, *args)
+        return rows(c, sql, tuple(args))
 
 
 def update_lead(lid: int, **fields) -> None:
@@ -436,7 +439,7 @@ def get_frontdesk_dashboard(tenant_id: int) -> dict:
         open_tasks = row(c, "SELECT COUNT(*) AS n FROM frontdesk_tasks WHERE tenant_id = ? AND status = 'open'", tenant_id)["n"]
         overdue_tasks = row(c,
             "SELECT COUNT(*) AS n FROM frontdesk_tasks WHERE tenant_id = ? AND status = 'open' AND due_at IS NOT NULL AND due_at < ?",
-            (tenant_id, now_iso()))
+            tenant_id, now_iso())
         total_notes = row(c, "SELECT COUNT(*) AS n FROM frontdesk_notes WHERE tenant_id = ?", tenant_id)["n"]
 
         intents_rows = rows(c,

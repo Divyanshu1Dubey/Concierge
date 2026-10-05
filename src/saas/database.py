@@ -377,10 +377,10 @@ def update(conn, table: str, row_id: int, **cols) -> None:
     conn.execute(f"UPDATE {table} SET {sets} WHERE id = ?", [*cols.values(), row_id])
 
 
-def rows(conn, sql: str, *args) -> list[dict]:
+def rows(conn, sql: str, args: tuple = ()) -> list[dict]:
     return [dict(r) for r in conn.execute(sql, args)]
 
 
-def row(conn, sql: str, *args) -> dict | None:
-    found = rows(conn, sql, *args)
+def row(conn, sql: str, args: tuple = ()) -> dict | None:
+    found = rows(conn, sql, args)
     return found[0] if found else None

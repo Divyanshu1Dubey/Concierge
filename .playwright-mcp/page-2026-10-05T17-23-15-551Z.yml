@@ -1,0 +1,8 @@
+- generic [ref=f1e2]:
+  - heading "🦷 Front Desk Login" [level=2] [ref=f1e3]
+  - generic [ref=f1e4]:
+    - textbox "Email" [ref=f1e5]: admin@raleighdentistry.com
+    - textbox "Password" [ref=f1e6]
+    - paragraph
+    - button "Login to Front Desk" [ref=f1e7] [cursor=pointer]
+    - paragraph [ref=f1e8]: Your admin can set up your login

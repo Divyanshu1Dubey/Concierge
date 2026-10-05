@@ -141,7 +141,7 @@ def _smtp_send(tenant_id: int, msg: EmailMessage) -> bool:
     return True
 
 
-def send_lead_notification(tenant_id: int, lead_id: int, intent: str = "default") -> SendResult:
+def send_lead_notification(tenant_id: int, lead_id: int, intent: str = "default", subject_override: str | None = None) -> SendResult:
     """Send a lead notification email using the configured template."""
     from saas.repositories import get_lead, get_conversation
 
@@ -160,7 +160,7 @@ def send_lead_notification(tenant_id: int, lead_id: int, intent: str = "default"
     payload = build_payload(tenant_name, lead, conversation)
 
     template = get_default_template(intent)
-    subject = render_template(template["subject"], payload)
+    subject = subject_override or render_template(template["subject"], payload)
     body = render_template(template["body"], payload)
 
     # Get front desk email from email_settings

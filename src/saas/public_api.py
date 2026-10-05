@@ -42,8 +42,19 @@ from saas.repositories import (
     track_event,
     update_lead as repo_update_lead,
     verify_domain as repo_verify_domain,
+    get_frontdesk_dashboard,
+    get_fd_lead_detail,
+    create_frontdesk_note,
+    get_frontdesk_notes,
+    create_frontdesk_task,
+    get_frontdesk_tasks,
+    complete_frontdesk_task,
+    create_ai_draft,
+    get_ai_drafts,
+    mark_draft_sent,
+    get_api_key_by_public,
 )
-from saas.repositories import get_api_key_by_public
+from saas import ai_engine as _ai_engine
 
 log = logging.getLogger(__name__)
 settings = get_settings()
@@ -290,6 +301,417 @@ def public_widget() -> FileResponse:
     return FileResponse(STATIC / "widget.js", media_type="application/javascript")
 
 
+# ── Front Desk Routes ──────────────────────────────────────────────────────────
+
+frontdesk_app = FastAPI(title="HeyJarvis Front Desk", version="1.0.0")
+
+
+async def _fd_auth(request: Request) -> dict:
+    """Validate API key or JWT for front desk access."""
+    api_key = request.headers.get("X-API-Key", "")
+    if api_key:
+        key = get_api_key_by_public(api_key)
+        if key and not key.revoked_at:
+            return {"tenant_id": key.tenant_id, "user_id": None, "auth_type": "api_key"}
+        raise HTTPException(status_code=401, detail="invalid api key")
+    try:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            cu = await get_current(token)
+            if cu:
+                return {"tenant_id": cu.user.tenant_id, "user_id": cu.user.id, "auth_type": "jwt"}
+    except Exception:
+        pass
+    raise HTTPException(status_code=401, detail="authentication required")
+
+
+@frontdesk_app.get("/dashboard")
+async def fd_dashboard(request: Request):
+    auth = await _fd_auth(request)
+    return get_frontdesk_dashboard(auth["tenant_id"])
+
+
+@frontdesk_app.get("/dashboard/{tenant_id}")
+async def fd_dashboard_tenant(request: Request, tenant_id: int):
+    auth = await _fd_auth(request)
+    if auth["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="wrong tenant")
+    return get_frontdesk_dashboard(tenant_id)
+
+
+@frontdesk_app.get("/conversations")
+async def fd_list_conversations(request: Request, lead_id: int | None = None):
+    auth = await _fd_auth(request)
+    with connect() as c:
+        if lead_id:
+            convs = rows(c, "SELECT * FROM conversations WHERE id = (SELECT conversation_id FROM leads WHERE id = ? AND tenant_id = ?)", lead_id, auth["tenant_id"])
+        else:
+            convs = rows(c, "SELECT * FROM conversations WHERE tenant_id = ? ORDER BY updated_at DESC LIMIT 100", auth["tenant_id"])
+    return convs
+
+
+@frontdesk_app.get("/conversations/{conversation_id}")
+async def fd_get_conversation(request: Request, conversation_id: int):
+    auth = await _fd_auth(request)
+    conv = get_conversation(conversation_id)
+    if not conv or conv["tenant_id"] != auth["tenant_id"]:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    return conv
+
+
+@frontdesk_app.get("/conversations/{conversation_id}/messages")
+async def fd_get_messages(request: Request, conversation_id: int):
+    auth = await _fd_auth(request)
+    conv = get_conversation(conversation_id)
+    if not conv or conv["tenant_id"] != auth["tenant_id"]:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    with connect() as c:
+        msgs = rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC", conversation_id)
+    return msgs
+
+
+@frontdesk_app.get("/leads")
+async def fd_list_leads(request: Request, status: str | None = None, limit: int = 100):
+    auth = await _fd_auth(request)
+    return list_leads(auth["tenant_id"], status=status, limit=limit)
+
+
+@frontdesk_app.get("/leads/{lead_id}")
+async def fd_get_lead(request: Request, lead_id: int):
+    auth = await _fd_auth(request)
+    lead = get_fd_lead_detail(auth["tenant_id"], lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="lead not found")
+    return lead
+
+
+@frontdesk_app.patch("/leads/{lead_id}/status")
+async def fd_update_lead_status(request: Request, lead_id: int, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    lead = get_lead(lead_id)
+    if not lead or lead["tenant_id"] != auth["tenant_id"]:
+        raise HTTPException(status_code=404, detail="lead not found")
+    new_status = body.get("status")
+    if not new_status:
+        raise HTTPException(status_code=422, detail="status required")
+    with connect() as c:
+        c.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", (new_status, now_iso(), lead_id))
+    updated = get_lead(lead_id)
+    return updated or {"ok": True}
+
+
+@frontdesk_app.post("/leads/{lead_id}/reply")
+async def fd_reply_lead(request: Request, lead_id: int, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    lead = get_lead(lead_id)
+    if not lead or lead["tenant_id"] != auth["tenant_id"]:
+        raise HTTPException(status_code=404, detail="lead not found")
+    text = body.get("body", "")
+    conv_id = lead.get("conversation_id")
+    if conv_id:
+        with connect() as c:
+            c.execute("INSERT INTO messages (conversation_id, sender_type, text, created_at) VALUES (?, 'agent', ?, ?)",
+                      (conv_id, text, now_iso()))
+    from saas.emailer import send_lead_notification
+    send_lead_notification(auth["tenant_id"], lead_id, intent="agent_reply")
+    return {"ok": True}
+
+
+@frontdesk_app.post("/leads/{lead_id}/retry")
+async def fd_retry_lead(request: Request, lead_id: int):
+    auth = await _fd_auth(request)
+    lead = get_lead(lead_id)
+    if not lead or lead["tenant_id"] != auth["tenant_id"]:
+        raise HTTPException(status_code=404, detail="lead not found")
+    from saas.emailer import send_lead_notification
+    send_lead_notification(auth["tenant_id"], lead_id, intent="retry")
+    return {"ok": True}
+
+
+@frontdesk_app.post("/leads/{lead_id}/resend")
+async def fd_resend_lead(request: Request, lead_id: int):
+    auth = await _fd_auth(request)
+    lead = get_lead(lead_id)
+    if not lead or lead["tenant_id"] != auth["tenant_id"]:
+        raise HTTPException(status_code=404, detail="lead not found")
+    from saas.emailer import send_lead_notification
+    send_lead_notification(auth["tenant_id"], lead_id, intent="resend")
+    return {"ok": True}
+
+
+@frontdesk_app.get("/notes")
+async def fd_list_notes(request: Request, lead_id: int | None = None):
+    auth = await _fd_auth(request)
+    return get_frontdesk_notes(auth["tenant_id"], lead_id=lead_id)
+
+
+@frontdesk_app.post("/notes")
+async def fd_create_note(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    note = create_frontdesk_note(
+        auth["tenant_id"],
+        note=body.get("note", ""),
+        lead_id=body.get("lead_id"),
+        conversation_id=body.get("conversation_id"),
+        created_by=auth.get("user_id"),
+    )
+    return note
+
+
+@frontdesk_app.get("/tasks")
+async def fd_list_tasks(request: Request, status: str | None = None):
+    auth = await _fd_auth(request)
+    return get_frontdesk_tasks(auth["tenant_id"], status=status)
+
+
+@frontdesk_app.post("/tasks")
+async def fd_create_task(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    task = create_frontdesk_task(
+        auth["tenant_id"],
+        title=body.get("title", ""),
+        priority=body.get("priority", "medium"),
+        lead_id=body.get("lead_id"),
+        description=body.get("description"),
+        due_at=body.get("due_at"),
+        created_by=auth.get("user_id"),
+    )
+    return task
+
+
+@frontdesk_app.post("/tasks/{task_id}/complete")
+async def fd_complete_task(request: Request, task_id: int):
+    auth = await _fd_auth(request)
+    task = complete_frontdesk_task(task_id, auth["tenant_id"])
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    return task
+
+
+@frontdesk_app.get("/drafts")
+async def fd_list_drafts(request: Request, lead_id: int | None = None):
+    auth = await _fd_auth(request)
+    return get_ai_drafts(auth["tenant_id"], lead_id=lead_id)
+
+
+@frontdesk_app.post("/drafts")
+async def fd_create_draft(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    draft = create_ai_draft(
+        auth["tenant_id"],
+        lead_id=body.get("lead_id"),
+        conversation_id=body.get("conversation_id"),
+        subject=body.get("subject", ""),
+        body=body.get("body", ""),
+    )
+    return draft
+
+
+@frontdesk_app.post("/drafts/{draft_id}/send")
+async def fd_send_draft(request: Request, draft_id: int):
+    auth = await _fd_auth(request)
+    with connect() as c:
+        draft = row(c, "SELECT * FROM ai_drafts WHERE id = ? AND tenant_id = ?", draft_id, auth["tenant_id"])
+    if not draft:
+        raise HTTPException(status_code=404, detail="draft not found")
+    with connect() as c:
+        c.execute("UPDATE ai_drafts SET status = 'sent', updated_at = ? WHERE id = ?", (now_iso(), draft_id))
+    updated = row(connect(), "SELECT * FROM ai_drafts WHERE id = ?", draft_id)
+    return updated or {"ok": True}
+
+
+# ── AI Endpoints ──────────────────────────────────────────────────────────────
+
+def _lead_context(lead_id: int | None = None) -> dict[str, Any]:
+    if not lead_id:
+        return {}
+    lead = get_lead(lead_id)
+    if not lead:
+        return {}
+    conv_text = ""
+    cid = lead.get("conversation_id")
+    if cid:
+        with connect() as c:
+            msgs = rows(c, "SELECT role, body FROM messages WHERE conversation_id = ? ORDER BY id ASC", cid)
+            conv_text = "\n".join(
+                f"{'Patient' if m['role'] == 'user' else 'Concierge'}: {m['body']}"
+                for m in msgs
+            )
+    if not conv_text:
+        conv_text = lead.get("message", "") or ""
+    return {
+        "lead": lead,
+        "conv_text": conv_text,
+    }
+
+
+@frontdesk_app.post("/ai/draft")
+async def fd_ai_draft(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    lead_id = body.get("lead_id")
+    instruction = body.get("instruction", "")
+    ctx = _lead_context(lead_id)
+    lead = ctx.get("lead") or {}
+    result = _ai_engine.draft_reply(ctx.get("conv_text", ""), lead, instruction)
+    subject = result.get("subject", "Re: " + (lead.get("service") or "Your inquiry"))
+    draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
+                             subject=subject, body=result.get("reply", ""), html_body=None)
+    return {"draft_id": draft["id"], "subject": subject, "body": result.get("reply", ""),
+            "tokens_used": result.get("tokens_used", 0), "model": result.get("model", "unknown")}
+
+
+@frontdesk_app.post("/ai/summarize")
+async def fd_ai_summarize(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    lead_id = body.get("lead_id")
+    ctx = _lead_context(lead_id)
+    result = _ai_engine.summarize_conversation(ctx.get("conv_text", ""))
+    return result
+
+
+@frontdesk_app.post("/ai/next-action")
+async def fd_ai_next_action(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    lead_id = body.get("lead_id")
+    conversation_state = body.get("conversation_state", "open")
+    ctx = _lead_context(lead_id)
+    result = _ai_engine.next_best_action(ctx.get("conv_text", ""), ctx.get("lead") or {}, conversation_state)
+    return result
+
+
+@frontdesk_app.post("/ai/follow-up")
+async def fd_ai_followup(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    lead_id = body.get("lead_id")
+    hours = body.get("hours", 24)
+    ctx = _lead_context(lead_id)
+    result = _ai_engine.generate_follow_up(ctx.get("lead") or {}, hours_passed=hours)
+    subject = result.get("subject", "Following up on your inquiry")
+    draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
+                             subject=subject, body=result.get("body", ""))
+    return {"draft_id": draft["id"], "subject": subject, "body": result.get("body", ""),
+            "tokens_used": result.get("tokens_used", 0)}
+
+
+@frontdesk_app.post("/ai/confirm")
+async def fd_ai_confirm(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    lead_id = body.get("lead_id")
+    appointment_time = body.get("appointment_time", "")
+    ctx = _lead_context(lead_id)
+    result = _ai_engine.generate_confirmation(ctx.get("lead") or {}, appointment_time)
+    subject = result.get("subject", "Appointment Confirmation")
+    draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
+                             subject=subject, body=result.get("body", ""))
+    return {"draft_id": draft["id"], "subject": subject, "body": result.get("body", ""),
+            "tokens_used": result.get("tokens_used", 0)}
+
+
+@frontdesk_app.post("/ai/reschedule")
+async def fd_ai_reschedule(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    lead_id = body.get("lead_id")
+    new_time = body.get("new_time", "")
+    reason = body.get("reason", "")
+    ctx = _lead_context(lead_id)
+    result = _ai_engine.generate_reschedule(ctx.get("lead") or {}, new_time, reason=reason)
+    subject = result.get("subject", "Rescheduling Your Appointment")
+    draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
+                             subject=subject, body=result.get("body", ""))
+    return {"draft_id": draft["id"], "subject": subject, "body": result.get("body", ""),
+            "tokens_used": result.get("tokens_used", 0)}
+
+
+@frontdesk_app.post("/ai/shorten")
+async def fd_ai_shorten(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    text = body.get("text", "")
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    prompt = "Shorten this text to 1-2 concise sentences while keeping the key information:\n\n" + text
+    result, _ = _ai_engine._llm(prompt)
+    return {"body": result.get("reply", text) if result else text}
+
+
+@frontdesk_app.post("/ai/warmer")
+async def fd_ai_warmer(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    text = body.get("text", "")
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    prompt = "Rewrite this text to be warmer and more personable, keeping it professional but friendly:\n\n" + text
+    result, _ = _ai_engine._llm(prompt)
+    return {"body": result.get("reply", text) if result else text}
+
+
+@frontdesk_app.post("/ai/classify")
+async def fd_ai_classify(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    lead_id = body.get("lead_id")
+    ctx = _lead_context(lead_id)
+    lead = ctx.get("lead") or {}
+    message = lead.get("message", "")
+    result = _ai_engine.classify_message(message, existing_fields={
+        "intent": lead.get("intent", ""),
+        "urgency": lead.get("urgency", ""),
+        "service": lead.get("service", ""),
+    })
+    if lead_id and result:
+        updates = {k: v for k, v in result.items()
+                   if k in {"intent", "urgency", "service", "summary"}}
+        if updates:
+            repo_update_lead(lead_id, **updates)
+    return result
+
+
+@frontdesk_app.post("/ai/parse-time")
+async def fd_ai_parse_time(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    instruction = body.get("instruction", "")
+    result = _ai_engine.parse_time_instruction(instruction)
+    return result
+
+
+# ── Search ──────────────────────────────────────────────────────────────────
+
+@frontdesk_app.get("/search")
+async def fd_search(request: Request, q: str = ""):
+    auth = await _fd_auth(request)
+    if not q or len(q) < 2:
+        return {"leads": [], "conversations": [], "notes": []}
+    tid = auth["tenant_id"]
+    like = f"%{q}%"
+    with connect() as c:
+        leads = rows(c, "SELECT * FROM leads WHERE tenant_id = ? AND (name LIKE ? OR email LIKE ? OR phone LIKE ? OR message LIKE ?) LIMIT 20",
+                     tid, like, like, like, like)
+        convs = rows(c, "SELECT * FROM conversations WHERE tenant_id = ? AND (summary LIKE ? OR page_url LIKE ?) LIMIT 10",
+                     tid, like, like)
+        notes = rows(c, "SELECT * FROM frontdesk_notes WHERE tenant_id = ? AND note LIKE ? LIMIT 10",
+                     tid, like)
+    return {"leads": leads, "conversations": convs, "notes": notes}
+
+
+# ── Activity Log ───────────────────────────────────────────────────────────
+
+@frontdesk_app.get("/activity")
+async def fd_activity(request: Request, limit: int = 50):
+    auth = await _fd_auth(request)
+    with connect() as c:
+        events = rows(c, "SELECT * FROM analytics_events WHERE tenant_id = ? ORDER BY id DESC LIMIT ?",
+                       auth["tenant_id"], limit)
+        audits = rows(c, "SELECT * FROM audit_log WHERE tenant_id = ? ORDER BY id DESC LIMIT ?",
+                       auth["tenant_id"], limit)
+    return {"events": events, "audits": audits}
+
+
+# ── Health ──────────────────────────────────────────────────────────────────
+
+@frontdesk_app.get("/health")
+async def fd_health() -> dict:
+    return {"ok": True, "service": "frontdesk"}
+
+
 # ── Admin Routes ─────────────────────────────────────────────────────────────
 
 admin_app = FastAPI(title="HeyJarvis Admin", version="1.0.0")
@@ -496,7 +918,7 @@ def admin_list_conversations(tenant_id: int, status: str | None = None, limit: i
             args.append(status)
         sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
         args.extend([limit, offset])
-        return rows(c, sql, *args)
+        return rows(c, sql, tuple(args))
 
 
 @admin_app.post("/tenants/{tenant_id}/conversations")
