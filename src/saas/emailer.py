@@ -52,7 +52,7 @@ def _sender(tenant_id: int) -> str:
 
 def _provider(tenant_id: int) -> str:
     with connect() as c:
-        r = row(c, "SELECT provider FROM email_settings WHERE tenant_id = ?", tenant_id)
+        r = row(c, "SELECT provider FROM email_settings WHERE tenant_id = ?", (tenant_id,))
     return r["provider"] if r else "default"
 
 
@@ -77,7 +77,7 @@ def _setting(tenant_id: int, key: str) -> str | None:
 
 def _smtp_row(tenant_id: int) -> dict | None:
     with connect() as c:
-        return row(c, "SELECT * FROM email_settings WHERE tenant_id = ?", tenant_id)
+        return row(c, "SELECT * FROM email_settings WHERE tenant_id = ?", (tenant_id,))
 
 
 def send_email(

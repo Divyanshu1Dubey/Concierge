@@ -22,13 +22,13 @@ def create_tenant(slug: str, name: str, metadata: dict[str, Any] | None = None) 
 
 def get_tenant(tid: int) -> Tenant | None:
     with connect() as c:
-        r = row(c, "SELECT * FROM tenants WHERE id = ?", tid)
+        r = row(c, "SELECT * FROM tenants WHERE id = ?", (tid,))
     return _tenant_from(r) if r else None
 
 
 def get_tenant_by_slug(slug: str) -> Tenant | None:
     with connect() as c:
-        r = row(c, "SELECT * FROM tenants WHERE slug = ?", slug)
+        r = row(c, "SELECT * FROM tenants WHERE slug = ?", (slug,))
     return _tenant_from(r) if r else None
 
 
@@ -68,7 +68,7 @@ def create_user(tenant_id: int, email: str, display_name: str | None = None, pas
 
 def get_user(uid: int) -> User | None:
     with connect() as c:
-        r = row(c, "SELECT * FROM users WHERE id = ?", uid)
+        r = row(c, "SELECT * FROM users WHERE id = ?", (uid,))
     return _user_from(r) if r else None
 
 
@@ -96,12 +96,12 @@ def add_domain(tenant_id: int, domain: str) -> Domain:
 def list_domains(tenant_id: int) -> list[Domain]:
     with connect() as c:
         return [Domain(id=r["id"], tenant_id=r["tenant_id"], domain=r["domain"], verified=bool(r["verified"]))
-                for r in rows(c, "SELECT * FROM domains WHERE tenant_id = ? ORDER BY id", tenant_id)]
+                for r in rows(c, "SELECT * FROM domains WHERE tenant_id = ? ORDER BY id", (tenant_id,))]
 
 
 def get_domain(did: int) -> Domain | None:
     with connect() as c:
-        r = row(c, "SELECT * FROM domains WHERE id = ?", did)
+        r = row(c, "SELECT * FROM domains WHERE id = ?", (did,))
     return Domain(id=r["id"], tenant_id=r["tenant_id"], domain=r["domain"], verified=bool(r["verified"])) if r else None
 
 
@@ -130,13 +130,13 @@ def create_api_key(tenant_id: int, label: str, secret: str) -> ApiKey:
 
 def get_api_key(kid: int) -> ApiKey | None:
     with connect() as c:
-        r = row(c, "SELECT * FROM api_keys WHERE id = ?", kid)
+        r = row(c, "SELECT * FROM api_keys WHERE id = ?", (kid,))
     return _api_key_from(r) if r else None
 
 
 def get_api_key_by_public(public_key: str) -> ApiKey | None:
     with connect() as c:
-        r = row(c, "SELECT * FROM api_keys WHERE public_key = ?", public_key)
+        r = row(c, "SELECT * FROM api_keys WHERE public_key = ?", (public_key,))
     return _api_key_from(r) if r else None
 
 
@@ -228,17 +228,17 @@ def audit(tenant_id: int | None, actor_user_id: int | None, action: str, metadat
 
 def get_lead(lid: int) -> dict | None:
     with connect() as c:
-        return row(c, "SELECT * FROM leads WHERE id = ?", lid)
+        return row(c, "SELECT * FROM leads WHERE id = ?", (lid,))
 
 
 def get_conversation(conv_id: int) -> dict | None:
     with connect() as c:
-        return row(c, "SELECT * FROM conversations WHERE id = ?", conv_id)
+        return row(c, "SELECT * FROM conversations WHERE id = ?", (conv_id,))
 
 
 def get_tenant_email(tenant_id: int) -> dict | None:
     with connect() as c:
-        r = row(c, "SELECT * FROM email_settings WHERE tenant_id = ?", tenant_id)
+        r = row(c, "SELECT * FROM email_settings WHERE tenant_id = ?", (tenant_id,))
     if not r:
         return None
     return {
@@ -257,7 +257,7 @@ def get_tenant_email(tenant_id: int) -> dict | None:
 
 def get_notification(nid: int) -> dict | None:
     with connect() as c:
-        r = row(c, "SELECT * FROM notifications WHERE id = ?", nid)
+        r = row(c, "SELECT * FROM notifications WHERE id = ?", (nid,))
     return r
 
 
@@ -270,13 +270,13 @@ def create_notification(tenant_id: int, lead_id: int, channel: str, status: str,
 
 def get_templates(tenant_id: int) -> list[dict]:
     with connect() as c:
-        return rows(c, "SELECT * FROM email_templates WHERE tenant_id = ?", tenant_id)
+        return rows(c, "SELECT * FROM email_templates WHERE tenant_id = ?", (tenant_id,))
 
 
 def create_or_update_email(tenant_id: int, **fields) -> None:
     fields["updated_at"] = now_iso()
     with connect() as c:
-        existing = rows(c, "SELECT id FROM email_settings WHERE tenant_id = ?", tenant_id)
+        existing = rows(c, "SELECT id FROM email_settings WHERE tenant_id = ?", (tenant_id,))
         if existing:
             sets = ", ".join(f"{k} = ?" for k in fields)
             vals = list(fields.values()) + [tenant_id]
@@ -291,7 +291,7 @@ def create_or_update_business_rules(tenant_id: int, rules: dict[str, Any]) -> di
     import json as _json
     payload = _json.dumps(rules or {})
     with connect() as c:
-        existing = rows(c, "SELECT id FROM business_rules WHERE tenant_id = ?", tenant_id)
+        existing = rows(c, "SELECT id FROM business_rules WHERE tenant_id = ?", (tenant_id,))
         now = now_iso()
         if existing:
             c.execute("UPDATE business_rules SET rules = ?, updated_at = ? WHERE tenant_id = ?", (payload, now, tenant_id))
@@ -302,7 +302,7 @@ def create_or_update_business_rules(tenant_id: int, rules: dict[str, Any]) -> di
 
 def get_business_rules(tenant_id: int) -> dict | None:
     with connect() as c:
-        r = row(c, "SELECT rules FROM business_rules WHERE tenant_id = ?", tenant_id)
+        r = row(c, "SELECT rules FROM business_rules WHERE tenant_id = ?", (tenant_id,))
     if not r:
         return None
     import json as _json
@@ -324,7 +324,7 @@ def create_frontdesk_note(tenant_id: int, note: str, lead_id: int | None = None,
             (tenant_id, lead_id, conversation_id, note, created_by, now, now),
         )
         nid = cur.lastrowid
-        return row(c, "SELECT * FROM frontdesk_notes WHERE id = ?", nid)
+        return row(c, "SELECT * FROM frontdesk_notes WHERE id = ?", (nid,))
 
 
 def get_frontdesk_notes(tenant_id: int, lead_id: int | None = None, limit: int = 50) -> list[dict]:
@@ -349,7 +349,7 @@ def create_frontdesk_task(tenant_id: int, title: str, priority: str = "medium",
             (tenant_id, lead_id, title, description, priority, due_at, created_by, now, now),
         )
         tid = cur.lastrowid
-        return row(c, "SELECT * FROM frontdesk_tasks WHERE id = ?", tid)
+        return row(c, "SELECT * FROM frontdesk_tasks WHERE id = ?", (tid,))
 
 
 def get_frontdesk_tasks(tenant_id: int, status: str | None = None, limit: int = 50) -> list[dict]:
@@ -375,7 +375,7 @@ def complete_frontdesk_task(task_id: int, tenant_id: int) -> dict | None:
             return None
         c.execute("UPDATE frontdesk_tasks SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?",
                   (now, now, task_id))
-        return row(c, "SELECT * FROM frontdesk_tasks WHERE id = ?", task_id)
+        return row(c, "SELECT * FROM frontdesk_tasks WHERE id = ?", (task_id,))
 
 
 def create_ai_draft(tenant_id: int, lead_id: int | None = None, conversation_id: int | None = None,
@@ -388,7 +388,7 @@ def create_ai_draft(tenant_id: int, lead_id: int | None = None, conversation_id:
             (tenant_id, lead_id, conversation_id, subject, body, html_body, now, now),
         )
         did = cur.lastrowid
-        return row(c, "SELECT * FROM ai_drafts WHERE id = ?", did)
+        return row(c, "SELECT * FROM ai_drafts WHERE id = ?", (did,))
 
 
 def get_ai_drafts(tenant_id: int, lead_id: int | None = None, status: str | None = None,
@@ -415,7 +415,7 @@ def mark_draft_sent(draft_id: int, tenant_id: int) -> dict | None:
             return None
         c.execute("UPDATE ai_drafts SET status = 'sent', sent_at = ?, updated_at = ? WHERE id = ?",
                   (now, now, draft_id))
-        return row(c, "SELECT * FROM ai_drafts WHERE id = ?", draft_id)
+        return row(c, "SELECT * FROM ai_drafts WHERE id = ?", (draft_id,))
 
 
 def mark_draft_failed(draft_id: int, tenant_id: int, error: str) -> dict | None:
@@ -426,21 +426,21 @@ def mark_draft_failed(draft_id: int, tenant_id: int, error: str) -> dict | None:
             return None
         c.execute("UPDATE ai_drafts SET status = 'failed', error = ?, updated_at = ? WHERE id = ?",
                   (error, now, draft_id))
-        return row(c, "SELECT * FROM ai_drafts WHERE id = ?", draft_id)
+        return row(c, "SELECT * FROM ai_drafts WHERE id = ?", (draft_id,))
 
 
 def get_frontdesk_dashboard(tenant_id: int) -> dict:
     with connect() as c:
-        total_conv = row(c, "SELECT COUNT(*) AS n FROM conversations WHERE tenant_id = ?", tenant_id)["n"]
-        new_leads = row(c, "SELECT COUNT(*) AS n FROM leads WHERE tenant_id = ? AND status = 'new'", tenant_id)["n"]
-        contacted = row(c, "SELECT COUNT(*) AS n FROM leads WHERE tenant_id = ? AND status = 'contacted'", tenant_id)["n"]
-        booked = row(c, "SELECT COUNT(*) AS n FROM leads WHERE tenant_id = ? AND status = 'booked'", tenant_id)["n"]
-        pending_drafts = row(c, "SELECT COUNT(*) AS n FROM ai_drafts WHERE tenant_id = ? AND status = 'pending'", tenant_id)["n"]
-        open_tasks = row(c, "SELECT COUNT(*) AS n FROM frontdesk_tasks WHERE tenant_id = ? AND status = 'open'", tenant_id)["n"]
+        total_conv = row(c, "SELECT COUNT(*) AS n FROM conversations WHERE tenant_id = ?", (tenant_id,))["n"]
+        new_leads = row(c, "SELECT COUNT(*) AS n FROM leads WHERE tenant_id = ? AND status = 'new'", (tenant_id,))["n"]
+        contacted = row(c, "SELECT COUNT(*) AS n FROM leads WHERE tenant_id = ? AND status = 'contacted'", (tenant_id,))["n"]
+        booked = row(c, "SELECT COUNT(*) AS n FROM leads WHERE tenant_id = ? AND status = 'booked'", (tenant_id,))["n"]
+        pending_drafts = row(c, "SELECT COUNT(*) AS n FROM ai_drafts WHERE tenant_id = ? AND status = 'pending'", (tenant_id,))["n"]
+        open_tasks = row(c, "SELECT COUNT(*) AS n FROM frontdesk_tasks WHERE tenant_id = ? AND status = 'open'", (tenant_id,))["n"]
         overdue_tasks = row(c,
             "SELECT COUNT(*) AS n FROM frontdesk_tasks WHERE tenant_id = ? AND status = 'open' AND due_at IS NOT NULL AND due_at < ?",
             tenant_id, now_iso())
-        total_notes = row(c, "SELECT COUNT(*) AS n FROM frontdesk_notes WHERE tenant_id = ?", tenant_id)["n"]
+        total_notes = row(c, "SELECT COUNT(*) AS n FROM frontdesk_notes WHERE tenant_id = ?", (tenant_id,))["n"]
 
         intents_rows = rows(c,
             "SELECT intent, COUNT(*) AS cnt FROM leads WHERE tenant_id = ? AND intent IS NOT NULL GROUP BY intent ORDER BY cnt DESC LIMIT 5",
@@ -481,9 +481,9 @@ def get_fd_lead_detail(tenant_id: int, lead_id: int) -> dict | None:
         msgs = []
         if conv:
             msgs = rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC", conv["id"])
-        notes = rows(c, "SELECT * FROM frontdesk_notes WHERE lead_id = ? ORDER BY created_at DESC", lead_id)
-        tasks = rows(c, "SELECT * FROM frontdesk_tasks WHERE lead_id = ? ORDER BY created_at DESC", lead_id)
-        drafts = rows(c, "SELECT * FROM ai_drafts WHERE lead_id = ? ORDER BY created_at DESC", lead_id)
+        notes = rows(c, "SELECT * FROM frontdesk_notes WHERE lead_id = ? ORDER BY created_at DESC", (lead_id,))
+        tasks = rows(c, "SELECT * FROM frontdesk_tasks WHERE lead_id = ? ORDER BY created_at DESC", (lead_id,))
+        drafts = rows(c, "SELECT * FROM ai_drafts WHERE lead_id = ? ORDER BY created_at DESC", (lead_id,))
         return {
             "lead": lead,
             "conversation": conv,
@@ -498,7 +498,7 @@ def save_template(tenant_id: int, name: str, subject: str, body: str) -> None:
     import json as _json
     now = now_iso()
     with connect() as c:
-        existing = rows(c, "SELECT id FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", tenant_id)
+        existing = rows(c, "SELECT id FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", (tenant_id,))
         if existing:
             current = {}
             try:

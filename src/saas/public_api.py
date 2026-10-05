@@ -93,7 +93,7 @@ def public_tenant_login(
 
 def _tenant_config(tenant_id: int) -> dict[str, Any]:
     with connect() as c:
-        row_data = rows(c, "SELECT flags, ai_instructions FROM tenant_settings WHERE tenant_id = ?", tenant_id)
+        row_data = rows(c, "SELECT flags, ai_instructions FROM tenant_settings WHERE tenant_id = ?", (tenant_id,))
     out: dict[str, Any] = {}
     if row_data:
         flags_raw = row_data[0].get("flags") or "{}"
@@ -109,7 +109,7 @@ def _tenant_config(tenant_id: int) -> dict[str, Any]:
 
 def _load_tenant(tenant_id: int) -> dict[str, Any]:
     with connect() as c:
-        r = rows(c, "SELECT id, name, slug, enabled, metadata FROM tenants WHERE id = ?", tenant_id)
+        r = rows(c, "SELECT id, name, slug, enabled, metadata FROM tenants WHERE id = ?", (tenant_id,))
     if not r:
         raise HTTPException(status_code=404, detail="tenant not found")
     t = r[0]
@@ -126,8 +126,8 @@ def _load_integration(tenant_id: int) -> dict[str, Any]:
     public_key = _public_key(tenant_id)
     app_url = os.environ.get("APP_URL", "http://localhost:8000").rstrip("/")
     with connect() as c:
-        domains = rows(c, "SELECT * FROM domains WHERE tenant_id = ? ORDER BY id", tenant_id)
-        widget_row = row(c, "SELECT config FROM widget_settings WHERE tenant_id = ?", tenant_id)
+        domains = rows(c, "SELECT * FROM domains WHERE tenant_id = ? ORDER BY id", (tenant_id,))
+        widget_row = row(c, "SELECT config FROM widget_settings WHERE tenant_id = ?", (tenant_id,))
     widget_config = {}
     if widget_row:
         try:
@@ -151,7 +151,7 @@ def _load_integration(tenant_id: int) -> dict[str, Any]:
 
 def _public_key(tenant_id: int) -> str:
     with connect() as c:
-        r = row(c, "SELECT public_key FROM api_keys WHERE tenant_id = ? LIMIT 1", tenant_id)
+        r = row(c, "SELECT public_key FROM api_keys WHERE tenant_id = ? LIMIT 1", (tenant_id,))
     return r["public_key"] if r else ""
 
 
@@ -168,7 +168,7 @@ def public_config(client_key: str, request: Request) -> dict:
     if not key or key.revoked_at:
         raise HTTPException(status_code=401, detail="invalid client key")
     with connect() as c:
-        tenant = rows(c, "SELECT id, name, slug, enabled FROM tenants WHERE id = ? AND enabled = 1", key.tenant_id)
+        tenant = rows(c, "SELECT id, name, slug, enabled FROM tenants WHERE id = ? AND enabled = 1", (key.tenant_id,))
     if not tenant:
         raise HTTPException(status_code=404, detail="tenant not found")
     origin = request.headers.get("origin", "").replace("https://", "").replace("http://", "").split("/")[0].lower()
@@ -215,7 +215,7 @@ def public_conversation_message(conversation_id: int, body: dict[str, Any], clie
     if not key or key.revoked_at:
         raise HTTPException(status_code=401, detail="invalid client key")
     with connect() as c:
-        conv = rows(c, "SELECT id, tenant_id, status, metadata FROM conversations WHERE id = ?", conversation_id)
+        conv = rows(c, "SELECT id, tenant_id, status, metadata FROM conversations WHERE id = ?", (conversation_id,))
     if not conv or conv[0]["tenant_id"] != key.tenant_id:
         raise HTTPException(status_code=404, detail="conversation not found")
 
@@ -367,7 +367,7 @@ async def fd_get_messages(request: Request, conversation_id: int):
     if not conv or conv["tenant_id"] != auth["tenant_id"]:
         raise HTTPException(status_code=404, detail="conversation not found")
     with connect() as c:
-        msgs = rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC", conversation_id)
+        msgs = rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC", (conversation_id,))
     return msgs
 
 
@@ -533,7 +533,7 @@ def _lead_context(lead_id: int | None = None) -> dict[str, Any]:
     cid = lead.get("conversation_id")
     if cid:
         with connect() as c:
-            msgs = rows(c, "SELECT role, body FROM messages WHERE conversation_id = ? ORDER BY id ASC", cid)
+            msgs = rows(c, "SELECT role, body FROM messages WHERE conversation_id = ? ORDER BY id ASC", (cid,))
             conv_text = "\n".join(
                 f"{'Patient' if m['role'] == 'user' else 'Concierge'}: {m['body']}"
                 for m in msgs
@@ -795,7 +795,7 @@ def admin_add_integration_domain(tenant_id: int, body: dict[str, Any], cu: Any =
             raise HTTPException(status_code=409, detail="domain already added")
         did = c.execute("INSERT INTO domains (tenant_id, domain, created_at) VALUES (?, ?, ?)",
                         (tenant_id, domain, now_iso())).lastrowid
-        r = row(c, "SELECT * FROM domains WHERE id = ?", did)
+        r = row(c, "SELECT * FROM domains WHERE id = ?", (did,))
     from saas.repositories import audit
     audit(tenant_id, cu.user.id, "domain_added", {"domain": domain})
     return dict(r)
@@ -822,7 +822,7 @@ def admin_verify_integration_domain(tenant_id: int, domain_id: int, cu: Any = De
         raise HTTPException(status_code=403, detail="forbidden")
     with connect() as c:
         c.execute("UPDATE domains SET verified = 1 WHERE id = ? AND tenant_id = ?", (domain_id, tenant_id))
-        r = row(c, "SELECT * FROM domains WHERE id = ?", domain_id)
+        r = row(c, "SELECT * FROM domains WHERE id = ?", (domain_id,))
     if not r:
         raise HTTPException(status_code=404, detail="domain not found")
     from saas.repositories import audit
@@ -835,7 +835,7 @@ def admin_regenerate_client_key(tenant_id: int, cu: Any = Depends(get_current)) 
     if cu.user.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="forbidden")
     with connect() as c:
-        rows_data = rows(c, "SELECT id FROM api_keys WHERE tenant_id = ? AND revoked_at IS NULL LIMIT 1", tenant_id)
+        rows_data = rows(c, "SELECT id FROM api_keys WHERE tenant_id = ? AND revoked_at IS NULL LIMIT 1", (tenant_id,))
     if rows_data:
         from saas.repositories import revoke_api_key
         revoke_api_key(rows_data[0]["id"])
@@ -855,7 +855,7 @@ def admin_test_integration(tenant_id: int, cu: Any = Depends(get_current)) -> di
     if not public_key:
         return {"status": "error", "message": "No client key found. Generate one first."}
     with connect() as c:
-        domains = rows(c, "SELECT domain, verified FROM domains WHERE tenant_id = ?", tenant_id)
+        domains = rows(c, "SELECT domain, verified FROM domains WHERE tenant_id = ?", (tenant_id,))
     domain_list = [d["domain"] for d in domains]
     if not domain_list:
         return {
@@ -931,17 +931,17 @@ def admin_create_conversation(tenant_id: int, body: dict = Body(default_factory=
             (tenant_id, "new", body.get("page_url", "/"), body.get("summary"), json.dumps(body), now, now),
         )
         cid = cur.lastrowid
-        return rows(c, "SELECT * FROM conversations WHERE id = ?", cid)[0]
+        return rows(c, "SELECT * FROM conversations WHERE id = ?", (cid,))[0]
 
 
 @admin_app.get("/conversations/{conversation_id}/messages")
 def admin_get_messages(conversation_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
     with connect() as c:
-        conv = rows(c, "SELECT tenant_id FROM conversations WHERE id = ?", conversation_id)
+        conv = rows(c, "SELECT tenant_id FROM conversations WHERE id = ?", (conversation_id,))
     if not conv:
         raise HTTPException(status_code=404, detail="conversation not found")
     with connect() as c:
-        return rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id", conversation_id)
+        return rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id", (conversation_id,))
 
 
 # ── Analytics Admin ──────────────────────────────────────────────────────────
@@ -974,14 +974,14 @@ def _days_ago(n: int) -> str:
 @admin_app.get("/tenants/{tenant_id}/widget")
 def admin_get_widget(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
     with connect() as c:
-        r = rows(c, "SELECT config FROM widget_settings WHERE tenant_id = ?", tenant_id)
+        r = rows(c, "SELECT config FROM widget_settings WHERE tenant_id = ?", (tenant_id,))
     return json.loads(r[0]["config"]) if r else {}
 
 
 @admin_app.put("/tenants/{tenant_id}/widget")
 def admin_update_widget(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     with connect() as c:
-        existing = rows(c, "SELECT id FROM widget_settings WHERE tenant_id = ?", tenant_id)
+        existing = rows(c, "SELECT id FROM widget_settings WHERE tenant_id = ?", (tenant_id,))
         config_json = json.dumps(body)
         now = now_iso()
         if existing:
@@ -998,7 +998,7 @@ def admin_update_widget(tenant_id: int, body: dict[str, Any], _: Any = Depends(r
 @admin_app.get("/tenants/{tenant_id}/members")
 def admin_list_members(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
     with connect() as c:
-        return rows(c, "SELECT id, email, role, display_name FROM users WHERE tenant_id=? AND role != 'owner'", tenant_id)
+        return rows(c, "SELECT id, email, role, display_name FROM users WHERE tenant_id=? AND role != 'owner'", (tenant_id,))
 
 
 @admin_app.post("/tenants/{tenant_id}/members")
@@ -1029,7 +1029,7 @@ def admin_add_member(tenant_id: int, body: dict[str, Any], _: Any = Depends(requ
 @admin_app.get("/tenants/{tenant_id}/email")
 def admin_get_email(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
     with connect() as c:
-        r = rows(c, "SELECT * FROM email_settings WHERE tenant_id = ?", tenant_id)
+        r = rows(c, "SELECT * FROM email_settings WHERE tenant_id = ?", (tenant_id,))
     if not r:
         return {"provider": "default", "from_name": "", "from_email": "", "reply_to": ""}
     row_data = r[0]
@@ -1057,7 +1057,7 @@ def admin_update_email(tenant_id: int, body: dict[str, Any], _: Any = Depends(re
         fields.pop("smtp_password")
 
     with connect() as c:
-        existing = rows(c, "SELECT id FROM email_settings WHERE tenant_id = ?", tenant_id)
+        existing = rows(c, "SELECT id FROM email_settings WHERE tenant_id = ?", (tenant_id,))
         sets = ", ".join(f"{k} = ?" for k in fields)
         vals = list(fields.values()) + [tenant_id]
         now = now_iso()
@@ -1091,7 +1091,7 @@ def admin_test_smtp(tenant_id: int, _: Any = Depends(require_roles("owner", "adm
 def admin_list_templates(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
     from saas.email_templates import DEFAULT_TEMPLATES
     with connect() as c:
-        r = rows(c, "SELECT value FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", tenant_id)
+        r = rows(c, "SELECT value FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", (tenant_id,))
     custom = {}
     if r:
         try:
@@ -1107,11 +1107,11 @@ def admin_list_templates(tenant_id: int, _: Any = Depends(require_roles("owner",
 def admin_update_template(tenant_id: int, template_name: str, body: dict[str, str],
                           _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     with connect() as c:
-        r = rows(c, "SELECT value FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", tenant_id)
+        r = rows(c, "SELECT value FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", (tenant_id,))
         existing = json.loads(r[0]["value"]) if r else {}
     existing[template_name] = body
     with connect() as c:
-        rid = rows(c, "SELECT id FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", tenant_id)
+        rid = rows(c, "SELECT id FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", (tenant_id,))
         now = now_iso()
         if rid:
             c.execute("UPDATE tenant_settings SET value = ?, updated_at = ? WHERE tenant_id = ? AND key = 'email_templates'",
@@ -1132,14 +1132,14 @@ def admin_template_variables(_: Any = Depends(require_roles("owner", "admin", "v
 @admin_app.get("/tenants/{tenant_id}/business-rules")
 def admin_get_business_rules(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
     with connect() as c:
-        r = rows(c, "SELECT rules FROM business_rules WHERE tenant_id = ?", tenant_id)
+        r = rows(c, "SELECT rules FROM business_rules WHERE tenant_id = ?", (tenant_id,))
     return json.loads(r[0]["rules"]) if r else {}
 
 
 @admin_app.put("/tenants/{tenant_id}/business-rules")
 def admin_update_business_rules(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
     with connect() as c:
-        existing = rows(c, "SELECT id FROM business_rules WHERE tenant_id = ?", tenant_id)
+        existing = rows(c, "SELECT id FROM business_rules WHERE tenant_id = ?", (tenant_id,))
         now = now_iso()
         if existing:
             c.execute("UPDATE business_rules SET rules = ?, updated_at = ? WHERE tenant_id = ?",
@@ -1172,7 +1172,7 @@ def admin_update_settings(tenant_id: int, body: dict[str, Any], _: Any = Depends
     ai_instructions = body.get("ai_instructions")
 
     with connect() as c:
-        existing = rows(c, "SELECT id, flags, ai_instructions FROM tenant_settings WHERE tenant_id = ?", tenant_id)
+        existing = rows(c, "SELECT id, flags, ai_instructions FROM tenant_settings WHERE tenant_id = ?", (tenant_id,))
         now = now_iso()
         current_flags = json.loads(existing[0]["flags"]) if existing else {}
         current_flags.update(flags)
@@ -1888,15 +1888,15 @@ def admin_dashboard(tenant_id: int, cu: Any = Depends(get_current)):
         emails_sent_count = c.execute("SELECT COUNT(*) FROM notifications WHERE tenant_id=? AND status='sent'", (tenant_id,)).fetchone()[0]
         total_leads = leads_count or 1
         completion_rate = min(100, round(((conversations_count or 0) / max(total_leads, 1)) * 100))
-        recent = rows(c, "SELECT id, visitor_name, visitor_email, intent, status, created_at FROM conversations WHERE tenant_id=? ORDER BY id DESC LIMIT 8", tenant_id)
-        recent_leads = rows(c, "SELECT id, name, email, intent, status, created_at FROM leads WHERE tenant_id=? ORDER BY id DESC LIMIT 5", tenant_id)
-        conv_rows = rows(c, "SELECT id, visitor_name, visitor_email, intent, status, created_at FROM conversations WHERE tenant_id=? ORDER BY id DESC LIMIT 50", tenant_id)
-        lead_rows = rows(c, "SELECT id, name, email, intent, status, created_at FROM leads WHERE tenant_id=? ORDER BY id DESC LIMIT 50", tenant_id)
-        api_keys = rows(c, "SELECT id, label, public_key, created_at FROM api_keys WHERE tenant_id=?", tenant_id)
-        members = rows(c, "SELECT id, email, role, display_name FROM users WHERE tenant_id=? AND role != 'owner'", tenant_id)
+        recent = rows(c, "SELECT id, visitor_name, visitor_email, intent, status, created_at FROM conversations WHERE tenant_id=? ORDER BY id DESC LIMIT 8", (tenant_id,))
+        recent_leads = rows(c, "SELECT id, name, email, intent, status, created_at FROM leads WHERE tenant_id=? ORDER BY id DESC LIMIT 5", (tenant_id,))
+        conv_rows = rows(c, "SELECT id, visitor_name, visitor_email, intent, status, created_at FROM conversations WHERE tenant_id=? ORDER BY id DESC LIMIT 50", (tenant_id,))
+        lead_rows = rows(c, "SELECT id, name, email, intent, status, created_at FROM leads WHERE tenant_id=? ORDER BY id DESC LIMIT 50", (tenant_id,))
+        api_keys = rows(c, "SELECT id, label, public_key, created_at FROM api_keys WHERE tenant_id=?", (tenant_id,))
+        members = rows(c, "SELECT id, email, role, display_name FROM users WHERE tenant_id=? AND role != 'owner'", (tenant_id,))
 
     # Analytics
-    analytics = rows(c, "SELECT event_type, COUNT(*) as cnt FROM analytics WHERE tenant_id=? GROUP BY event_type ORDER BY cnt DESC", tenant_id) if False else []
+    analytics = rows(c, "SELECT event_type, COUNT(*) as cnt FROM analytics WHERE tenant_id=? GROUP BY event_type ORDER BY cnt DESC", (tenant_id,)) if False else []
 
     recent_html = ""
     if recent:
@@ -1969,14 +1969,14 @@ def admin_dashboard(tenant_id: int, cu: Any = Depends(get_current)):
     from saas.repositories import _loads
     rules_raw = ""
     with connect() as c:
-        row_br = row(c, "SELECT rules FROM business_rules WHERE tenant_id=?", tenant_id)
+        row_br = row(c, "SELECT rules FROM business_rules WHERE tenant_id=?", (tenant_id,))
     rules = _loads(row_br.get("rules") if row_br else "")
     br = rules if isinstance(rules, dict) else {}
 
     # Settings flags
     flags = {}
     with connect() as c:
-        row_s = row(c, "SELECT flags FROM tenant_settings WHERE tenant_id=?", tenant_id)
+        row_s = row(c, "SELECT flags FROM tenant_settings WHERE tenant_id=?", (tenant_id,))
     flags = _loads(row_s.get("flags") if row_s else "")
     if not isinstance(flags, dict):
         flags = {}
