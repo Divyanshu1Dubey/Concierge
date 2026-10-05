@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from saas.config import get_settings
+from saas.result import Result
 
 _lock = threading.Lock()
 
@@ -377,10 +378,16 @@ def update(conn, table: str, row_id: int, **cols) -> None:
     conn.execute(f"UPDATE {table} SET {sets} WHERE id = ?", [*cols.values(), row_id])
 
 
-def rows(conn, sql: str, args: tuple = ()) -> list[dict]:
-    return [dict(r) for r in conn.execute(sql, args)]
+def rows(conn, sql: str, *args) -> list[Result]:
+    # Support both: rows(c, sql, val) and rows(c, sql, (val,)) and rows(c, sql, val1, val2)
+    if len(args) == 1 and isinstance(args[0], tuple):
+        args = args[0]
+    return [Result(r) for r in conn.execute(sql, args)]
 
 
-def row(conn, sql: str, args: tuple = ()) -> dict | None:
-    found = rows(conn, sql, args)
+def row(conn, sql: str, *args) -> Result | None:
+    # Support both: row(c, sql, val) and row(c, sql, (val,)) and row(c, sql, val1, val2)
+    if len(args) == 1 and isinstance(args[0], tuple):
+        args = args[0]
+    found = rows(conn, sql, *args)
     return found[0] if found else None

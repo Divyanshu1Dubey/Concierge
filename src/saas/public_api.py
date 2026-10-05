@@ -35,9 +35,11 @@ from saas.repositories import (
     create_conversation,
     create_lead,
     get_lead,
+    get_conversation,
     get_tenant_by_slug,
     list_domains as repo_list_domains,
     list_tenants,
+    list_leads,
     remove_domain as repo_remove_domain,
     track_event,
     update_lead as repo_update_lead,
@@ -341,13 +343,16 @@ async def fd_dashboard_tenant(request: Request, tenant_id: int):
 
 
 @frontdesk_app.get("/conversations")
-async def fd_list_conversations(request: Request, lead_id: int | None = None):
+async def fd_list_conversations(request: Request, lead_id: int | None = None, status: str | None = None):
     auth = await _fd_auth(request)
     with connect() as c:
         if lead_id:
             convs = rows(c, "SELECT * FROM conversations WHERE id = (SELECT conversation_id FROM leads WHERE id = ? AND tenant_id = ?)", lead_id, auth["tenant_id"])
         else:
-            convs = rows(c, "SELECT * FROM conversations WHERE tenant_id = ? ORDER BY updated_at DESC LIMIT 100", auth["tenant_id"])
+            if status:
+                convs = rows(c, "SELECT * FROM conversations WHERE tenant_id = ? AND status = ? ORDER BY updated_at DESC LIMIT 100", auth["tenant_id"], status)
+            else:
+                convs = rows(c, "SELECT * FROM conversations WHERE tenant_id = ? ORDER BY updated_at DESC LIMIT 100", auth["tenant_id"])
     return convs
 
 
@@ -355,17 +360,25 @@ async def fd_list_conversations(request: Request, lead_id: int | None = None):
 async def fd_get_conversation(request: Request, conversation_id: int):
     auth = await _fd_auth(request)
     conv = get_conversation(conversation_id)
-    if not conv or conv["tenant_id"] != auth["tenant_id"]:
+    if not conv:
         raise HTTPException(status_code=404, detail="conversation not found")
-    return conv
+    if conv["tenant_id"] != auth["tenant_id"]:
+        raise HTTPException(status_code=403, detail="forbidden")
+    with connect() as c:
+        msgs = rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC", (conversation_id,))
+    result = dict(conv)
+    result["messages"] = msgs
+    return result
 
 
 @frontdesk_app.get("/conversations/{conversation_id}/messages")
 async def fd_get_messages(request: Request, conversation_id: int):
     auth = await _fd_auth(request)
     conv = get_conversation(conversation_id)
-    if not conv or conv["tenant_id"] != auth["tenant_id"]:
+    if not conv:
         raise HTTPException(status_code=404, detail="conversation not found")
+    if conv["tenant_id"] != auth["tenant_id"]:
+        raise HTTPException(status_code=403, detail="forbidden")
     with connect() as c:
         msgs = rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC", (conversation_id,))
     return msgs
@@ -395,10 +408,12 @@ async def fd_update_lead_status(request: Request, lead_id: int, body: dict[str, 
     new_status = body.get("status")
     if not new_status:
         raise HTTPException(status_code=422, detail="status required")
+    valid_statuses = {"new", "contacted", "scheduled", "completed", "archived", "emergency", "appointment_request"}
+    if new_status not in valid_statuses:
+        raise HTTPException(status_code=422, detail=f"invalid status: {new_status}")
     with connect() as c:
         c.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", (new_status, now_iso(), lead_id))
-    updated = get_lead(lead_id)
-    return updated or {"ok": True}
+    return {"ok": True}
 
 
 @frontdesk_app.post("/leads/{lead_id}/reply")
@@ -408,11 +423,21 @@ async def fd_reply_lead(request: Request, lead_id: int, body: dict[str, Any]):
     if not lead or lead["tenant_id"] != auth["tenant_id"]:
         raise HTTPException(status_code=404, detail="lead not found")
     text = body.get("body", "")
+    if not text or not text.strip():
+        raise HTTPException(status_code=422, detail="reply body cannot be empty")
     conv_id = lead.get("conversation_id")
     if conv_id:
         with connect() as c:
-            c.execute("INSERT INTO messages (conversation_id, sender_type, text, created_at) VALUES (?, 'agent', ?, ?)",
+            c.execute("INSERT INTO messages (conversation_id, role, body, created_at, metadata) VALUES (?, 'agent', ?, ?, '{}')",
                       (conv_id, text, now_iso()))
+    # Create a note for the frontdesk
+    create_frontdesk_note(
+        auth["tenant_id"],
+        note=f"Replied to lead: {text}",
+        lead_id=lead_id,
+        conversation_id=conv_id,
+        created_by=auth.get("user_id"),
+    )
     from saas.emailer import send_lead_notification
     send_lead_notification(auth["tenant_id"], lead_id, intent="agent_reply")
     return {"ok": True}
@@ -449,14 +474,18 @@ async def fd_list_notes(request: Request, lead_id: int | None = None):
 @frontdesk_app.post("/notes")
 async def fd_create_note(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
+    note_text = body.get("note", "")
+    if not note_text or not note_text.strip():
+        raise HTTPException(status_code=422, detail="note cannot be empty")
     note = create_frontdesk_note(
         auth["tenant_id"],
-        note=body.get("note", ""),
+        note=note_text,
         lead_id=body.get("lead_id"),
         conversation_id=body.get("conversation_id"),
         created_by=auth.get("user_id"),
     )
-    return note
+    from starlette.responses import JSONResponse
+    return JSONResponse(content=note, status_code=201)
 
 
 @frontdesk_app.get("/tasks")
@@ -468,16 +497,20 @@ async def fd_list_tasks(request: Request, status: str | None = None):
 @frontdesk_app.post("/tasks")
 async def fd_create_task(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
+    title = body.get("title", "")
+    if not title or not title.strip():
+        raise HTTPException(status_code=422, detail="title cannot be empty")
     task = create_frontdesk_task(
         auth["tenant_id"],
-        title=body.get("title", ""),
+        title=title,
         priority=body.get("priority", "medium"),
         lead_id=body.get("lead_id"),
         description=body.get("description"),
         due_at=body.get("due_at"),
         created_by=auth.get("user_id"),
     )
-    return task
+    from starlette.responses import JSONResponse
+    return JSONResponse(content=task, status_code=201)
 
 
 @frontdesk_app.post("/tasks/{task_id}/complete")
@@ -505,7 +538,8 @@ async def fd_create_draft(request: Request, body: dict[str, Any]):
         subject=body.get("subject", ""),
         body=body.get("body", ""),
     )
-    return draft
+    from starlette.responses import JSONResponse
+    return JSONResponse(content=draft, status_code=201)
 
 
 @frontdesk_app.post("/drafts/{draft_id}/send")

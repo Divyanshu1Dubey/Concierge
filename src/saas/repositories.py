@@ -6,6 +6,7 @@ import secrets
 from typing import Any
 
 from saas.database import connect, insert, now_iso, row, rows
+from saas.result import Result
 from saas.models import ApiKey, Domain, Tenant, User
 from saas.security import hash_password
 
@@ -157,39 +158,41 @@ def _public_key() -> str:
 # --- conversations / leads / analytics ---------------------------------------------------------------------------
 
 
-def create_conversation(tenant_id: int, page_url: str | None, referrer: str | None, user_agent: str | None,
-                        visitor_id: str | None) -> dict:
+def create_conversation(tenant_id: int, page_url: str | None = None, referrer: str | None = None,
+                        user_agent: str | None = None, visitor_id: str | None = None) -> dict:
     with connect() as c:
         cid = insert(c, "conversations", tenant_id=tenant_id, visitor_id=visitor_id, page_url=page_url,
                      referrer=referrer, user_agent=user_agent, created_at=now_iso(), updated_at=now_iso())
-    return {"id": cid, "tenant_id": tenant_id}
+    return Result({"id": cid, "tenant_id": tenant_id})
 
 
 def append_message(conversation_id: int, role: str, body: str, metadata: dict[str, Any] | None = None) -> dict:
     with connect() as c:
         mid = insert(c, "messages", conversation_id=conversation_id, role=role, body=body, created_at=now_iso(),
                      metadata=_json(metadata))
-    return {"id": mid, "conversation_id": conversation_id, "role": role, "body": body}
+    return Result({"id": mid, "conversation_id": conversation_id, "role": role, "body": body})
 
 
 add_message = append_message  # backward-compatible alias used by frontdesk tests
 
 
-def complete_conversation(conversation_id: int, summary: str | None, status: str = "completed") -> None:
+def complete_conversation(conversation_id: int, summary: str | None = None, status: str = "completed") -> None:
     with connect() as c:
         c.execute("UPDATE conversations SET status = ?, summary = ?, updated_at = ? WHERE id = ?",
                   (status, summary, now_iso(), conversation_id))
 
 
-def create_lead(tenant_id: int, lead: dict[str, Any]) -> dict:
+def create_lead(tenant_id: int, lead: dict[str, Any] | None = None, **kwargs) -> dict:
+    data: dict[str, Any] = dict(lead) if lead else {}
+    data.update(kwargs)
     with connect() as c:
-        lid = insert(c, "leads", tenant_id=tenant_id, conversation_id=lead.get("conversation_id"), name=lead.get("name"),
-                     email=lead.get("email"), phone=lead.get("phone"), intent=lead.get("intent"), service=lead.get("service"),
-                     urgency=lead.get("urgency"), preferred_date=lead.get("preferredDate"), preferred_time=lead.get("preferredTime"),
-                     insurance=lead.get("insurance"), financing=lead.get("financing"), message=lead.get("message"),
-                     conversation_summary=lead.get("conversationSummary"), source=lead.get("source"), page_url=lead.get("pageUrl"),
-                     status=lead.get("status", "new"), created_at=now_iso(), updated_at=now_iso(), metadata=_json(lead.get("metadata")))
-    return {"id": lid, "tenant_id": tenant_id}
+        lid = insert(c, "leads", tenant_id=tenant_id, conversation_id=data.get("conversation_id"), name=data.get("name"),
+                     email=data.get("email"), phone=data.get("phone"), intent=data.get("intent"), service=data.get("service"),
+                     urgency=data.get("urgency"), preferred_date=data.get("preferredDate"), preferred_time=data.get("preferredTime"),
+                     insurance=data.get("insurance"), financing=data.get("financing"), message=data.get("message"),
+                     conversation_summary=data.get("conversationSummary"), source=data.get("source"), page_url=data.get("pageUrl"),
+                     status=data.get("status", "new"), created_at=now_iso(), updated_at=now_iso(), metadata=_json(data.get("metadata")))
+    return Result({"id": lid, "tenant_id": tenant_id})
 
 
 def list_leads(tenant_id: int, status: str | None = None, limit: int = 100, offset: int = 0) -> list[dict]:
@@ -265,7 +268,7 @@ def create_notification(tenant_id: int, lead_id: int, channel: str, status: str,
     with connect() as c:
         nid = insert(c, "notifications", tenant_id=tenant_id, lead_id=lead_id, channel=channel, status=status,
                      payload=_json(payload), error=error or "", created_at=now_iso(), sent_at=now_iso() if status == "sent" else None)
-    return {"id": nid, "tenant_id": tenant_id, "status": status}
+    return Result({"id": nid, "tenant_id": tenant_id, "status": status})
 
 
 def get_templates(tenant_id: int) -> list[dict]:
