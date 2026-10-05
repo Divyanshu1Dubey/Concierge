@@ -139,7 +139,7 @@ class TestAdminAuthRequirements:
     def test_dashboard_requires_auth(self):
         tenant, _ = _make_tenant()
         client = TestClient(admin_app)
-        r = client.get(f"/admin/dashboard/{tenant.id}")
+        r = client.get(f"/dashboard/{tenant.id}")
         assert r.status_code == 401
 
 

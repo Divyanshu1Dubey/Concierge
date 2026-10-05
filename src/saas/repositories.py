@@ -157,8 +157,8 @@ def _public_key() -> str:
 # --- conversations / leads / analytics ---------------------------------------------------------------------------
 
 
-def create_conversation(tenant_id: int, page_url: str | None, referrer: str | None, user_agent: str | None,
-                        visitor_id: str | None) -> dict:
+def create_conversation(tenant_id: int, page_url: str | None = None, referrer: str | None = None, user_agent: str | None = None,
+                        visitor_id: str | None = None) -> dict:
     with connect() as c:
         cid = insert(c, "conversations", tenant_id=tenant_id, visitor_id=visitor_id, page_url=page_url,
                      referrer=referrer, user_agent=user_agent, created_at=now_iso(), updated_at=now_iso())
@@ -185,9 +185,11 @@ def create_lead(tenant_id: int, lead: dict[str, Any]) -> dict:
     with connect() as c:
         lid = insert(c, "leads", tenant_id=tenant_id, conversation_id=lead.get("conversation_id"), name=lead.get("name"),
                      email=lead.get("email"), phone=lead.get("phone"), intent=lead.get("intent"), service=lead.get("service"),
-                     urgency=lead.get("urgency"), preferred_date=lead.get("preferredDate"), preferred_time=lead.get("preferredTime"),
+                     urgency=lead.get("urgency"), preferred_date=lead.get("preferredDate") or lead.get("preferred_date"),
+                     preferred_time=lead.get("preferredTime") or lead.get("preferred_time"),
                      insurance=lead.get("insurance"), financing=lead.get("financing"), message=lead.get("message"),
-                     conversation_summary=lead.get("conversationSummary"), source=lead.get("source"), page_url=lead.get("pageUrl"),
+                     conversation_summary=lead.get("conversationSummary") or lead.get("_summary"), source=lead.get("source"),
+                     page_url=lead.get("pageUrl") or lead.get("page_url"),
                      status=lead.get("status", "new"), created_at=now_iso(), updated_at=now_iso(), metadata=_json(lead.get("metadata")))
     return {"id": lid, "tenant_id": tenant_id}
 

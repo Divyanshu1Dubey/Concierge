@@ -24,8 +24,10 @@
     var clientKey = (script.getAttribute('data-heyjarvis-client') || cfg.clientKey || '').trim();
     if (!clientKey) return;
 
-    var scriptSrc = (script.getAttribute('src') || '').replace(/\/widget\.js\/?$/, '');
-    var apiBase = (scriptSrc || window.__HJ_API_BASE__ || '').replace(/\/+$/, '');
+    // API lives on the same host that serves widget.js (works for /widget.js and /static/widget.js).
+    var scriptOrigin = '';
+    try { scriptOrigin = new URL(script.src, location.href).origin; } catch (e) {}
+    var apiBase = (window.__HJ_API_BASE__ || scriptOrigin || '').replace(/\/+$/, '');
     if (!apiBase) return;
 
     var formMode = (script.getAttribute('data-heyjarvis-form') || '').toLowerCase() === 'true';
@@ -231,6 +233,7 @@
       '  -webkit-text-size-adjust: 100%;',
       '}',
       '/* ── Launcher ── */',
+      '.hj-launcher, .hj-frame { pointer-events: auto; }',
       '.hj-launcher {',
       '  position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;',
       '  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;',
@@ -460,7 +463,9 @@
 
     // ── DOM Construction ────────────────────────────────────────────────────
     var mount = document.createElement('div');
-    mount.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;pointer-events:none;z-index:-1;';
+    // The zero-size host lets clicks pass through to the page; the launcher and chat window opt back in.
+    // Max z-index so the clinic site's own headers/overlays can't cover the button.
+    mount.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;pointer-events:none;z-index:2147483647;';
     document.documentElement.appendChild(mount);
 
     var shadow = mount.attachShadow({ mode: 'open' });

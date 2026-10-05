@@ -115,6 +115,34 @@ body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background
 .task .task-priority.high{background:#fee2e2;color:#991b1b}
 .task .task-priority.normal{background:#fef3c7;color:#92400e}
 .task .task-priority.low{background:#f3f4f6;color:#6b7280}
+.email-thread{padding:4px 22px 12px;background:#fafbfc}
+.email-thread h4,.drafts h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:14px 0 8px}
+.email{border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:8px;background:#fff;max-width:92%}
+.email.in{border-left:4px solid var(--blue)}
+.email.out{border-left:4px solid var(--accent);margin-left:auto}
+.email .meta{font-size:11px;color:var(--muted);margin-bottom:4px;display:flex;gap:8px;flex-wrap:wrap}
+.email .body{white-space:pre-wrap;font-size:13px}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;background:#eef2ff;color:#3730a3}
+.drafts{padding:0 22px 12px;background:#fafbfc}
+.draft{border:2px dashed var(--purple);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#faf5ff}
+.draft input,.draft textarea{width:100%;border:1px solid var(--border);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;margin-bottom:6px;background:#fff}
+.draft textarea{min-height:120px;resize:vertical}
+.draft .row{display:flex;gap:6px;justify-content:flex-end;align-items:center}
+.draft .row span{flex:1;font-size:11px;color:var(--muted)}
+.btn{padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:#fff;cursor:pointer;font-size:12px;font-weight:600}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.danger{color:var(--red)}
+.cadence-bar{margin:10px 22px 0;padding:8px 12px;border-radius:10px;background:#f0fdf4;border:1px solid #bbf7d0;font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cadence-bar.paused{background:#fffbeb;border-color:#fde68a}
+.cadence-bar.stopped,.cadence-bar.completed{background:#f3f4f6;border-color:var(--border)}
+.cadence-bar b{font-weight:600}.cadence-bar .sp{flex:1}
+.hdr-btn{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:5px 12px;cursor:pointer;font-size:12px}
+.settings-grid label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;margin:10px 0 4px}
+.settings-grid input,.settings-grid select,.settings-grid textarea{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font:inherit;font-size:13px}
+.step-row,.rule-row{border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px}
+.step-row .two{display:grid;grid-template-columns:1fr 110px 110px;gap:6px}
+.help{font-size:12px;color:var(--muted);margin:4px 0 8px}
+.modal.wide{width:760px}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;justify-content:center;align-items:center}
 .modal-overlay.active{display:flex}
 .modal{background:#fff;border-radius:14px;padding:24px;width:520px;max-width:92vw;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
@@ -139,7 +167,11 @@ body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background
   <div class="right">
     <div class="insights" id="insights"></div>
     <div style="font-size:12px;opacity:.75" id="clock"></div>
-    <button onclick="logout()" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:5px 12px;cursor:pointer;font-size:12px">Logout</button>
+    <span id="mail-status" style="font-size:12px;opacity:.85"></span>
+    <button class="hdr-btn" onclick="syncMail()" title="Pull patient replies from the clinic mailbox now">Sync mail</button>
+    <button class="hdr-btn" onclick="runCadence()" title="Create follow-up drafts that are due now">Run follow-ups</button>
+    <button class="hdr-btn" onclick="openSettings()">Settings</button>
+    <button class="hdr-btn" onclick="logout()">Logout</button>
   </div>
 </div>
 <div class="stats" id="stats"></div>
@@ -152,6 +184,7 @@ body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background
       <div class="sidebar-tab" data-cat="waiting" onclick="setCategory('waiting',this)">Waiting</div>
       <div class="sidebar-tab" data-cat="appointment" onclick="setCategory('appointment',this)">Appts</div>
       <div class="sidebar-tab" data-cat="urgent" onclick="setCategory('urgent',this)">Urgent</div>
+      <div class="sidebar-tab" data-cat="drafts" onclick="setCategory('drafts',this)">To approve</div>
       <div class="sidebar-tab" data-cat="notes" onclick="setCategory('notes',this)">Notes</div>
       <div class="sidebar-tab" data-cat="tasks" onclick="setCategory('tasks',this)">Tasks</div>
     </div>
@@ -181,6 +214,42 @@ body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background
   </div>
 </div>
 
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal wide settings-grid">
+    <h3>Clinic mailbox</h3>
+    <div class="help">Drafts are sent from the clinic's own Gmail / Google Workspace address and patient replies are read from it
+      (read-only: nothing is marked read, moved or deleted; only emails from patients are saved).</div>
+    <div id="mailbox-current" class="help"></div>
+    <label>Clinic email address</label><input id="mb-address" type="email" placeholder="frontdesk@yourclinic.com">
+    <label>Name patients see</label><input id="mb-name" type="text" placeholder="Raleigh Comprehensive and Cosmetic Dentistry">
+    <div class="modal-actions" style="justify-content:flex-start;flex-wrap:wrap">
+      <button class="btn-primary" id="mb-google" onclick="connectGoogle()">Sign in with Google</button>
+      <button id="mb-disconnect" onclick="disconnectMailbox()" style="display:none">Disconnect</button>
+      <a href="#" onclick="document.getElementById('mb-apppw').style.display='block';return false" style="font-size:12px;align-self:center">Use an app password instead</a>
+    </div>
+    <div id="mb-apppw" style="display:none">
+      <div class="help">Google Account → Security → 2-Step Verification → App passwords. Not the normal password.</div>
+      <label>Google app password</label><input id="mb-pass" type="password" placeholder="16 characters" autocomplete="new-password">
+      <div class="modal-actions" style="justify-content:flex-start"><button onclick="connectMailbox()">Connect &amp; test</button></div>
+    </div>
+    <span id="mb-result" class="help"></span>
+
+    <h3 style="margin-top:22px">Follow-up cadence</h3>
+    <div class="help">One cadence for every new patient request. Each step becomes a draft in <b>To approve</b> when it is due; nothing is sent until someone clicks Send.
+      Delay = hours after the last email the patient received from the clinic.</div>
+    <label><input type="checkbox" id="cad-enabled" style="width:auto"> Cadence on</label>
+    <div id="cad-steps"></div>
+    <button class="btn" onclick="addStep()">+ Add step</button>
+    <h3 style="margin-top:18px;font-size:14px">When the patient replies…</h3>
+    <div class="help">First matching rule wins. Reply types: <span id="cad-types"></span>.<br>
+      Actions (comma separated): <code>stop</code>, <code>pause</code>, <code>resume</code>, <code>skip:&lt;step id&gt;</code>, <code>set_status:booked</code>, <code>task:Call the patient</code>, <code>draft_reply</code></div>
+    <div id="cad-rules"></div>
+    <button class="btn" onclick="addRule()">+ Add rule</button>
+    <div class="modal-actions"><span id="cad-error" style="color:var(--red);font-size:12px;flex:1"></span><button onclick="closeSettings()">Close</button><button class="btn-primary" onclick="saveCadence()">Save cadence</button></div>
+  </div>
+</div>
+
 <!-- New Task Modal -->
 <div class="modal-overlay" id="task-modal">
   <div class="modal">
@@ -197,7 +266,8 @@ body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background
 </div>
 
 <script>
-var API = 'http://localhost:8000/api/admin';
+var API = location.origin + '/api/admin';
+var editingDraft = false;
 var currentLeadId = null;
 var currentCategory = 'all';
 var pollTimer = null;
@@ -214,6 +284,18 @@ function toast(msg) {
   t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(function() { t.remove(); }, 3000);
+}
+
+// API returns plain arrays; older code expected {key: [...]}. Accept both.
+function asList(d, key) { return Array.isArray(d) ? d : ((d && d[key]) || []); }
+function esc(v) { return v == null ? '' : escapeHtml(String(v)); }
+function fmt(ts) { return ts ? new Date(ts).toLocaleString() : ''; }
+async function getJson(path) { var r = await api(path); return r.json(); }
+async function send(path, method, body) {
+  try {
+    var r = await api(path, {method: method || 'POST', body: body ? JSON.stringify(body) : undefined});
+    return await r.json();
+  } catch (e) { toast((e && e.detail) || 'Request failed'); throw e; }
 }
 
 function logout() {
@@ -238,30 +320,58 @@ function showLogin() {
   document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:14px;font-family:system-ui,sans-serif;background:#f5f6f8">' +
     '<h2 style="color:#1f3b2e">🦷 Front Desk Login</h2>' +
     '<div style="background:#fff;padding:28px 32px;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,.08);width:340px">' +
-    '<input id="fd-email" type="email" placeholder="Email" value="admin@raleighdentistry.com" style="width:100%;padding:10px 14px;margin-bottom:10px;border:1px solid #ddd;border-radius:10px;font-size:15px">' +
-    '<input id="fd-pw" type="password" placeholder="Password" style="width:100%;padding:10px 14px;margin-bottom:8px;border:1px solid #ddd;border-radius:10px;font-size:15px">' +
+    '<input id="fd-slug" type="text" placeholder="Clinic ID (e.g. raleigh-dental)" style="width:100%;padding:10px 14px;margin-bottom:10px;border:1px solid #ddd;border-radius:10px;font-size:15px">' +
+    '<input id="fd-email" type="email" placeholder="Email" style="width:100%;padding:10px 14px;margin-bottom:10px;border:1px solid #ddd;border-radius:10px;font-size:15px">' +
+    '<input id="fd-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code from your email" style="display:none;width:100%;padding:10px 14px;margin-bottom:8px;border:1px solid #ddd;border-radius:10px;font-size:15px;letter-spacing:.2em">' +
+    '<input id="fd-pw" type="password" placeholder="Password" style="display:none;width:100%;padding:10px 14px;margin-bottom:8px;border:1px solid #ddd;border-radius:10px;font-size:15px">' +
     '<p id="fd-err" style="color:#dc2626;font-size:13px;margin:0"></p>' +
-    '<button onclick="doLogin()" style="width:100%;padding:12px;background:#1f3b2e;color:#fff;border:0;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;margin-top:10px">Login to Front Desk</button>' +
-    '<p style="color:#6b7280;font-size:12px;text-align:center;margin-top:10px">Your admin can set up your login</p>' +
+    '<button id="fd-go" onclick="loginStep()" style="width:100%;padding:12px;background:#1f3b2e;color:#fff;border:0;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;margin-top:10px">Email me a login code</button>' +
+    '<p style="text-align:center;margin-top:10px;font-size:12px"><a href="#" id="fd-mode" onclick="togglePw();return false" style="color:#6b7280">Use a password instead</a></p>' +
     '</div></div>';
+  var slugEl = document.getElementById('fd-slug');
+  slugEl.value = new URLSearchParams(location.search).get('clinic') || localStorage.getItem('fd_slug') || '';
 }
 
-async function doLogin() {
+var loginMode = 'code', codeSent = false;
+
+function togglePw() {
+  loginMode = loginMode === 'code' ? 'password' : 'code';
+  document.getElementById('fd-pw').style.display = loginMode === 'password' ? '' : 'none';
+  document.getElementById('fd-code').style.display = loginMode === 'code' && codeSent ? '' : 'none';
+  document.getElementById('fd-go').textContent = loginMode === 'password' ? 'Log in' : (codeSent ? 'Log in' : 'Email me a login code');
+  document.getElementById('fd-mode').textContent = loginMode === 'password' ? 'Email me a code instead' : 'Use a password instead';
+}
+
+async function loginStep() {
+  var slug = document.getElementById('fd-slug').value.trim();
   var email = document.getElementById('fd-email').value.trim();
-  var pw = document.getElementById('fd-pw').value;
   var errEl = document.getElementById('fd-err');
-  if (!email || !pw) { if (errEl) errEl.textContent = 'Enter email and password'; return; }
+  errEl.style.color = '#dc2626'; errEl.textContent = '';
+  if (!slug || !email) { errEl.textContent = 'Enter clinic ID and email'; return; }
+  var path, body;
+  if (loginMode === 'password') {
+    var pw = document.getElementById('fd-pw').value;
+    if (!pw) { errEl.textContent = 'Enter your password'; return; }
+    path = '/auth/login'; body = {tenant_slug: slug, email: email, password: pw};
+  } else if (!codeSent) {
+    path = '/auth/code/request'; body = {tenant_slug: slug, email: email};
+  } else {
+    path = '/auth/code/verify'; body = {tenant_slug: slug, email: email, code: document.getElementById('fd-code').value};
+  }
   try {
-    var r = await fetch(API + '/auth/login', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({tenant_slug: 'raleigh-dental-demo', email: email, password: pw})
-    });
+    var r = await fetch(API + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     var data = await r.json();
-    if (!r.ok) { if (errEl) errEl.textContent = data.detail || 'Login failed'; return; }
+    if (!r.ok) { errEl.textContent = data.detail || 'Login failed'; return; }
+    if (path === '/auth/code/request') {
+      codeSent = true; togglePw(); togglePw();
+      errEl.style.color = '#16a34a'; errEl.textContent = 'Check your email for a 6-digit code.';
+      document.getElementById('fd-code').focus();
+      return;
+    }
     localStorage.setItem('fd_jwt', data.access_token);
+    localStorage.setItem('fd_slug', slug);
     location.reload();
-  } catch (e) { if (errEl) errEl.textContent = 'Connection error'; }
+  } catch (e) { errEl.textContent = 'Connection error'; }
 }
 
 async function loadStats() {
@@ -297,7 +407,7 @@ function setCategory(cat, el) {
 }
 
 async function loadLeads() {
-  if (currentCategory === 'notes' || currentCategory === 'tasks') {
+  if (currentCategory === 'notes' || currentCategory === 'tasks' || currentCategory === 'drafts') {
     loadSidebarItems();
     return;
   }
@@ -331,7 +441,10 @@ async function loadLeads() {
       sel.value = cur;
     }
 
-    var leads = data.leads || [];
+    var leads = asList(data, 'leads');
+    if (currentCategory === 'urgent') leads = leads.filter(function(l) { return l.urgency === 'urgent' || l.urgency === 'high' || l.intent === 'emergency'; });
+    if (currentCategory === 'appointment') leads = leads.filter(function(l) { return l.intent === 'appointment_request' || l.intent === 'new_patient'; });
+    if (intent && currentCategory === 'all') leads = leads.filter(function(l) { return l.intent === intent; });
     if (!leads.length) { list.innerHTML = '<div class="empty-state" style="padding:40px 20px">No items</div>'; return; }
 
     list.innerHTML = leads.map(function(l) {
@@ -341,17 +454,17 @@ async function loadLeads() {
       if (l.status === 'closed') badgeClass = 'badge-closed';
       if (l.status === 'spam') badgeClass = 'badge-spam';
 
-      var badges = '<span class="badge ' + badgeClass + '">' + (l.status || 'new') + '</span>';
+      var badges = '<span class="badge ' + badgeClass + '">' + esc(l.status || 'new') + '</span>';
       if (l.urgency === 'urgent' || l.urgency === 'high') badges += '<span class="badge badge-urgent">' + (l.urgency || '') + '</span>';
-      if (l.intent) badges += '<span class="badge" style="background:#f3f4f6;color:#6b7280">' + l.intent.replace(/_/g,' ') + '</span>';
+      if (l.intent) badges += '<span class="badge" style="background:#f3f4f6;color:#6b7280">' + esc(l.intent.replace(/_/g,' ')) + '</span>';
 
       var when = new Date(l.created_at).toLocaleString();
       var sub = l.service || l.intent || 'Request';
       var preview = l.message ? l.message.substring(0,60) : '';
 
       return '<div class="lead-item' + (l.id === currentLeadId ? ' active' : '') + '" data-id="' + l.id + '" onclick="openLead(' + l.id + ')">' +
-        '<div class="name"><span>' + (l.name || 'Anonymous') + '</span><span style="font-size:11px;color:var(--muted);font-weight:400">' + sub + '</span></div>' +
-        '<div class="svc">' + (l.email || '') + ' ' + preview + '</div>' +
+        '<div class="name"><span>' + esc(l.name || 'Anonymous') + '</span><span style="font-size:11px;color:var(--muted);font-weight:400">' + esc(sub) + '</span></div>' +
+        '<div class="svc">' + esc(l.email || '') + ' ' + esc(preview) + '</div>' +
         '<div class="time">' + when + '</div>' +
         '<div class="badges">' + badges + '</div></div>';
     }).join('');
@@ -360,15 +473,27 @@ async function loadLeads() {
 
 async function loadSidebarItems() {
   var list = document.getElementById('lead-list');
+  if (currentCategory === 'drafts') {
+    try {
+      var drafts = asList(await getJson('/fd/drafts?status=pending'), 'drafts');
+      if (!drafts.length) { list.innerHTML = '<div class="empty-state" style="padding:40px 20px">Nothing waiting for approval</div>'; return; }
+      list.innerHTML = drafts.map(function(d) {
+        var label = d.cadence_step ? 'Follow-up · ' + d.cadence_step.replace(/_/g, ' ') : (d.source === 'reply' ? 'Reply to patient' : 'Draft');
+        return '<div class="lead-item" onclick="openLead(' + d.lead_id + ')"><div class="name"><span>' + esc(d.lead_name || ('Lead #' + d.lead_id)) + '</span><span class="tag">' + esc(label) + '</span></div>' +
+          '<div class="svc">' + esc((d.body || '').substring(0, 80)) + '</div><div class="time">' + fmt(d.created_at) + '</div></div>';
+      }).join('');
+    } catch(e) {}
+    return;
+  }
   if (currentCategory === 'notes') {
     try {
       var r = await api('/fd/notes');
       if (!r || !r.ok) return;
       var d = await r.json();
-      var notes = d.notes || [];
+      var notes = asList(d, 'notes');
       if (!notes.length) { list.innerHTML = '<div class="empty-state" style="padding:40px 20px">No notes yet</div>'; return; }
       list.innerHTML = notes.map(function(n) {
-        return '<div class="lead-item" onclick="openNote(' + n.id + ')"><div class="name">Note</div><div class="svc">' + n.note.substring(0,80) + '</div><div class="time">' + new Date(n.created_at).toLocaleString() + '</div></div>';
+        return '<div class="lead-item" onclick="' + (n.lead_id ? 'openLead(' + n.lead_id + ')' : '') + '"><div class="name">Note</div><div class="svc">' + esc(n.note.substring(0,80)) + '</div><div class="time">' + new Date(n.created_at).toLocaleString() + '</div></div>';
       }).join('');
     } catch(e) {}
   } else if (currentCategory === 'tasks') {
@@ -376,10 +501,10 @@ async function loadSidebarItems() {
       var r2 = await api('/fd/tasks');
       if (!r2 || !r2.ok) return;
       var d2 = await r2.json();
-      var tasks = d2.tasks || [];
+      var tasks = asList(d2, 'tasks').filter(function(t) { return t.status !== 'done' && t.status !== 'completed'; });
       if (!tasks.length) { list.innerHTML = '<div class="empty-state" style="padding:40px 20px">No open tasks</div>'; return; }
       list.innerHTML = tasks.map(function(t) {
-        return '<div class="lead-item" onclick="openTask(' + t.id + ')"><div class="name">' + t.title + ' <span class="badge badge-' + (t.priority === 'urgent' ? 'urgent' : t.priority === 'high' ? 'contacted' : 'new') + '">' + t.priority + '</span></div><div class="time">' + (t.due_at ? 'Due: ' + new Date(t.due_at).toLocaleString() : 'No due date') + '</div></div>';
+        return '<div class="lead-item" onclick="' + (t.lead_id ? 'openLead(' + t.lead_id + ')' : '') + '"><div class="name">' + esc(t.title) + ' <span class="badge badge-' + (t.priority === 'urgent' ? 'urgent' : t.priority === 'high' ? 'contacted' : 'new') + '">' + t.priority + '</span></div><div class="time">' + (t.due_at ? 'Due: ' + new Date(t.due_at).toLocaleString() : 'No due date') + '</div></div>';
       }).join('');
     } catch(e) {}
   }
@@ -395,6 +520,7 @@ function openTask(tid) {
 }
 
 async function openLead(lid) {
+  if (lid !== currentLeadId) editingDraft = false;
   currentLeadId = lid;
   document.querySelectorAll('.lead-item').forEach(function(el) { el.classList.remove('active'); });
   document.querySelector('.lead-item[data-id="' + lid + '"]')?.classList.add('active');
@@ -403,44 +529,27 @@ async function openLead(lid) {
     var r = await api('/fd/leads/' + lid);
     if (!r || !r.ok) return;
     var lead = await r.json();
+    if (lead && lead.lead) lead = lead.lead;  // detail endpoint wraps the lead with its related records
 
-    // Load conversation messages
     var convId = lead.conversation_id;
-    var messages = [];
-    if (convId) {
-      try {
-        var mr = await api('/fd/conversations/' + convId + '/messages');
-        if (mr && mr.ok) { var md = await mr.json(); messages = md.messages || []; }
-      } catch(e) {}
-    }
-
-    // Load notes
-    var notes = [];
-    try {
-      var nr = await api('/fd/notes?lead_id=' + lid);
-      if (nr && nr.ok) { var nd = await nr.json(); notes = nd.notes || []; }
-    } catch(e) {}
-
-    // Load tasks
-    var tasks = [];
-    try {
-      var tr = await api('/fd/tasks');
-      if (tr && tr.ok) { var td = await tr.json(); tasks = (td.tasks || []).filter(function(t) { return t.lead_id == lid || !t.lead_id; }); }
-    } catch(e) {}
-
-    // Load drafts
-    var drafts = [];
-    try {
-      var dr = await api('/fd/drafts?lead_id=' + lid);
-      if (dr && dr.ok) { var dd = await dr.json(); drafts = dd.drafts || []; }
-    } catch(e) {}
-
+    var messages = [], notes = [], tasks = [], mail = {messages: [], drafts: [], cadence: null};
+    var jobs = [
+      convId ? getJson('/fd/conversations/' + convId + '/messages').then(function(d) { messages = asList(d, 'messages'); }) : null,
+      getJson('/fd/notes?lead_id=' + lid).then(function(d) { notes = asList(d, 'notes'); }),
+      getJson('/fd/tasks').then(function(d) { tasks = asList(d, 'tasks').filter(function(t) { return t.lead_id == lid && t.status !== 'done' && t.status !== 'completed'; }); }),
+      getJson('/fd/leads/' + lid + '/emails').then(function(d) { mail = d; }),
+    ];
+    await Promise.all(jobs.map(function(j) { return j && j.catch(function() {}); }));
+    var drafts = mail;
     renderMain(lead, messages, notes, tasks, drafts);
     renderRightPanel(lead, notes, tasks);
   } catch(e) {}
 }
 
 function renderMain(lead, messages, notes, tasks, drafts) {
+  var mail = drafts || {messages: [], drafts: [], cadence: null};
+  lead = Object.assign({}, lead);
+  ['name','email','phone','service','intent','preferred_date','preferred_time','insurance','financing','urgency','status','page_url','message'].forEach(function(k) { if (lead[k] != null) lead[k] = esc(lead[k]); });
   var urgencyBadge = lead.urgency === 'urgent' ? '<span class="badge badge-urgent">URGENT</span>' : '';
   var intentBadge = lead.intent ? '<span class="badge" style="background:#f3f4f6;color:#6b7280">' + lead.intent.replace(/_/g,' ') + '</span>' : '';
 
@@ -449,8 +558,7 @@ function renderMain(lead, messages, notes, tasks, drafts) {
     '<div class="badges">' + intentBadge + (lead.service ? '<span class="badge" style="background:#f3f4f6;color:#6b7280">' + lead.service + '</span>' : '') + '</div></div>' +
     '<div class="detail-actions">' +
     '<select id="status-select" onchange="updateStatus(' + lead.id + ',this.value)"><option value="">Change status…</option><option value="new">New</option><option value="contacted">Contacted</option><option value="qualified">Qualified</option><option value="booked">Booked</option><option value="closed">Closed</option><option value="spam">Spam</option></select>' +
-    '<button onclick="resendEmail(' + lead.id + ')">Resend Email</button>' +
-    '<button onclick="retryNotify(' + lead.id + ')">Retry Notify</button>' +
+    '<button onclick="retryNotify(' + lead.id + ')" title="Re-send the new-lead alert to the front desk">Re-alert desk</button>' +
     '<button onclick="showNoteModal()">+ Note</button>' +
     '<button onclick="showTaskModal()">+ Task</button>' +
     '</div></div>';
@@ -468,24 +576,30 @@ function renderMain(lead, messages, notes, tasks, drafts) {
 
   // Messages
   html += '<div class="timeline-legend"><span><span class="dot" style="background:#2563eb"></span> Visitor</span><span><span class="dot" style="background:#bbf7d0"></span> System</span><span><span class="dot" style="background:#7c3aed"></span> AI Draft</span><span><span class="dot" style="background:#d97706"></span> Note</span></div>';
+  html += renderCadence(lead.id, mail.cadence);
   html += '<div class="messages" id="messages">';
+  html += '<h4 style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:8px">Website chat</h4>';
   if (messages.length) {
     messages.forEach(function(m) {
       var cls = m.role === 'user' ? 'msg-visitor' : (m.role === 'assistant' ? 'msg-system' : 'msg-system');
-      html += '<div class="msg ' + cls + '"><div class="who">' + (m.role === 'user' ? 'Visitor' : 'Concierge') + '</div><div class="text">' + escapeHtml(m.body) + '</div><div class="ts">' + new Date(m.created_at).toLocaleString() + '</div></div>';
+      html += '<div class="msg ' + cls + '"><div class="who">' + (m.role === 'user' ? 'Visitor' : 'Concierge') + '</div><div class="text">' + esc(m.body) + '</div><div class="ts">' + new Date(m.created_at).toLocaleString() + '</div></div>';
     });
   } else {
-    html += '<div style="color:var(--muted);text-align:center;padding:40px;font-size:14px">No messages in this conversation</div>';
+    html += '<div style="color:var(--muted);font-size:13px;padding:6px 0">No website chat for this request</div>';
   }
   if (notes.length) {
     notes.forEach(function(n) {
-      html += '<div class="msg" style="background:#fffbeb;border:1px solid #fde68a;margin-left:auto;text-align:right"><div class="who" style="color:var(--amber)">📝 Internal Note</div><div class="text">' + escapeHtml(n.note) + '</div><div class="ts">' + new Date(n.created_at).toLocaleString() + '</div></div>';
+      html += '<div class="msg" style="background:#fffbeb;border:1px solid #fde68a;margin-left:auto;text-align:right"><div class="who" style="color:var(--amber)">📝 Internal Note</div><div class="text">' + esc(n.note) + '</div><div class="ts">' + new Date(n.created_at).toLocaleString() + '</div></div>';
     });
   }
+  html += renderEmails(mail.messages || []);
+  html += renderDrafts(mail.drafts || []);
   html += '</div>';
 
-  // AI Composer
-  html += '<div class="reply-box"><textarea id="reply-text" placeholder="Type a reply or AI instruction (e.g., "Offer 10:30 AM tomorrow")…" rows="2"></textarea><button onclick="sendReply()">Send Reply</button></div>';
+  // Composer
+  html += '<div class="reply-box"><textarea id="reply-text" placeholder="Write an email to the patient, or an instruction for the AI (e.g. offer Tuesday 10:30 AM)…" rows="2"></textarea>' +
+    '<button onclick="aiDraftFromBox()" style="background:var(--purple)" title="AI writes a draft from your instruction; you review it before sending">AI draft</button>' +
+    '<button onclick="sendReply()" title="Email this text to the patient now from the clinic mailbox">Send email</button></div>';
   html += '<div id="ai-panel" style="display:none;padding:8px 18px;border-top:1px solid #ddd6fe;background:#faf5ff">' +
     '<div style="font-size:11px;color:var(--purple);font-weight:600;margin-bottom:4px">✨ AI Assistance</div>' +
     '<div style="display:flex;gap:5px;flex-wrap:wrap">' +
@@ -506,6 +620,8 @@ function renderMain(lead, messages, notes, tasks, drafts) {
 }
 
 function renderRightPanel(lead, notes, tasks) {
+  lead = Object.assign({}, lead);
+  ['name','email','phone','service','intent','preferred_date','preferred_time','insurance','financing','urgency','status','page_url'].forEach(function(k) { if (lead[k] != null) lead[k] = esc(lead[k]); });
   var html = '<div class="right-section"><h3>Patient Context</h3>';
   var fields = [
     {label:'Name', val: lead.name}, {label:'Email', val: lead.email ? '<a href="mailto:' + lead.email + '">' + lead.email + '</a>' : null},
@@ -537,7 +653,7 @@ function renderRightPanel(lead, notes, tasks) {
   html += '<div class="notes-section"><h3 style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:8px;font-weight:600">Internal Notes (' + notes.length + ')</h3>';
   if (notes.length) {
     notes.forEach(function(n) {
-      html += '<div class="note"><div class="note-meta">' + new Date(n.created_at).toLocaleString() + '</div>' + escapeHtml(n.note) + '</div>';
+      html += '<div class="note"><div class="note-meta">' + new Date(n.created_at).toLocaleString() + '</div>' + esc(n.note) + '</div>';
     });
   } else {
     html += '<div style="color:var(--muted);font-size:12px">No notes yet</div>';
@@ -549,7 +665,7 @@ function renderRightPanel(lead, notes, tasks) {
   html += '<div class="tasks-section"><h3 style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:8px;font-weight:600">Tasks (' + (tasks ? tasks.length : 0) + ')</h3>';
   if (tasks && tasks.length) {
     tasks.forEach(function(t) {
-      html += '<div class="task" onclick="completeTask(' + t.id + ')"><span class="task-title">' + escapeHtml(t.title) + '</span><span class="task-priority ' + t.priority + '">' + t.priority + '</span></div>';
+      html += '<div class="task" onclick="completeTask(' + t.id + ')" title="Click to mark done"><span class="task-title">' + esc(t.title) + '</span><span class="task-priority ' + esc(t.priority) + '">' + esc(t.priority) + '</span></div>';
     });
   } else {
     html += '<div style="color:var(--muted);font-size:12px">No tasks</div>';
@@ -573,21 +689,213 @@ async function updateStatus(lid, status) {
 async function sendReply() {
   var text = document.getElementById('reply-text').value.trim();
   if (!text || !currentLeadId) return;
-
-  // Check if this looks like an AI instruction (short, imperative)
-  var isInstruction = text.length < 120 && /^(offer|tell|ask|say|confirm|reply|schedule|reschedule|follow|send|let them know)/i.test(text);
-
-  if (isInstruction) {
-    await aiDraft(text);
-    return;
-  }
-
-  // Direct send
+  if (!confirm('Email this to the patient now from the clinic mailbox?')) return;
   try {
-    var r = await api('/fd/leads/' + currentLeadId + '/reply', {method:'POST', body: JSON.stringify({body: text})});
-    if (r && r.ok) { toast('Reply sent'); document.getElementById('reply-text').value = ''; loadStats(); loadLeads(); openLead(currentLeadId); }
-    else { toast('Failed to send'); }
-  } catch(e) { toast('Error: ' + (e.detail || e)); }
+    await send('/fd/leads/' + currentLeadId + '/reply', 'POST', {body: text});
+    toast('Email sent'); document.getElementById('reply-text').value = '';
+    loadStats(); loadLeads(); openLead(currentLeadId);
+  } catch (e) {}
+}
+
+async function aiDraftFromBox() {
+  var text = document.getElementById('reply-text').value.trim();
+  if (!currentLeadId) return;
+  toast('Writing draft…');
+  try {
+    await send('/fd/ai/draft', 'POST', {lead_id: currentLeadId, instruction: text});
+    document.getElementById('reply-text').value = '';
+    openLead(currentLeadId);
+  } catch (e) {}
+}
+
+function renderEmails(list) {
+  var html = '<h4 style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:16px 0 8px">Email</h4>';
+  if (!list.length) return html + '<div style="color:var(--muted);font-size:13px;padding:6px 0">No emails yet</div>';
+  return html + list.map(function(m) {
+    var cls = m.direction === 'in' ? 'in' : 'out';
+    var who = m.direction === 'in' ? 'Patient' : 'Clinic' + (m.source === 'mailbox' ? ' (sent from Gmail)' : '');
+    var tag = m.classification ? ' <span class="tag">' + esc(m.classification.intent.replace(/_/g, ' ')) + '</span>' : '';
+    var step = m.cadence_step ? ' <span class="tag" style="background:#ecfdf5;color:#065f46">' + esc(m.cadence_step.replace(/_/g, ' ')) + '</span>' : '';
+    return '<div class="email ' + cls + '"><div class="meta"><b>' + who + '</b>' + tag + step + '<span>' + fmt(m.sent_at) + '</span><span>' + esc(m.subject || '') + '</span></div>' +
+      '<div class="body">' + esc(m.body || '') + '</div></div>';
+  }).join('');
+}
+
+function renderDrafts(list) {
+  if (!list.length) return '';
+  var html = '<h4 style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--purple);margin:16px 0 8px">Waiting for approval</h4>';
+  return html + list.map(function(d) {
+    var label = d.cadence_step ? 'Cadence step: ' + d.cadence_step.replace(/_/g, ' ') : (d.source === 'reply' ? 'AI reply to the patient' : 'Draft');
+    return '<div class="draft" data-draft="' + d.id + '">' +
+      '<input class="d-subject" value="' + esc(d.subject || '') + '" oninput="editingDraft=true" placeholder="Subject">' +
+      '<textarea class="d-body" oninput="editingDraft=true">' + esc(d.body || '') + '</textarea>' +
+      '<div class="row"><span>' + esc(label) + ' · to ' + esc(d.to_email || '') + '</span>' +
+      '<button class="btn danger" onclick="discardDraft(' + d.id + ')">Discard</button>' +
+      '<button class="btn primary" onclick="sendDraft(' + d.id + ')">Send</button></div></div>';
+  }).join('');
+}
+
+async function sendDraft(id) {
+  var box = document.querySelector('[data-draft="' + id + '"]');
+  var body = {subject: box.querySelector('.d-subject').value, body: box.querySelector('.d-body').value};
+  if (!body.body.trim()) { toast('Draft is empty'); return; }
+  try {
+    var r = await send('/fd/drafts/' + id + '/send', 'POST', body);
+    editingDraft = false; toast('Sent to ' + r.to); loadStats(); loadLeads(); openLead(currentLeadId);
+  } catch (e) {}
+}
+
+async function discardDraft(id) {
+  if (!confirm('Discard this draft? If it is a cadence step, that step is skipped.')) return;
+  try { await send('/fd/drafts/' + id + '/discard'); editingDraft = false; openLead(currentLeadId); loadStats(); } catch (e) {}
+}
+
+function renderCadence(leadId, c) {
+  if (!c) return '<div class="cadence-bar stopped">Not in the follow-up cadence <span class="sp"></span><button class="btn" onclick="cadenceAction(' + leadId + ',\'enroll\')">Start cadence</button></div>';
+  var next = c.next_step ? 'Next: <b>' + esc(c.next_step.name || c.next_step.id) + '</b> · due ' + fmt(c.next_due_at) : 'No steps left';
+  var btns = c.status === 'active' ? '<button class="btn" onclick="cadenceAction(' + leadId + ',\'pause\')">Pause</button><button class="btn danger" onclick="cadenceAction(' + leadId + ',\'stop\')">Stop</button>'
+    : (c.status === 'paused' ? '<button class="btn primary" onclick="cadenceAction(' + leadId + ',\'resume\')">Resume</button><button class="btn danger" onclick="cadenceAction(' + leadId + ',\'stop\')">Stop</button>'
+    : '<button class="btn" onclick="cadenceAction(' + leadId + ',\'restart\')">Restart</button>');
+  var skipped = (c.skipped || []).length ? ' · skipped ' + esc(c.skipped.join(', ')) : '';
+  return '<div class="cadence-bar ' + esc(c.status) + '"><b>Cadence: ' + esc(c.status) + '</b> ' + (c.status === 'active' || c.status === 'paused' ? next : '') + skipped +
+    (c.reason ? ' · <i>' + esc(c.reason) + '</i>' : '') + '<span class="sp"></span>' + btns + '</div>';
+}
+
+async function cadenceAction(leadId, action) {
+  try { await send('/fd/leads/' + leadId + '/cadence', 'POST', {action: action}); openLead(leadId); } catch (e) {}
+}
+
+async function syncMail() {
+  toast('Checking the clinic mailbox…');
+  try { var r = await send('/fd/mailbox/sync'); toast(r.inbound + ' new replies, ' + r.outbound + ' sent from Gmail'); loadMailStatus(); loadLeads(); if (currentLeadId) openLead(currentLeadId); } catch (e) {}
+}
+
+async function runCadence() {
+  try { var r = await send('/fd/cadence/run'); toast(r.drafts_created + ' follow-up drafts created'); loadStats(); loadLeads(); if (currentLeadId) openLead(currentLeadId); } catch (e) {}
+}
+
+async function loadMailStatus() {
+  try {
+    var m = await getJson('/fd/mailbox');
+    document.getElementById('mail-status').textContent = m.connected ? ('✉ ' + m.address + (m.last_sync_error ? ' · sync error' : '')) : '✉ mailbox not connected';
+    return m;
+  } catch (e) {}
+}
+
+// ── Settings: mailbox + cadence editor ─────────────────────────────────────
+
+var cadenceCfg = null, replyTypes = [];
+
+async function openSettings() {
+  document.getElementById('settings-modal').classList.add('active');
+  var m = await loadMailStatus() || {};
+  document.getElementById('mailbox-current').innerHTML = m.connected
+    ? 'Connected: <b>' + esc(m.address) + '</b> (' + (m.method === 'oauth' ? 'Google sign-in' : 'app password') + ')' + (m.last_sync_at ? ' · last checked ' + fmt(m.last_sync_at) : '') + (m.last_sync_error ? '<br><span style="color:var(--red)">' + esc(m.last_sync_error) + '</span>' : '')
+    : '<span style="color:var(--amber)">Not connected yet.</span>';
+  document.getElementById('mb-google').style.display = m.google_sign_in_available ? '' : 'none';
+  if (!m.google_sign_in_available) document.getElementById('mb-apppw').style.display = 'block';
+  document.getElementById('mb-disconnect').style.display = m.connected ? '' : 'none';
+  document.getElementById('mb-address').value = m.address || '';
+  document.getElementById('mb-name').value = m.from_name || '';
+  var d = await getJson('/fd/cadence');
+  cadenceCfg = d.cadence; replyTypes = d.reply_types;
+  document.getElementById('cad-types').textContent = replyTypes.join(', ') + ', * (anything)';
+  renderCadenceEditor();
+}
+
+async function connectGoogle() {
+  try {
+    var r = await send('/fd/mailbox/google/start', 'POST', {address: document.getElementById('mb-address').value.trim(),
+      from_name: document.getElementById('mb-name').value.trim()});
+    location.href = r.url;
+  } catch (e) {}
+}
+
+async function disconnectMailbox() {
+  if (!confirm('Disconnect the clinic mailbox? Sending and reply tracking stop until it is reconnected.')) return;
+  try { await send('/fd/mailbox', 'DELETE'); toast('Mailbox disconnected'); openSettings(); } catch (e) {}
+}
+
+// Back from Google's consent screen.
+async function handleOAuthReturn() {
+  var q = new URLSearchParams(location.search);
+  if (!q.has('mailbox') && !q.has('mailbox_error')) return;
+  history.replaceState(null, '', location.pathname);
+  if (q.get('mailbox') === 'connected') {
+    toast('Clinic mailbox connected');
+    await openSettings();
+    document.getElementById('mb-result').innerHTML = '<span style="color:var(--green)">Connected with Google. Sending and reply tracking are on.</span>';
+  } else {
+    await openSettings();
+    document.getElementById('mb-result').innerHTML = '<span style="color:var(--red)">' + esc(q.get('mailbox_error')) + '</span>';
+  }
+}
+
+function closeSettings() { document.getElementById('settings-modal').classList.remove('active'); }
+
+async function connectMailbox() {
+  var out = document.getElementById('mb-result');
+  out.textContent = 'Connecting…';
+  try {
+    var r = await send('/fd/mailbox', 'PUT', {address: document.getElementById('mb-address').value, from_name: document.getElementById('mb-name').value,
+      app_password: document.getElementById('mb-pass').value});
+    document.getElementById('mb-pass').value = '';
+    out.innerHTML = r.test.ok ? '<span style="color:var(--green)">Connected. Sending and reply tracking work.</span>'
+      : '<span style="color:var(--red)">Send: ' + esc(r.test.smtp) + '<br>Read: ' + esc(r.test.imap) + '</span>';
+    loadMailStatus();
+  } catch (e) { out.textContent = ''; }
+}
+
+function renderCadenceEditor() {
+  document.getElementById('cad-enabled').checked = cadenceCfg.enabled !== false;
+  document.getElementById('cad-steps').innerHTML = cadenceCfg.steps.map(function(st, i) {
+    return '<div class="step-row"><div class="two">' +
+      '<div><label>Step ' + (i + 1) + ' name</label><input data-k="name" data-i="' + i + '" value="' + esc(st.name || '') + '"></div>' +
+      '<div><label>Delay (hours)</label><input data-k="delay_hours" data-i="' + i + '" type="number" min="0" value="' + esc(st.delay_hours) + '"></div>' +
+      '<div><label>Writer</label><select data-k="mode" data-i="' + i + '"><option value="ai"' + (st.mode !== 'template' ? ' selected' : '') + '>AI</option><option value="template"' + (st.mode === 'template' ? ' selected' : '') + '>Template</option></select></div></div>' +
+      '<label>Step id (used in skip:…)</label><input data-k="id" data-i="' + i + '" value="' + esc(st.id) + '">' +
+      '<label>AI instruction</label><textarea data-k="instruction" data-i="' + i + '" rows="2">' + esc(st.instruction || '') + '</textarea>' +
+      '<label>Template (used in Template mode, or if AI is unavailable). Placeholders: {{name}} {{service}} {{practice_name}}</label><textarea data-k="template" data-i="' + i + '" rows="3">' + esc(st.template || '') + '</textarea>' +
+      '<div style="text-align:right;margin-top:6px"><button class="btn danger" onclick="removeStep(' + i + ')">Remove step</button></div></div>';
+  }).join('');
+  document.getElementById('cad-rules').innerHTML = (cadenceCfg.on_reply || []).map(function(r, i) {
+    return '<div class="rule-row"><div class="two" style="display:grid;grid-template-columns:1fr 2fr auto;gap:6px;align-items:end">' +
+      '<div><label>If reply is</label><input data-r="when" data-i="' + i + '" value="' + esc(r.when.join(', ')) + '"></div>' +
+      '<div><label>Then</label><input data-r="do" data-i="' + i + '" value="' + esc(r.do.join(', ')) + '"></div>' +
+      '<button class="btn danger" onclick="removeRule(' + i + ')">✕</button></div></div>';
+  }).join('');
+}
+
+function readCadenceEditor() {
+  cadenceCfg.enabled = document.getElementById('cad-enabled').checked;
+  document.querySelectorAll('#cad-steps [data-k]').forEach(function(el) {
+    var st = cadenceCfg.steps[+el.dataset.i];
+    st[el.dataset.k] = el.dataset.k === 'delay_hours' ? Number(el.value) : el.value;
+  });
+  document.querySelectorAll('#cad-rules [data-r]').forEach(function(el) {
+    var parts = el.value.split(',').map(function(x) { return x.trim(); }).filter(Boolean);
+    cadenceCfg.on_reply[+el.dataset.i][el.dataset.r] = el.dataset.r === 'do' ? splitActions(el.value) : parts;
+  });
+}
+
+// "task:Call them, then confirm" must stay one action: split on commas only before a known action name.
+function splitActions(v) {
+  return v.split(/,\s*(?=(?:stop|pause|resume|draft_reply|skip:|set_status:|task:))/).map(function(x) { return x.trim(); }).filter(Boolean);
+}
+
+function addStep() { readCadenceEditor(); var n = cadenceCfg.steps.length + 1; cadenceCfg.steps.push({id: 'step_' + n, name: 'Step ' + n, delay_hours: 48, mode: 'ai', instruction: '', template: ''}); renderCadenceEditor(); }
+function removeStep(i) { readCadenceEditor(); cadenceCfg.steps.splice(i, 1); renderCadenceEditor(); }
+function addRule() { readCadenceEditor(); cadenceCfg.on_reply.push({when: ['question'], do: ['pause', 'draft_reply']}); renderCadenceEditor(); }
+function removeRule(i) { readCadenceEditor(); cadenceCfg.on_reply.splice(i, 1); renderCadenceEditor(); }
+
+async function saveCadence() {
+  readCadenceEditor();
+  var err = document.getElementById('cad-error');
+  err.textContent = '';
+  try {
+    var r = await api('/fd/cadence', {method: 'PUT', body: JSON.stringify(cadenceCfg)});
+    cadenceCfg = (await r.json()).cadence; renderCadenceEditor(); toast('Cadence saved');
+  } catch (e) { err.textContent = (e && e.detail) || 'Could not save'; }
 }
 
 async function resendEmail(lid) {
@@ -615,7 +923,7 @@ function showAiResult(text, where) {
   if (side) side.innerHTML = '<div class="ai-result"><div class="label">✨ AI Result</div>' + escapeHtml(text) + '</div>';
 }
 
-function escapeAttr(s) { return s.replace(/'/g, "\\'").replace(/\n/g, '\\n'); }
+function escapeAttr(s) { return escapeHtml(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n'); }
 
 function useAiText(text) {
   var ta = document.getElementById('reply-text');
@@ -631,14 +939,14 @@ async function aiCall(path, body) {
   if (!r || !r.ok) { showAiResult('Error: ' + (r ? r.status : 'No response')); return; }
   var d = await r.json();
   var text = d.body || d.summary || JSON.stringify(d, null, 2);
-  if (d.subject) text = 'Subject: ' + d.subject + '\\n\\n' + text;
+  if (d.subject) text = 'Subject: ' + d.subject + '\n\n' + text;
   showAiResult(text);
 }
 
 async function aiDraft(instruction) {
   if (!currentLeadId) return;
-  showAiResult('Generating draft…');
-  await aiCall('/ai/draft', {lead_id: currentLeadId, instruction: instruction || '', draft_type: 'reply'});
+  toast('Writing draft…');
+  try { await send('/fd/ai/draft', 'POST', {lead_id: currentLeadId, instruction: instruction || ''}); openLead(currentLeadId); } catch (e) {}
 }
 
 async function aiQuickReply() {
@@ -774,7 +1082,13 @@ async function init() {
   if (!token) { showLogin(); return; }
   await loadStats();
   await loadLeads();
-  pollTimer = setInterval(function() { loadStats(); loadLeads(); if (currentLeadId) openLead(currentLeadId); }, 15000);
+  loadMailStatus();
+  handleOAuthReturn();
+  pollTimer = setInterval(function() {
+    loadStats(); loadLeads();
+    var typing = document.activeElement && /TEXTAREA|INPUT|SELECT/.test(document.activeElement.tagName);
+    if (currentLeadId && !editingDraft && !typing) openLead(currentLeadId);
+  }, 15000);
 }
 
 init();
