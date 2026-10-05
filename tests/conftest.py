@@ -37,6 +37,7 @@ def isolated(monkeypatch, tmp_path):
     per_test_db = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_URL", per_test_db)
     monkeypatch.setenv("CONCIERGE_DB", per_test_db)
+    monkeypatch.setenv("CONCIERGE_OUTBOX", str(tmp_path / "outbox"))
     # Delete any leftover DB from previous test runs
     reset_database()
     return tmp_path

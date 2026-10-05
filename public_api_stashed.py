@@ -1,0 +1,2310 @@
+"""Public-facing API for the embeddable widget and hosted concierge pages."""
+
+from __future__ import annotations
+
+import io
+import json
+import logging
+import os
+import zipfile
+from pathlib import Path
+from typing import Any, Optional
+
+from fastapi import Depends, FastAPI, HTTPException, Request, Body
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.security import OAuth2PasswordRequestForm
+from starlette import status
+from pydantic import BaseModel
+
+from saas.auth import get_current, require_roles, login_for_token, TokenOut, CurrentUser
+from saas.config import get_settings
+from saas.conversation import ConversationEngine, DEFAULT_GREETING, State
+from saas.database import connect, now_iso, row, rows
+from saas.emailer import (
+    send_lead_notification,
+    send_test_email,
+    test_smtp_connection,
+    _smtp_row,
+)
+from saas.email_templates import list_template_variables
+from saas.conversation import ConversationContext
+from saas.repositories import (
+    add_domain as repo_add_domain,
+    complete_conversation,
+    create_ai_draft,
+    create_conversation,
+    create_internal_note,
+    create_lead,
+    create_task,
+    delete_internal_note,
+    get_lead,
+    get_tenant_by_slug,
+    list_domains as repo_list_domains,
+    list_internal_notes,
+    list_tenants,
+    list_tasks,
+    remove_domain as repo_remove_domain,
+    track_event,
+    update_ai_draft,
+    update_lead as repo_update_lead,
+    update_task,
+    verify_domain as repo_verify_domain,
+)
+from saas.repositories import get_api_key_by_public
+
+log = logging.getLogger(__name__)
+settings = get_settings()
+STATIC = Path(__file__).resolve().parent / "static"
+
+public_app = FastAPI(title="HeyJarvis Concierge Public", version="1.0.0")
+public_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_list,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
+
+
+# ── Public Auth ──────────────────────────────────────────────────────────────
+
+class LoginBody(BaseModel):
+    tenant_slug: str
+    email: str
+    password: str
+
+
+@public_app.post("/{tenant_slug}/auth/token")
+def public_tenant_login(
+    tenant_slug: str,
+    username: str = Body(...),
+    password: str = Body(...),
+) -> TokenOut:
+    tenant = get_tenant_by_slug(tenant_slug)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="tenant not found")
+    return login_for_token(tenant.id, OAuth2PasswordRequestForm(username=username, password=password))
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _tenant_config(tenant_id: int) -> dict[str, Any]:
+    with connect() as c:
+        row_data = rows(c, "SELECT flags, ai_instructions FROM tenant_settings WHERE tenant_id = ?", tenant_id)
+    out: dict[str, Any] = {}
+    if row_data:
+        flags_raw = row_data[0].get("flags") or "{}"
+        try:
+            out.update(json.loads(flags_raw))
+        except json.JSONDecodeError:
+            pass
+        if row_data[0].get("ai_instructions"):
+            out["ai_instructions"] = row_data[0]["ai_instructions"]
+    out.setdefault("greeting", DEFAULT_GREETING)
+    return out
+
+
+def _load_tenant(tenant_id: int) -> dict[str, Any]:
+    with connect() as c:
+        r = rows(c, "SELECT id, name, slug, enabled, metadata FROM tenants WHERE id = ?", tenant_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="tenant not found")
+    t = r[0]
+    return {
+        "id": t["id"],
+        "name": t["name"],
+        "slug": t["slug"],
+        "enabled": bool(t["enabled"]),
+        "metadata": json.loads(t["metadata"] or "{}"),
+    }
+
+
+def _load_integration(tenant_id: int) -> dict[str, Any]:
+    public_key = _public_key(tenant_id)
+    app_url = os.environ.get("APP_URL", "http://localhost:8000").rstrip("/")
+    with connect() as c:
+        domains = rows(c, "SELECT * FROM domains WHERE tenant_id = ? ORDER BY id", tenant_id)
+        widget_row = row(c, "SELECT config FROM widget_settings WHERE tenant_id = ?", tenant_id)
+    widget_config = {}
+    if widget_row:
+        try:
+            widget_config = json.loads(widget_row.get("config") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            widget_config = {}
+    slug = ""
+    with connect() as c2:
+        r = row(c2, "SELECT slug FROM tenants WHERE id = ?", tenant_id)
+        if r:
+            slug = r["slug"]
+    return {
+        "public_key": public_key,
+        "widget_url": app_url + "/widget.js",
+        "concierge_url": app_url + "/concierge/" + slug,
+        "domains": [{"id": d["id"], "domain": d["domain"], "verified": bool(d["verified"])} for d in domains],
+        "domain_count": len(domains),
+        "widget_config": widget_config,
+    }
+
+
+def _public_key(tenant_id: int) -> str:
+    with connect() as c:
+        r = row(c, "SELECT public_key FROM api_keys WHERE tenant_id = ? LIMIT 1", tenant_id)
+    return r["public_key"] if r else ""
+
+
+# ── Public Routes ────────────────────────────────────────────────────────────
+
+@public_app.get("/health")
+def public_health() -> dict:
+    return {"ok": True}
+
+
+@public_app.get("/v1/public/config")
+def public_config(client_key: str, request: Request) -> dict:
+    key = get_api_key_by_public(client_key)
+    if not key or key.revoked_at:
+        raise HTTPException(status_code=401, detail="invalid client key")
+    with connect() as c:
+        tenant = rows(c, "SELECT id, name, slug, enabled FROM tenants WHERE id = ? AND enabled = 1", key.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="tenant not found")
+    origin = request.headers.get("origin", "").replace("https://", "").replace("http://", "").split("/")[0].lower()
+    domain_ok = False
+    if origin:
+        with connect() as c:
+            d = rows(c, "SELECT 1 FROM domains WHERE tenant_id = ? AND domain = ?", key.tenant_id, origin)
+        domain_ok = bool(d)
+    cfg = _tenant_config(tenant[0]["id"])
+    return {
+        "tenant_id": tenant[0]["id"],
+        "tenant_name": tenant[0]["name"],
+        "tenant_slug": tenant[0]["slug"],
+        "greeting": cfg.get("greeting"),
+        "allowed_origin": domain_ok,
+        "widget_config": cfg,
+    }
+
+
+@public_app.post("/v1/public/conversations")
+def public_conversation_start(client_key: str, request: Request) -> dict:
+    key = get_api_key_by_public(client_key)
+    if not key or key.revoked_at:
+        raise HTTPException(status_code=401, detail="invalid client key")
+    tenant = _load_tenant(key.tenant_id)
+    if not tenant["enabled"]:
+        raise HTTPException(status_code=403, detail="tenant disabled")
+    cfg = _tenant_config(key.tenant_id)
+    engine = ConversationEngine(cfg)
+    result = engine.start(
+        key.tenant_id,
+        str(request.url),
+        request.headers.get("referer"),
+        request.headers.get("user-agent"),
+        request.client.host if request.client else None,
+    )
+    track_event(key.tenant_id, "conversation_started", {"conversation_id": result["conversation_id"]})
+    return result
+
+
+@public_app.post("/v1/public/conversations/{conversation_id}/messages")
+def public_conversation_message(conversation_id: int, body: dict[str, Any], client_key: str) -> dict:
+    key = get_api_key_by_public(client_key)
+    if not key or key.revoked_at:
+        raise HTTPException(status_code=401, detail="invalid client key")
+    with connect() as c:
+        conv = rows(c, "SELECT id, tenant_id, status, metadata FROM conversations WHERE id = ?", conversation_id)
+    if not conv or conv[0]["tenant_id"] != key.tenant_id:
+        raise HTTPException(status_code=404, detail="conversation not found")
+
+    # Load persisted fields from metadata so turns accumulate
+    meta_raw = conv[0].get("metadata") or "{}"
+    meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
+    existing_fields = meta.get("fields") or {}
+
+    ctx = ConversationContext(conversation_id=conversation_id, tenant_id=conv[0]["tenant_id"], fields=existing_fields)
+    context = ConversationEngine(_tenant_config(key.tenant_id))
+    result = context.handle(ctx, body.get("message", ""))
+
+    # Persist updated fields back to metadata
+    updated_meta = dict(meta)
+    updated_meta["fields"] = ctx.fields
+    with connect() as c:
+        c.execute("UPDATE conversations SET metadata = ?, updated_at = ? WHERE id = ?",
+                  (json.dumps(updated_meta), now_iso(), conversation_id))
+
+    if ctx.state == State.SUBMITTED:
+        lead = create_lead(key.tenant_id, {
+            "conversation_id": conversation_id,
+            "source": "website_widget",
+            "page_url": conv[0].get("metadata", {}).get("page_url") if isinstance(conv[0].get("metadata"), dict) else None,
+            **ctx.fields,
+        })
+        try:
+            send_lead_notification(key.tenant_id, lead["id"], intent=ctx.fields.get("intent", "default"))
+        except Exception as e:
+            log.exception("lead notification failed for tenant %s lead %s", key.tenant_id, lead["id"])
+        track_event(key.tenant_id, "lead_created", {"lead_id": lead["id"], "conversation_id": conversation_id})
+    return result
+
+
+@public_app.get("/v1/public/leads")
+def public_lead_status(client_key: str, lead_id: int) -> dict:
+    key = get_api_key_by_public(client_key)
+    if not key or key.revoked_at:
+        raise HTTPException(status_code=401, detail="invalid client key")
+    lead = get_lead(lead_id)
+    if not lead or lead["tenant_id"] != key.tenant_id:
+        raise HTTPException(status_code=404, detail="lead not found")
+    return {"id": lead["id"], "status": lead["status"], "updated_at": lead["updated_at"]}
+
+
+@public_app.post("/v1/public/leads")
+def public_lead_create(body: dict[str, Any], client_key: str) -> dict:
+    key = get_api_key_by_public(client_key)
+    if not key or key.revoked_at:
+        raise HTTPException(status_code=401, detail="invalid client key")
+
+    # Require minimum fields
+    if not body.get("name") or not body.get("email"):
+        raise HTTPException(status_code=400, detail="name and email are required")
+
+    lead = create_lead(key.tenant_id, {
+        "name": body.get("name"),
+        "email": body.get("email"),
+        "phone": body.get("phone"),
+        "service": body.get("service") or body.get("intent"),
+        "intent": body.get("intent"),
+        "urgency": body.get("urgency"),
+        "preferredDate": body.get("preferred_date"),
+        "preferredTime": body.get("preferred_time"),
+        "insurance": body.get("insurance"),
+        "financing": body.get("financing"),
+        "message": body.get("message"),
+        "conversationSummary": body.get("message"),
+        "source": body.get("source", "website_widget"),
+        "pageUrl": body.get("page_url"),
+        "conversationId": body.get("conversationId") or body.get("conversation_id"),
+    })
+    try:
+        send_lead_notification(key.tenant_id, lead["id"], intent=body.get("intent", "default"))
+    except Exception:
+        log.exception("lead notification failed for tenant %s lead %s", key.tenant_id, lead["id"])
+    track_event(key.tenant_id, "lead_created", {"lead_id": lead["id"]})
+    return {"ok": True, "lead_id": lead["id"]}
+
+
+@public_app.get("/widget.js")
+def public_widget() -> FileResponse:
+    return FileResponse(STATIC / "widget.js", media_type="application/javascript")
+
+
+# ── Admin Routes ─────────────────────────────────────────────────────────────
+
+admin_app = FastAPI(title="HeyJarvis Admin", version="1.0.0")
+
+
+@admin_app.post("/auth/login")
+def admin_login(body: LoginBody) -> TokenOut:
+    tenant = get_tenant_by_slug(body.tenant_slug)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="tenant not found")
+    return login_for_token(tenant.id, OAuth2PasswordRequestForm(username=body.email, password=body.password))
+
+
+@admin_app.get("/tenants")
+def admin_list_tenants(_: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict[str, Any]]:
+    return [t.model_dump() for t in list_tenants()]
+
+
+@admin_app.get("/tenants/{tenant_id}")
+def admin_get_tenant(tenant_id: int, cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="wrong tenant")
+    return _load_tenant(tenant_id)
+
+
+@admin_app.patch("/tenants/{tenant_id}")
+def admin_update_tenant(tenant_id: int, body: dict[str, Any], cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="wrong tenant")
+    from saas.repositories import update_tenant
+    allowed = {"name", "enabled", "plan"}
+    fields = {k: v for k, v in body.items() if k in allowed}
+    update_tenant(tenant_id, **fields)
+    from saas.repositories import audit
+    audit(tenant_id, cu.user.id, "tenant_updated", {"fields": list(fields.keys())})
+    return _load_tenant(tenant_id)
+
+
+@admin_app.post("/tenants/{tenant_id}/domains")
+def admin_add_domain(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    dom = repo_add_domain(tenant_id, body.get("domain", ""))
+    return dom.model_dump()
+
+
+@admin_app.post("/domains/{domain_id}/verify")
+def admin_verify_domain(domain_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    repo_verify_domain(domain_id)
+    return {"ok": True}
+
+
+@admin_app.delete("/domains/{domain_id}")
+def admin_remove_domain(domain_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    repo_remove_domain(domain_id)
+    return {"ok": True}
+
+
+@admin_app.get("/tenants/{tenant_id}/domains")
+def admin_list_domains(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict[str, Any]]:
+    return [d.model_dump() for d in repo_list_domains(tenant_id)]
+
+
+# ── Integration Center ──────────────────────────────────────────────────────────
+
+@admin_app.get("/tenants/{tenant_id}/integration")
+def admin_get_integration(tenant_id: int, cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    return _load_integration(tenant_id)
+
+
+@admin_app.post("/tenants/{tenant_id}/integration/domains")
+def admin_add_integration_domain(tenant_id: int, body: dict[str, Any], cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    domain = (body.get("domain") or "").strip().lower().replace("https://", "").replace("http://", "").split("/")[0]
+    if not domain:
+        raise HTTPException(status_code=422, detail="domain is required")
+    with connect() as c:
+        existing = rows(c, "SELECT id FROM domains WHERE tenant_id = ? AND domain = ?", tenant_id, domain)
+        if existing:
+            raise HTTPException(status_code=409, detail="domain already added")
+        did = c.execute("INSERT INTO domains (tenant_id, domain, created_at) VALUES (?, ?, ?)",
+                        (tenant_id, domain, now_iso())).lastrowid
+        r = row(c, "SELECT * FROM domains WHERE id = ?", did)
+    from saas.repositories import audit
+    audit(tenant_id, cu.user.id, "domain_added", {"domain": domain})
+    return dict(r)
+
+
+@admin_app.delete("/tenants/{tenant_id}/integration/domains/{domain_id}")
+def admin_remove_integration_domain(tenant_id: int, domain_id: int, cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    with connect() as c:
+        r = row(c, "SELECT domain FROM domains WHERE id = ? AND tenant_id = ?", domain_id, tenant_id)
+        if not r:
+            raise HTTPException(status_code=404, detail="domain not found")
+        domain = r["domain"]
+        c.execute("DELETE FROM domains WHERE id = ?", (domain_id,))
+    from saas.repositories import audit
+    audit(tenant_id, cu.user.id, "domain_removed", {"domain": domain})
+    return {"ok": True}
+
+
+@admin_app.post("/tenants/{tenant_id}/integration/domains/{domain_id}/verify")
+def admin_verify_integration_domain(tenant_id: int, domain_id: int, cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    with connect() as c:
+        c.execute("UPDATE domains SET verified = 1 WHERE id = ? AND tenant_id = ?", (domain_id, tenant_id))
+        r = row(c, "SELECT * FROM domains WHERE id = ?", domain_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="domain not found")
+    from saas.repositories import audit
+    audit(tenant_id, cu.user.id, "domain_verified", {"domain_id": domain_id})
+    return dict(r)
+
+
+@admin_app.post("/tenants/{tenant_id}/integration/regenerate-key")
+def admin_regenerate_client_key(tenant_id: int, cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    with connect() as c:
+        rows_data = rows(c, "SELECT id FROM api_keys WHERE tenant_id = ? AND revoked_at IS NULL LIMIT 1", tenant_id)
+    if rows_data:
+        from saas.repositories import revoke_api_key
+        revoke_api_key(rows_data[0]["id"])
+    from saas.repositories import create_api_key
+    new_key = create_api_key(tenant_id, label="primary", secret=__import__("secrets").token_urlsafe(24))
+    from saas.repositories import audit
+    audit(tenant_id, cu.user.id, "api_key_regenerated", {})
+    return {"public_key": new_key.public_key, "message": "New client key generated. Update your website snippet."}
+
+
+@admin_app.post("/tenants/{tenant_id}/integration/test")
+def admin_test_integration(tenant_id: int, cu: Any = Depends(get_current)) -> dict:
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    tenant = _load_tenant(tenant_id)
+    public_key = _public_key(tenant_id)
+    if not public_key:
+        return {"status": "error", "message": "No client key found. Generate one first."}
+    with connect() as c:
+        domains = rows(c, "SELECT domain, verified FROM domains WHERE tenant_id = ?", tenant_id)
+    domain_list = [d["domain"] for d in domains]
+    if not domain_list:
+        return {
+            "status": "pending",
+            "message": "No domains configured. Add your website domain to enable origin validation.",
+            "domains": [],
+            "client_key_configured": True,
+        }
+    return {
+        "status": "ready",
+        "message": "Integration is configured. Paste the snippet on your website.",
+        "domains": domain_list,
+        "domain_count": len(domain_list),
+        "verified_domains": [d["domain"] for d in domains if d["verified"]],
+        "client_key_configured": bool(public_key),
+    }
+
+
+# ── Leads Admin ──────────────────────────────────────────────────────────────
+
+@admin_app.get("/tenants/{tenant_id}/leads")
+def admin_list_leads(tenant_id: int, status: str | None = None, limit: int = 100, offset: int = 0,
+                     _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+    from saas.repositories import list_leads
+    return list_leads(tenant_id, status=status, limit=limit, offset=offset)
+
+
+@admin_app.get("/leads/{lead_id}")
+def admin_get_lead(lead_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    lead = get_lead(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="lead not found")
+    return lead
+
+
+@admin_app.patch("/leads/{lead_id}")
+def admin_update_lead(lead_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin", "member"))) -> dict:
+    allowed = {"status", "name", "email", "phone", "intent", "service", "urgency",
+               "preferred_date", "preferred_time", "insurance", "financing", "message"}
+    fields = {k: v for k, v in body.items() if k in allowed}
+    if not fields:
+        raise HTTPException(status_code=400, detail="no valid fields")
+    repo_update_lead(lead_id, **fields)
+    lead = get_lead(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="lead not found")
+    return lead
+
+
+# ── Conversations Admin ──────────────────────────────────────────────────────
+
+@admin_app.get("/tenants/{tenant_id}/conversations")
+def admin_list_conversations(tenant_id: int, status: str | None = None, limit: int = 100, offset: int = 0,
+                              _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+    with connect() as c:
+        sql = "SELECT * FROM conversations WHERE tenant_id = ?"
+        args = [tenant_id]
+        if status:
+            sql += " AND status = ?"
+            args.append(status)
+        sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+        args.extend([limit, offset])
+        return rows(c, sql, *args)
+
+
+@admin_app.post("/tenants/{tenant_id}/conversations")
+def admin_create_conversation(tenant_id: int, body: dict = Body(default_factory=dict), _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    body = body or {}
+    now = now_iso()
+    with connect() as c:
+        cur = c.execute(
+            "INSERT INTO conversations (tenant_id, status, page_url, summary, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (tenant_id, "new", body.get("page_url", "/"), body.get("summary"), json.dumps(body), now, now),
+        )
+        cid = cur.lastrowid
+        return rows(c, "SELECT * FROM conversations WHERE id = ?", cid)[0]
+
+
+@admin_app.get("/conversations/{conversation_id}/messages")
+def admin_get_messages(conversation_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+    with connect() as c:
+        conv = rows(c, "SELECT tenant_id FROM conversations WHERE id = ?", conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    with connect() as c:
+        return rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id", conversation_id)
+
+
+# ── Analytics Admin ──────────────────────────────────────────────────────────
+
+@admin_app.get("/tenants/{tenant_id}/analytics")
+def admin_analytics(tenant_id: int, days: int = 7, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    since = _days_ago(days)
+    with connect() as c:
+        events = rows(c, "SELECT event, COUNT(1) as cnt FROM analytics_events "
+                         "WHERE tenant_id = ? AND created_at >= ? GROUP BY event", tenant_id, since)
+        conversations = rows(c, "SELECT status, COUNT(1) as cnt FROM conversations "
+                                "WHERE tenant_id = ? AND created_at >= ? GROUP BY status", tenant_id, since)
+        leads = rows(c, "SELECT status, COUNT(1) as cnt FROM leads "
+                        "WHERE tenant_id = ? AND created_at >= ? GROUP BY status", tenant_id, since)
+    return {
+        "events": {e["event"]: e["cnt"] for e in events},
+        "conversations": {c["status"]: c["cnt"] for c in conversations},
+        "leads": {l["status"]: l["cnt"] for l in leads},
+        "days": days,
+    }
+
+
+def _days_ago(n: int) -> str:
+    from datetime import datetime, timedelta
+    return (datetime.now() - timedelta(days=n)).isoformat(timespec="seconds")
+
+
+# ── Widget Settings Admin ────────────────────────────────────────────────────
+
+@admin_app.get("/tenants/{tenant_id}/widget")
+def admin_get_widget(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    with connect() as c:
+        r = rows(c, "SELECT config FROM widget_settings WHERE tenant_id = ?", tenant_id)
+    return json.loads(r[0]["config"]) if r else {}
+
+
+@admin_app.put("/tenants/{tenant_id}/widget")
+def admin_update_widget(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    with connect() as c:
+        existing = rows(c, "SELECT id FROM widget_settings WHERE tenant_id = ?", tenant_id)
+        config_json = json.dumps(body)
+        now = now_iso()
+        if existing:
+            c.execute("UPDATE widget_settings SET config = ?, updated_at = ? WHERE tenant_id = ?",
+                      (config_json, now, tenant_id))
+        else:
+            c.execute("INSERT INTO widget_settings (tenant_id, config, updated_at) VALUES (?, ?, ?)",
+                      (tenant_id, config_json, now))
+    return body
+
+
+# ── Tenant Members Admin ───────────────────────────────────────────────────────
+
+@admin_app.get("/tenants/{tenant_id}/members")
+def admin_list_members(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+    with connect() as c:
+        return rows(c, "SELECT id, email, role, display_name FROM users WHERE tenant_id=? AND role != 'owner'", tenant_id)
+
+
+@admin_app.post("/tenants/{tenant_id}/members")
+def admin_add_member(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    from saas.security import hash_password
+    import secrets as _secrets
+    email = body.get("email", "").strip()
+    role = body.get("role", "member")
+    display_name = body.get("display_name", email.split("@")[0] if email else "")
+    password = body.get("password")
+    if not email:
+        raise HTTPException(status_code=422, detail="email required")
+    with connect() as c:
+        existing = rows(c, "SELECT 1 FROM users WHERE tenant_id=? AND email=?", tenant_id, email)
+        if existing:
+            raise HTTPException(status_code=409, detail="member already exists")
+        hashed = hash_password(password or _secrets.token_urlsafe(16))
+        now = now_iso()
+        cur = c.execute(
+            "INSERT INTO users (tenant_id, email, display_name, hashed_password, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (tenant_id, email, display_name, hashed, role, now, now),
+        )
+        return {"id": cur.lastrowid, "email": email, "role": role, "display_name": display_name}
+
+
+# ── Email Settings Admin ─────────────────────────────────────────────────────
+
+@admin_app.get("/tenants/{tenant_id}/email")
+def admin_get_email(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    with connect() as c:
+        r = rows(c, "SELECT * FROM email_settings WHERE tenant_id = ?", tenant_id)
+    if not r:
+        return {"provider": "default", "from_name": "", "from_email": "", "reply_to": ""}
+    row_data = r[0]
+    return {
+        "provider": row_data["provider"],
+        "from_name": row_data.get("from_name", ""),
+        "from_email": row_data.get("from_email", ""),
+        "reply_to": row_data.get("reply_to", ""),
+        "smtp_host": row_data.get("smtp_host", ""),
+        "smtp_port": row_data.get("smtp_port"),
+        "smtp_user": row_data.get("smtp_user", ""),
+        "updated_at": row_data.get("updated_at"),
+    }
+
+
+@admin_app.put("/tenants/{tenant_id}/email")
+def admin_update_email(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    from saas.security import encrypt_value
+    allowed = {"provider", "smtp_host", "smtp_port", "smtp_user", "smtp_password",
+               "from_name", "from_email", "reply_to"}
+    fields = {k: v for k, v in body.items() if k in allowed}
+    if "smtp_password" in fields and fields["smtp_password"]:
+        fields["smtp_password_enc"] = encrypt_value(fields.pop("smtp_password"))
+    elif "smtp_password" in fields:
+        fields.pop("smtp_password")
+
+    with connect() as c:
+        existing = rows(c, "SELECT id FROM email_settings WHERE tenant_id = ?", tenant_id)
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        vals = list(fields.values()) + [tenant_id]
+        now = now_iso()
+        if existing:
+            c.execute(f"UPDATE email_settings SET {sets}, updated_at = ? WHERE tenant_id = ?", vals + [now])
+        else:
+            cols = ", ".join(["tenant_id"] + list(fields.keys()) + ["updated_at"])
+            marks = ", ".join(["?"] * (len(fields) + 2))
+            c.execute(f"INSERT INTO email_settings ({cols}) VALUES ({marks})",
+                      [tenant_id] + list(fields.values()) + [now])
+    return {"ok": True}
+
+
+@admin_app.post("/tenants/{tenant_id}/email/test")
+def admin_test_email(tenant_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    row_data = _smtp_row(tenant_id)
+    to = (row_data or {}).get("from_email") or settings.default_smtp_from
+    result = send_test_email(tenant_id, to)
+    return {"ok": result.ok, "mode": result.mode, "ref": result.ref, "error": result.error}
+
+
+@admin_app.post("/tenants/{tenant_id}/email/test-smtp")
+def admin_test_smtp(tenant_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    ok, detail = test_smtp_connection(tenant_id)
+    return {"ok": ok, "detail": detail}
+
+
+# ── Email Templates Admin ────────────────────────────────────────────────────
+
+@admin_app.get("/tenants/{tenant_id}/templates")
+def admin_list_templates(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    from saas.email_templates import DEFAULT_TEMPLATES
+    with connect() as c:
+        r = rows(c, "SELECT value FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", tenant_id)
+    custom = {}
+    if r:
+        try:
+            custom = json.loads(r[0]["value"])
+        except Exception:
+            pass
+    merged = dict(DEFAULT_TEMPLATES)
+    merged.update(custom)
+    return merged
+
+
+@admin_app.put("/tenants/{tenant_id}/templates/{template_name}")
+def admin_update_template(tenant_id: int, template_name: str, body: dict[str, str],
+                          _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    with connect() as c:
+        r = rows(c, "SELECT value FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", tenant_id)
+        existing = json.loads(r[0]["value"]) if r else {}
+    existing[template_name] = body
+    with connect() as c:
+        rid = rows(c, "SELECT id FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", tenant_id)
+        now = now_iso()
+        if rid:
+            c.execute("UPDATE tenant_settings SET value = ?, updated_at = ? WHERE tenant_id = ? AND key = 'email_templates'",
+                      (json.dumps(existing), now, tenant_id))
+        else:
+            c.execute("INSERT INTO tenant_settings (tenant_id, key, value, updated_at) VALUES (?, ?, ?, ?)",
+                      (tenant_id, "email_templates", json.dumps(existing), now))
+    return body
+
+
+@admin_app.get("/template-variables")
+def admin_template_variables(_: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict[str, str]:
+    return list_template_variables()
+
+
+# ── Business Rules Admin ─────────────────────────────────────────────────────
+
+@admin_app.get("/tenants/{tenant_id}/business-rules")
+def admin_get_business_rules(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    with connect() as c:
+        r = rows(c, "SELECT rules FROM business_rules WHERE tenant_id = ?", tenant_id)
+    return json.loads(r[0]["rules"]) if r else {}
+
+
+@admin_app.put("/tenants/{tenant_id}/business-rules")
+def admin_update_business_rules(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    with connect() as c:
+        existing = rows(c, "SELECT id FROM business_rules WHERE tenant_id = ?", tenant_id)
+        now = now_iso()
+        if existing:
+            c.execute("UPDATE business_rules SET rules = ?, updated_at = ? WHERE tenant_id = ?",
+                      (json.dumps(body), now, tenant_id))
+        else:
+            c.execute("INSERT INTO business_rules (tenant_id, rules, updated_at) VALUES (?, ?, ?)",
+                      (tenant_id, json.dumps(body), now))
+    return body
+
+
+# ── Tenant Settings Admin ────────────────────────────────────────────────────
+
+@admin_app.get("/tenants/{tenant_id}/settings")
+def admin_get_settings(tenant_id: int, current: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    if current.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="wrong tenant")
+    return _tenant_config(tenant_id)
+
+
+@admin_app.put("/tenants/{tenant_id}/settings")
+def admin_update_settings(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    allowed_flags = {
+        "greeting", "enabled", "ai_enabled", "lead_collection_enabled",
+        "email_enabled", "widget_enabled", "auto_open", "auto_open_delay",
+        "mode", "max_turns", "conciergeEnabled", "aiEnabled",
+        "emailEnabled", "leadCollectionEnabled", "widgetEnabled",
+        "autoOpenEnabled", "humanHandoffEnabled",
+    }
+    flags = {k: v for k, v in body.items() if k in allowed_flags}
+    ai_instructions = body.get("ai_instructions")
+
+    with connect() as c:
+        existing = rows(c, "SELECT id, flags, ai_instructions FROM tenant_settings WHERE tenant_id = ?", tenant_id)
+        now = now_iso()
+        current_flags = json.loads(existing[0]["flags"]) if existing else {}
+        current_flags.update(flags)
+        if existing:
+            sets = ["flags = ?", "updated_at = ?"]
+            vals = [json.dumps(current_flags), now]
+            if ai_instructions is not None:
+                sets.append("ai_instructions = ?")
+                vals.append(ai_instructions)
+            vals.append(tenant_id)
+            c.execute(f"UPDATE tenant_settings SET {', '.join(sets)} WHERE tenant_id = ?", vals)
+        else:
+            c.execute(
+                "INSERT INTO tenant_settings (tenant_id, flags, ai_instructions, updated_at) VALUES (?, ?, ?, ?)",
+                (tenant_id, json.dumps(flags), ai_instructions, now),
+            )
+    return _tenant_config(tenant_id)
+
+
+# ── Dashboard Template ────────────────────────────────────────────────────────
+
+_dashboard_template = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{dashboard_title}</title>
+<style>
+  :root {{ --primary: #1f3b2e; --accent: #3a7d6e; --bg: #f0f2f4; --card: #fff; --border: #e5e5e5; --text: #222; --muted: #888; }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font: 14px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--text); display: flex; min-height: 100vh; }}
+  .sidebar {{ width: 230px; background: var(--primary); color: #fff; flex-shrink: 0; padding: 20px 0; }}
+  .sidebar .logo {{ padding: 0 20px 20px; font-size: 20px; font-weight: 800; border-bottom: 1px solid rgba(255,255,255,.15); margin-bottom: 10px; }}
+  .sidebar a {{ display: block; padding: 9px 20px; color: rgba(255,255,255,.85); text-decoration: none; font-size: 13px; border-left: 3px solid transparent; }}
+  .sidebar a:hover, .sidebar a.active {{ background: rgba(255,255,255,.1); border-left-color: var(--accent); color: #fff; }}
+  .sidebar .section {{ font-size: 11px; text-transform: uppercase; color: rgba(255,255,255,.4); padding: 14px 20px 4px; letter-spacing: .08em; }}
+  .main {{ flex: 1; padding: 24px 28px; overflow: auto; }}
+  .topbar {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }}
+  .topbar h1 {{ font-size: 22px; }}
+  .badge {{ display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }}
+  .badge.ok {{ background: #e6f4ea; color: #1e7e34; }}
+  .badge.warn {{ background: #fff3cd; color: #856404; }}
+  .badge.off {{ background: #fde8e8; color: #c0392b; }}
+  .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }}
+  .stat {{ background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }}
+  .stat .v {{ font-size: 26px; font-weight: 800; color: var(--primary); }}
+  .stat .l {{ font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }}
+  .card {{ background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.04); }}
+  .card h3 {{ font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+  th {{ text-align: left; padding: 8px 6px; border-bottom: 2px solid var(--border); color: var(--muted); font-weight: 600; }}
+  td {{ padding: 8px 6px; border-bottom: 1px solid var(--border); }}
+  .btn {{ display: inline-block; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 0; text-decoration: none; }}
+  .btn-primary {{ background: var(--primary); color: #fff; }}
+  .btn-sm {{ padding: 5px 10px; font-size: 12px; }}
+  .code {{ background: #f5f5f5; border: 1px solid #ddd; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 12px; word-break: break-all; }}
+  .copy-row {{ display: flex; gap: 8px; align-items: center; }}
+  .nav {{ display: flex; gap: 10px; margin-bottom: 18px; }}
+  .nav a {{ font-size: 13px; color: var(--primary); font-weight: 600; text-decoration: none; }}
+  .empty {{ color: var(--muted); font-size: 13px; padding: 16px 0; }}
+  .status-dot {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }}
+  .status-dot.active {{ background: #28a745; }}
+  .status-dot.inactive {{ background: #dc3545; }}
+  .tab-bar {{ display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }}
+  .tab {{ padding: 8px 14px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--muted); }}
+  .tab.active {{ border-bottom-color: var(--primary); color: var(--primary); font-weight: 600; }}
+  input[type="text"], input[type="email"], input[type="password"], input[type="number"], select, textarea {{ width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; }}
+  textarea {{ min-height: 80px; resize: vertical; }}
+  label {{ display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }}
+  .form-row {{ margin-bottom: 12px; }}
+</style>
+</head>
+<body>
+<nav class="sidebar">
+  <div class="logo">HeyJarvis</div>
+  <a href="/dashboard/{tenant_id}" class="active">Dashboard</a>
+  <div class="section">Core</div>
+  <a href="/dashboard/{tenant_id}?tab=concierge">Concierge</a>
+  <a href="/dashboard/{tenant_id}?tab=conversations">Conversations</a>
+  <a href="/dashboard/{tenant_id}?tab=leads">Leads</a>
+  <a href="/dashboard/{tenant_id}?tab=installation">Installation</a>
+  <div class="section">Configuration</div>
+  <a href="/dashboard/{tenant_id}?tab=widget">Widget</a>
+  <a href="/dashboard/{tenant_id}?tab=questions">Questions & Fields</a>
+  <a href="/dashboard/{tenant_id}?tab=email">Email</a>
+  <a href="/dashboard/{tenant_id}?tab=templates">Templates</a>
+  <a href="/dashboard/{tenant_id}?tab=business-rules">Business Rules</a>
+  <a href="/dashboard/{tenant_id}?tab=notifications">Notifications</a>
+  <div class="section">System</div>
+  <a href="/dashboard/{tenant_id}?tab=integrations">Integrations</a>
+  <a href="/dashboard/{tenant_id}?tab=team">Team</a>
+  <a href="/dashboard/{tenant_id}?tab=security">Security & API</a>
+  <a href="/dashboard/{tenant_id}?tab=analytics">Analytics</a>
+  <a href="/dashboard/{tenant_id}?tab=settings">Settings</a>
+</nav>
+<div class="main">
+  <div class="topbar">
+    <h1>{tenant_name} Dashboard</h1>
+    <span class="badge {status_class}"><span class="status-dot {status_dot}"></span>{status_text}</span>
+  </div>
+
+  <div id="tab-dashboard" class="tab-content">
+    <div class="grid">
+      <div class="stat"><div class="v" id="s-conversations">{conversations_count}</div><div class="l">Conversations</div></div>
+      <div class="stat"><div class="v" id="s-leads">{leads_count}</div><div class="l">Leads</div></div>
+      <div class="stat"><div class="v" id="s-new-leads">{new_leads_count}</div><div class="l">New Leads</div></div>
+      <div class="stat"><div class="v" id="s-emails">{emails_sent_count}</div><div class="l">Emails Sent</div></div>
+      <div class="stat"><div class="v" id="s-completion">{completion_rate}%</div><div class="l">Completion Rate</div></div>
+    </div>
+    <div class="card">
+      <h3>Recent Conversations</h3>
+      {recent_conversations_html}
+    </div>
+  </div>
+
+  <div id="tab-concierge" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Concierge Behavior</h3>
+      <p>Manage how your Concierge interacts with visitors.</p>
+      <br>
+      <div class="form-row">
+        <label>Mode</label>
+        <select id="concierge-mode">
+          <option value="chatbot" {concierge_mode_chatbot}>Chatbot</option>
+          <option value="form" {concierge_mode_form}>Form</option>
+          <option value="chat+form" {concierge_mode_hybrid}>Chat + Form</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Auto-open</label>
+        <select id="concierge-auto-open">
+          <option value="instant" {auto_open_instant}>Instant</option>
+          <option value="3s" {auto_open_3s}>After 3 seconds</option>
+          <option value="5s" {auto_open_5s}>After 5 seconds</option>
+          <option value="10s" {auto_open_10s}>After 10 seconds</option>
+          <option value="never" {auto_open_never}>Never auto-open</option>
+        </select>
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveConcierge()">Save Concierge Settings</button>
+      <span id="concierge-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-conversations" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>All Conversations</h3>
+      {conversations_table_html}
+    </div>
+  </div>
+
+  <div id="tab-leads" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>All Leads</h3>
+      {leads_table_html}
+    </div>
+  </div>
+
+  <div id="tab-installation" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Installation</h3>
+      <p>Add one of these snippets to your website to enable the Concierge.</p>
+      <br>
+      <h4>JavaScript Snippet (Recommended)</h4>
+      <br>
+      <div class="code" id="install-snippet">&lt;script
+  src="{widget_url}"
+  data-heyjarvis-client="{public_client_key}"
+  async&gt;
+&lt;/script&gt;</div>
+      <br>
+      <button class="btn btn-primary btn-sm" onclick="copySnippet()">Copy Snippet</button>
+      <br><br>
+      <h4>Direct Link</h4>
+      <div class="code"><a href="{concierge_url}" target="_blank">{concierge_url}</a></div>
+      <br>
+      <h4>WordPress</h4>
+      <p>Use the HeyJarvis WordPress plugin. Install it from your WP admin dashboard and enter your public client key.</p>
+      <br>
+      <h4>Google Tag Manager</h4>
+      <p>Create a Custom HTML tag in GTM and paste the script snippet above. Trigger on All Pages.</p>
+    </div>
+  </div>
+
+  <div id="tab-widget" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Widget Customization</h3>
+      <div class="form-row">
+        <label>Widget Title</label>
+        <input type="text" id="widget-title" value="{widget_title}">
+      </div>
+      <div class="form-row">
+        <label>Greeting</label>
+        <input type="text" id="widget-greeting" value="{widget_greeting}">
+      </div>
+      <div class="form-row">
+        <label>Brand Color</label>
+        <input type="text" id="widget-color" value="{widget_color}" placeholder="#1f3b2e">
+      </div>
+      <div class="form-row">
+        <label>Position</label>
+        <select id="widget-position">
+          <option value="bottom-right" {widget_pos_br}>Bottom Right</option>
+          <option value="bottom-left" {widget_pos_bl}>Bottom Left</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Launcher Text</label>
+        <input type="text" id="widget-launcher" value="{widget_launcher}">
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveWidget()">Save Widget Settings</button>
+      <span id="widget-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-questions" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Questions & Fields</h3>
+      <p>Configure which fields your Concierge collects from visitors.</p>
+      <br>
+      {fields_list_html}
+      <br>
+      <button class="btn btn-primary" onclick="saveFields()">Save Field Configuration</button>
+      <span id="fields-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-email" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Email Configuration</h3>
+      <div class="tab-bar">
+        <div class="tab active" onclick="showEmailTab('general')">General</div>
+        <div class="tab" onclick="showEmailTab('smtp')">Custom SMTP</div>
+        <div class="tab" onclick="showEmailTab('delivery')">Delivery Mode</div>
+      </div>
+      <div id="email-tab-general">
+        <div class="form-row">
+          <label>From Name</label>
+          <input type="text" id="email-from-name" value="{email_from_name}">
+        </div>
+        <div class="form-row">
+          <label>From Email</label>
+          <input type="email" id="email-from" value="{email_from}">
+        </div>
+        <div class="form-row">
+          <label>Reply-To</label>
+          <input type="email" id="email-reply-to" value="{email_reply_to}">
+        </div>
+        <div class="form-row">
+          <label>Front Desk Email</label>
+          <input type="email" id="email-front-desk" value="{email_front_desk}">
+        </div>
+        <div class="form-row">
+          <label>Backup Email</label>
+          <input type="email" id="email-backup" value="{email_backup}">
+        </div>
+      </div>
+      <div id="email-tab-smtp" style="display:none">
+        <p class="empty">Leave blank to use HeyJarvis default email delivery.</p>
+        <div class="form-row">
+          <label>SMTP Host</label>
+          <input type="text" id="smtp-host" value="{smtp_host}" placeholder="smtp.gmail.com">
+        </div>
+        <div class="form-row">
+          <label>SMTP Port</label>
+          <input type="number" id="smtp-port" value="{smtp_port}" placeholder="587">
+        </div>
+        <div class="form-row">
+          <label>SMTP Username</label>
+          <input type="text" id="smtp-username" value="{smtp_username}">
+        </div>
+        <div class="form-row">
+          <label>SMTP Password</label>
+          <input type="password" id="smtp-password" value="{smtp_password}" placeholder="Enter password">
+        </div>
+        <div class="form-row">
+          <label>SMTP Security</label>
+          <select id="smtp-security">
+            <option value="tls" {smtp_tls}>TLS</option>
+            <option value="ssl" {smtp_ssl}>SSL</option>
+            <option value="none" {smtp_none}>None</option>
+          </select>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="testSMTP()">Test SMTP Connection</button>
+        <span id="smtp-test-msg" style="margin-left:10px;font-size:13px;"></span>
+      </div>
+      <div id="email-tab-delivery" style="display:none">
+        <div class="form-row">
+          <label>Delivery Mode</label>
+          <select id="email-delivery-mode">
+            <option value="email_draft" {delivery_draft}>Email Draft (front desk sends manually)</option>
+            <option value="direct_email" {delivery_direct}>Direct Email (sent automatically)</option>
+          </select>
+        </div>
+        <p style="font-size:12px;color:#888;">Email Draft creates a draft email for your front desk to review and send. Direct Email sends automatically.</p>
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveEmail()">Save Email Settings</button>
+      <button class="btn btn-sm" onclick="testEmail()" style="margin-left:8px;">Send Test Email</button>
+      <span id="email-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-templates" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Email Templates</h3>
+      <p>Customize the emails sent to your front desk for each type of request.</p>
+      <br>
+      <div class="form-row">
+        <label>Template Type</label>
+        <select id="template-type" onchange="loadTemplate()">
+          <option value="appointment_request">New Appointment Request</option>
+          <option value="emergency">Emergency Request</option>
+          <option value="general_inquiry">General Inquiry</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Subject</label>
+        <input type="text" id="template-subject" value="{template_subject}">
+      </div>
+      <div class="form-row">
+        <label>Body</label>
+        <textarea id="template-body" placeholder="Use {{patient_name}}, {{phone}}, {{email}}, {{service}}, etc.">{template_body}</textarea>
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveTemplate()">Save Template</button>
+      <button class="btn btn-sm" onclick="restoreTemplate()" style="margin-left:8px;">Restore Default</button>
+      <span id="template-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-business-rules" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Business Rules</h3>
+      <p>Configure appointment durations, staffing, and business policies.</p>
+      <br>
+      <div class="form-row">
+        <label>New Patient Duration (minutes)</label>
+        <input type="number" id="br-new-patient" value="{br_new_patient}">
+      </div>
+      <div class="form-row">
+        <label>Normal Appointment Duration (minutes)</label>
+        <input type="number" id="br-normal" value="{br_normal}">
+      </div>
+      <div class="form-row">
+        <label>Emergency Duration (minutes)</label>
+        <input type="number" id="br-emergency" value="{br_emergency}">
+      </div>
+      <div class="form-row">
+        <label>Doctor Columns</label>
+        <input type="number" id="br-doctors" value="{br_doctors}">
+      </div>
+      <div class="form-row">
+        <label>Hygiene Columns</label>
+        <input type="number" id="br-hygiene" value="{br_hygiene}">
+      </div>
+      <div class="form-row">
+        <label>Confirmation Hours</label>
+        <input type="number" id="br-confirm-hours" value="{br_confirm_hours}">
+      </div>
+      <div class="form-row">
+        <label>Broken/No-Show Fee</label>
+        <input type="text" id="br-no-show-fee" value="{br_no_show_fee}">
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveBusinessRules()">Save Business Rules</button>
+      <span id="br-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-notifications" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Notifications</h3>
+      <p>Configure how and when notifications are sent to your front desk.</p>
+      <div class="form-row">
+        <label>Enable Email Notifications</label>
+        <select id="notif-email">
+          <option value="true" {notif_email_on}>On</option>
+          <option value="false" {notif_email_off}>Off</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Enable Human Handoff</label>
+        <select id="notif-handoff">
+          <option value="true" {notif_handoff_on}>On</option>
+          <option value="false" {notif_handoff_off}>Off</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Handoff Message</label>
+        <textarea id="notif-handoff-msg">{notif_handoff_msg}</textarea>
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveNotifications()">Save Notifications</button>
+      <span id="notif-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-integrations" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Integrations</h3>
+      <p>Connect HeyJarvis to your other tools.</p>
+      <br>
+      <div class="stat"><div class="l">Webhook URL</div><input type="text" id="webhook-url" value="{webhook_url}" placeholder="https://..." style="margin-top:6px;"></div>
+      <br>
+      <button class="btn btn-primary btn-sm" onclick="saveIntegrations()">Save</button>
+      <span id="int-save-msg" style="margin-left:10px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-team" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Team Members</h3>
+      {team_members_html}
+      <br>
+      <h4 style="font-size:13px;margin-bottom:8px;">Add Team Member</h4>
+      <input type="email" id="team-email" placeholder="Email" style="width:280px;display:inline-block;margin-right:8px;">
+      <select id="team-role" style="width:140px;display:inline-block;">
+        <option value="admin">Admin</option>
+        <option value="member">Member</option>
+        <option value="viewer">Viewer</option>
+      </select>
+      <button class="btn btn-primary btn-sm" onclick="addTeamMember()">Add</button>
+      <span id="team-save-msg" style="margin-left:10px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-security" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Security & API Keys</h3>
+      <p>Public client key (safe to use in your website): <span class="code">{public_client_key}</span></p>
+      <br>
+      <h4>API Keys</h4>
+      <table>
+        <tr><th>Label</th><th>Public Key</th><th>Created</th><th>Actions</th></tr>
+        {api_keys_html}
+      </table>
+      <br>
+      <button class="btn btn-primary btn-sm" onclick="createApiKey()">Create New API Key</button>
+      <span id="api-key-msg" style="margin-left:10px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div id="tab-analytics" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Analytics</h3>
+      {analytics_html}
+    </div>
+  </div>
+
+  <div id="tab-settings" class="tab-content" style="display:none">
+    <div class="card">
+      <h3>Tenant Settings</h3>
+      <div class="form-row">
+        <label>Business Name</label>
+        <input type="text" id="settings-name" value="{tenant_name}">
+      </div>
+      <div class="form-row">
+        <label>Slug</label>
+        <input type="text" id="settings-slug" value="{tenant_slug}" disabled>
+      </div>
+      <div class="form-row">
+        <label>Timezone</label>
+        <input type="text" id="settings-timezone" value="{tenant_timezone}">
+      </div>
+      <br>
+      <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+      <span id="settings-save-msg" style="margin-left:12px;font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+</div>
+<script>
+  const API_BASE = '/api/admin';
+  const TENANT_ID = '{tenant_id}';
+  const TOKEN = '{auth_token}';
+  const headers = {{ Authorization: 'Bearer ' + TOKEN }};
+
+  function showTab(name) {{
+    document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.sidebar a').forEach(a => a.classList.remove('active'));
+    document.querySelector('.sidebar a[href*=\"' + name + '\"]')?.classList.add('active');
+    const t = document.getElementById('tab-' + name);
+    if (t) t.style.display = 'block';
+    else document.getElementById('tab-dashboard').style.display = 'block';
+  }}
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const initTab = urlParams.get('tab') || 'dashboard';
+  showTab(initTab);
+
+  async function api(method, path, body) {{
+    const r = await fetch(API_BASE + path, {{ method, headers, body: body ? JSON.stringify(body) : undefined }});
+    return r.ok ? r.json() : r.json().then(d => {{ throw d }});
+  }}
+
+  async function saveConcierge() {{
+    try {{
+      await api('PUT', '/tenants/' + TENANT_ID + '/settings', {{
+        concierge_mode: document.getElementById('concierge-mode').value,
+        concierge_auto_open: document.getElementById('concierge-auto-open').value,
+      }});
+      showMsg('concierge-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('concierge-save-msg', 'Error'); }}
+  }}
+
+  async function saveWidget() {{
+    try {{
+      await api('PUT', '/tenants/' + TENANT_ID + '/widget', {{
+        title: document.getElementById('widget-title').value,
+        greeting: document.getElementById('widget-greeting').value,
+        brand_color: document.getElementById('widget-color').value,
+        launcher_text: document.getElementById('widget-launcher').value,
+        position: document.getElementById('widget-position').value,
+      }});
+      showMsg('widget-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('widget-save-msg', 'Error'); }}
+  }}
+
+  async function saveEmail() {{
+    try {{
+      await api('PUT', '/tenants/' + TENANT_ID + '/email', {{
+        from_name: document.getElementById('email-from-name').value,
+        from_email: document.getElementById('email-from').value,
+        reply_to: document.getElementById('email-reply-to').value,
+        front_desk_email: document.getElementById('email-front-desk').value,
+        backup_email: document.getElementById('email-backup').value,
+        smtp_host: document.getElementById('smtp-host').value,
+        smtp_port: parseInt(document.getElementById('smtp-port').value) || 0,
+        smtp_username: document.getElementById('smtp-username').value,
+        smtp_password: document.getElementById('smtp-password').value,
+        smtp_security: document.getElementById('smtp-security').value,
+        delivery_mode: document.querySelector('input[name=\"delivery-mode\"]:checked')?.value || 'email_draft',
+      }});
+      showMsg('email-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('email-save-msg', 'Error'); }}
+  }}
+
+  async function testEmail() {{
+    const m = document.getElementById('email-save-msg');
+    try {{
+      const r = await api('POST', '/tenants/' + TENANT_ID + '/email/test', {{}});
+      m.textContent = 'Sent!'; m.style.color = '#28a745';
+    }} catch(e) {{ m.textContent = 'Error'; m.style.color = '#dc3545'; }}
+  }}
+
+  async function testSMTP() {{
+    const m = document.getElementById('smtp-test-msg');
+    try {{
+      const r = await api('POST', '/tenants/' + TENANT_ID + '/email/test-smtp', {{
+        smtp_host: document.getElementById('smtp-host').value,
+        smtp_port: parseInt(document.getElementById('smtp-port').value) || 587,
+        smtp_username: document.getElementById('smtp-username').value,
+        smtp_password: document.getElementById('smtp-password').value,
+        smtp_security: document.getElementById('smtp-security').value,
+      }});
+      m.textContent = 'Connected!'; m.style.color = '#28a745';
+    }} catch(e) {{ m.textContent = 'Failed'; m.style.color = '#dc3545'; }}
+  }}
+
+  async function saveBusinessRules() {{
+    try {{
+      await api('PUT', '/tenants/' + TENANT_ID + '/business-rules', {{
+        new_patient_minutes: parseInt(document.getElementById('br-new-patient').value) || 90,
+        normal_appointment_minutes: parseInt(document.getElementById('br-normal').value) || 30,
+        emergency_minutes: parseInt(document.getElementById('br-emergency').value) || 60,
+        doctor_columns: parseInt(document.getElementById('br-doctors').value) || 2,
+        hygiene_columns: parseInt(document.getElementById('br-hygiene').value) || 1,
+        confirmation_hours: parseInt(document.getElementById('br-confirm-hours').value) || 48,
+        no_show_fee: document.getElementById('br-no-show-fee').value,
+      }});
+      showMsg('br-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('br-save-msg', 'Error'); }}
+  }}
+
+  async function saveNotifications() {{
+    try {{
+      await api('PUT', '/tenants/' + TENANT_ID + '/settings', {{
+        email_notifications: document.getElementById('notif-email').value === 'true',
+        human_handoff: document.getElementById('notif-handoff').value === 'true',
+        handoff_message: document.getElementById('notif-handoff-msg').value,
+      }});
+      showMsg('notif-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('notif-save-msg', 'Error'); }}
+  }}
+
+  async function saveIntegrations() {{
+    try {{
+      await api('PUT', '/tenants/' + TENANT_ID + '/settings', {{
+        webhook_url: document.getElementById('webhook-url').value,
+      }});
+      showMsg('int-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('int-save-msg', 'Error'); }}
+  }}
+
+  async function saveSettings() {{
+    try {{
+      await api('PATCH', '/tenants/' + TENANT_ID, {{
+        name: document.getElementById('settings-name').value,
+        timezone: document.getElementById('settings-timezone').value,
+      }});
+      showMsg('settings-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('settings-save-msg', 'Error'); }}
+  }}
+
+  async function saveTemplate() {{
+    try {{
+      const type = document.getElementById('template-type').value;
+      await api('PUT', '/tenants/' + TENANT_ID + '/templates/' + type, {{
+        subject: document.getElementById('template-subject').value,
+        body: document.getElementById('template-body').value,
+      }});
+      showMsg('template-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('template-save-msg', 'Error'); }}
+  }}
+
+  async function restoreTemplate() {{
+    try {{
+      const type = document.getElementById('template-type').value;
+      await api('PUT', '/tenants/' + TENANT_ID + '/templates/' + type, {{ restore_default: true }});
+      loadTemplate();
+      showMsg('template-save-msg', 'Restored');
+    }} catch(e) {{ showMsg('template-save-msg', 'Error'); }}
+  }}
+
+  async function loadTemplate() {{
+    const type = document.getElementById('template-type').value;
+    try {{
+      const d = await api('GET', '/tenants/' + TENANT_ID + '/templates');
+      const t = (d.find(x => x.name === type) || d[0] || {{}});
+      document.getElementById('template-subject').value = t.subject || '';
+      document.getElementById('template-body').value = t.body || '';
+    }} catch(e) {{}}
+  }}
+
+  function showMsg(id, msg) {{
+    const el = document.getElementById(id); if (!el) return;
+    el.textContent = msg; el.style.color = '#28a745';
+    setTimeout(() => {{ el.textContent = ''; }}, 2000);
+  }}
+
+  async function saveFields() {{
+    try {{
+      const fields = [];
+      document.querySelectorAll('.field-row').forEach(row => {{
+        fields.push({{
+          key: row.dataset.key,
+          label: row.querySelector('.f-label')?.value || '',
+          type: row.querySelector('.f-type')?.value || 'text',
+          required: row.querySelector('.f-required')?.checked || false,
+          enabled: row.querySelector('.f-enabled')?.checked !== false,
+        }});
+      }});
+      await api('PUT', '/tenants/' + TENANT_ID + '/settings', {{ custom_fields: fields }});
+      showMsg('fields-save-msg', 'Saved');
+    }} catch(e) {{ showMsg('fields-save-msg', 'Error'); }}
+  }}
+
+  function showEmailTab(name) {{
+    ['general','smtp','delivery'].forEach(t => document.getElementById('email-tab-'+t).style.display = t === name ? 'block' : 'none');
+    document.querySelectorAll('#tab-email .tab').forEach((t,i) => t.classList.toggle('active', ['general','smtp','delivery'][i] === name));
+  }}
+
+  async function addTeamMember() {{
+    const email = document.getElementById('team-email').value;
+    const role = document.getElementById('team-role').value;
+    if (!email) return;
+    try {{
+      await api('POST', '/tenants/' + TENANT_ID + '/members', {{ email, role }});
+      document.getElementById('team-email').value = '';
+      showMsg('team-save-msg', 'Added');
+    }} catch(e) {{ showMsg('team-save-msg', 'Error'); }}
+  }}
+
+  async function createApiKey() {{
+    try {{
+      const d = await api('POST', '/tenants/' + TENANT_ID + '/api-keys', {{ label: 'new' }});
+      showMsg('api-key-msg', 'Created: ' + d.public_key);
+    }} catch(e) {{ showMsg('api-key-msg', 'Error'); }}
+  }}
+
+  function copySnippet() {{
+    const text = document.getElementById('install-snippet').textContent.trim();
+    navigator.clipboard.writeText(text).then(() => alert('Copied!'));
+  }}
+</script>
+</body>
+</html>"""
+
+
+@admin_app.get("/dashboard/{tenant_id}")
+def admin_dashboard(tenant_id: int, cu: Any = Depends(get_current)):
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(403)
+    tenant = _load_tenant(tenant_id)
+    tenant_name = tenant.get("name", "My Business")
+    tenant_slug = tenant.get("slug", "")
+    tenant_timezone = tenant.get("timezone", "UTC")
+    public_key = tenant.get("public_key", "")
+    status_class = "ok" if tenant.get("enabled") else "off"
+    status_dot = "active" if tenant.get("enabled") else "inactive"
+    status_text = "Active" if tenant.get("enabled") else "Disabled"
+
+    app_url = os.environ.get("APP_URL", "http://localhost:8000").rstrip("/")
+    widget_url = app_url + "/widget.js"
+    concierge_url = app_url + "/concierge/" + tenant_slug
+
+    with connect() as c:
+        conversations_count = c.execute("SELECT COUNT(*) FROM conversations WHERE tenant_id=?", (tenant_id,)).fetchone()[0]
+        new_leads_count = c.execute("SELECT COUNT(*) FROM leads WHERE tenant_id=? AND status='new'", (tenant_id,)).fetchone()[0]
+        leads_count = c.execute("SELECT COUNT(*) FROM leads WHERE tenant_id=?", (tenant_id,)).fetchone()[0]
+        emails_sent_count = c.execute("SELECT COUNT(*) FROM notifications WHERE tenant_id=? AND status='sent'", (tenant_id,)).fetchone()[0]
+        total_leads = leads_count or 1
+        completion_rate = min(100, round(((conversations_count or 0) / max(total_leads, 1)) * 100))
+        recent = rows(c, "SELECT id, visitor_name, visitor_email, intent, status, created_at FROM conversations WHERE tenant_id=? ORDER BY id DESC LIMIT 8", tenant_id)
+        recent_leads = rows(c, "SELECT id, name, email, intent, status, created_at FROM leads WHERE tenant_id=? ORDER BY id DESC LIMIT 5", tenant_id)
+        conv_rows = rows(c, "SELECT id, visitor_name, visitor_email, intent, status, created_at FROM conversations WHERE tenant_id=? ORDER BY id DESC LIMIT 50", tenant_id)
+        lead_rows = rows(c, "SELECT id, name, email, intent, status, created_at FROM leads WHERE tenant_id=? ORDER BY id DESC LIMIT 50", tenant_id)
+        api_keys = rows(c, "SELECT id, label, public_key, created_at FROM api_keys WHERE tenant_id=?", tenant_id)
+        members = rows(c, "SELECT id, email, role, display_name FROM users WHERE tenant_id=? AND role != 'owner'", tenant_id)
+
+    # Analytics
+    analytics = rows(c, "SELECT event_type, COUNT(*) as cnt FROM analytics WHERE tenant_id=? GROUP BY event_type ORDER BY cnt DESC", tenant_id) if False else []
+
+    recent_html = ""
+    if recent:
+        recent_html += "<table><tr><th>ID</th><th>Visitor</th><th>Email</th><th>Intent</th><th>Status</th><th>Date</th></tr>"
+        for r in recent:
+            recent_html += f"<tr><td>{r.get('id')}</td><td>{r.get('visitor_name','')}</td><td>{r.get('visitor_email','')}</td><td>{r.get('intent','')}</td><td>{r.get('status','')}</td><td>{r.get('created_at','')}</td></tr>"
+        recent_html += "</table>"
+    else:
+        recent_html = "<p class='empty'>No conversations yet.</p>"
+
+    conv_html = ""
+    if conv_rows:
+        conv_html += "<table><tr><th>ID</th><th>Visitor</th><th>Email</th><th>Intent</th><th>Status</th><th>Date</th></tr>"
+        for r in conv_rows:
+            conv_html += f"<tr><td><a href='#'>{r.get('id')}</a></td><td>{r.get('visitor_name','')}</td><td>{r.get('visitor_email','')}</td><td>{r.get('intent','')}</td><td>{r.get('status','')}</td><td>{r.get('created_at','')}</td></tr>"
+        conv_html += "</table>"
+    else:
+        conv_html = "<p class='empty'>No conversations yet.</p>"
+
+    leads_html = ""
+    if lead_rows:
+        leads_html += "<table><tr><th>ID</th><th>Name</th><th>Email</th><th>Intent</th><th>Status</th><th>Date</th></tr>"
+        for r in lead_rows:
+            leads_html += f"<tr><td>{r.get('id')}</td><td>{r.get('name','')}</td><td>{r.get('email','')}</td><td>{r.get('intent','')}</td><td>{r.get('status','')}</td><td>{r.get('created_at','')}</td></tr>"
+        leads_html += "</table>"
+    else:
+        leads_html = "<p class='empty'>No leads yet.</p>"
+
+    team_html = ""
+    if members:
+        team_html += "<table><tr><th>Email</th><th>Name</th><th>Role</th></tr>"
+        for m in members:
+            team_html += f"<tr><td>{m.get('email','')}</td><td>{m.get('display_name','')}</td><td>{m.get('role','')}</td></tr>"
+        team_html += "</table>"
+    else:
+        team_html = "<p class='empty'>No additional team members.</p>"
+
+    api_keys_html = ""
+    if api_keys:
+        api_keys_html = "<table><tr><th>Label</th><th>Public Key</th><th>Created</th><th>Actions</th></tr>"
+        for k in api_keys:
+            api_keys_html += f"<tr><td>{k.get('label','')}</td><td><span class='code'>{k.get('public_key','')}</span></td><td>{k.get('created_at','')}</td><td><button class='btn btn-sm' onclick='alert(\"Revoke via API\")'>Revoke</button></td></tr>"
+        api_keys_html += "</table>"
+    else:
+        api_keys_html = "<p class='empty'>No API keys yet.</p>"
+
+    analytics_html = ""
+    if analytics:
+        analytics_html = "<table><tr><th>Event</th><th>Count</th></tr>"
+        for a in analytics:
+            analytics_html += f"<tr><td>{a.get('event_type','')}</td><td>{a.get('cnt',0)}</td></tr>"
+        analytics_html += "</table>"
+    else:
+        analytics_html = "<p class='empty'>No analytics yet.</p>"
+
+    # Email settings
+    from saas.repositories import get_tenant_email, get_templates
+    email_settings = get_tenant_email(tenant_id) or {}
+    templates = get_templates(tenant_id)
+    template_body = ""
+    template_subject = "New Appointment Request"
+    if templates:
+        for t in templates:
+            if t.get("name") == "appointment_request":
+                template_subject = t.get("subject", template_subject)
+                template_body = t.get("body", "")
+                break
+
+    # Business rules
+    from saas.repositories import _loads
+    rules_raw = ""
+    with connect() as c:
+        row_br = row(c, "SELECT rules FROM business_rules WHERE tenant_id=?", tenant_id)
+    rules = _loads(row_br.get("rules") if row_br else "")
+    br = rules if isinstance(rules, dict) else {}
+
+    # Settings flags
+    flags = {}
+    with connect() as c:
+        row_s = row(c, "SELECT flags FROM tenant_settings WHERE tenant_id=?", tenant_id)
+    flags = _loads(row_s.get("flags") if row_s else "")
+    if not isinstance(flags, dict):
+        flags = {}
+
+    # Fields
+    custom_fields = flags.get("custom_fields", [
+        {"key": "name", "label": "Name", "type": "text", "required": True},
+        {"key": "email", "label": "Email", "type": "email", "required": True},
+        {"key": "phone", "label": "Phone", "type": "tel", "required": True},
+        {"key": "service", "label": "Service", "type": "select", "required": True},
+        {"key": "preferred_date", "label": "Preferred Date", "type": "text", "required": False},
+        {"key": "preferred_time", "label": "Preferred Time", "type": "text", "required": False},
+        {"key": "message", "label": "Message", "type": "textarea", "required": False},
+    ])
+    fields_list_html = "<table><tr><th>Label</th><th>Type</th><th>Required</th><th>Enabled</th></tr>"
+    for field in custom_fields:
+        fields_list_html += f"""<tr class="field-row" data-key="{field.get('key','')}">
+          <td><input class="f-label" value="{field.get('label','')}"></td>
+          <td><select class="f-type"><option {'selected' if field.get('type')=='text' else ''}>text</option><option {'selected' if field.get('type')=='email' else ''}>email</option><option {'selected' if field.get('type')=='tel' else ''}>tel</option><option {'selected' if field.get('type')=='textarea' else ''}>textarea</option><option {'selected' if field.get('type')=='select' else ''}>select</option><option {'selected' if field.get('type')=='checkbox' else ''}>checkbox</option></select></td>
+          <td><input type="checkbox" class="f-required" {'checked' if field.get('required') else ''}></td>
+          <td><input type="checkbox" class="f-enabled" {'checked' if field.get('enabled', True) else ''}></td>
+        </tr>"""
+    fields_list_html += "</table>"
+
+    concierge_mode = flags.get("concierge_mode", "chatbot")
+    concierge_auto_open = flags.get("concierge_auto_open", "instant")
+    widget_settings = flags.get("widget_settings", {})
+    if isinstance(widget_settings, dict):
+        ws = widget_settings
+    else:
+        ws = {}
+
+    widget_title = ws.get("title", tenant_name)
+    widget_greeting = ws.get("greeting", "Hi! How can we help today?")
+    widget_color = ws.get("brand_color", "#1f3b2e")
+    widget_position = ws.get("position", "bottom-right")
+    widget_launcher = ws.get("launcher_text", "Chat with us")
+
+    notif_email_on = 'selected' if flags.get("email_notifications", True) else ""
+    notif_email_off = 'selected' if not flags.get("email_notifications", True) else ""
+    notif_handoff_on = 'selected' if flags.get("human_handoff", True) else ""
+    notif_handoff_off = 'selected' if not flags.get("human_handoff", True) else ""
+    handoff_msg = flags.get("handoff_message", "Let me connect you with our front desk.")
+    webhook_url = flags.get("webhook_url", "")
+
+    html = _dashboard_template.format(
+        dashboard_title=tenant_name + " - Dashboard",
+        tenant_id=tenant_id,
+        tenant_name=tenant_name,
+        tenant_slug=tenant_slug,
+        tenant_timezone=tenant_timezone,
+        public_client_key=public_key,
+        status_class=status_class,
+        status_dot=status_dot,
+        status_text=status_text,
+        widget_url=widget_url,
+        concierge_url=concierge_url,
+        conversations_count=conversations_count or 0,
+        leads_count=leads_count or 0,
+        new_leads_count=new_leads_count or 0,
+        emails_sent_count=emails_sent_count or 0,
+        completion_rate=completion_rate,
+        recent_conversations_html=recent_html,
+        conversations_table_html=conv_html,
+        leads_table_html=leads_html,
+        team_members_html=team_html,
+        api_keys_html=api_keys_html,
+        analytics_html=analytics_html,
+        fields_list_html=fields_list_html,
+        widget_title=widget_title,
+        widget_greeting=widget_greeting,
+        widget_color=widget_color,
+        widget_position=widget_position,
+        widget_launcher=widget_launcher,
+        widget_pos_br='selected' if widget_position == 'bottom-right' else '',
+        widget_pos_bl='selected' if widget_position == 'bottom-left' else '',
+        email_from_name=email_settings.get("from_name", tenant_name),
+        email_from=email_settings.get("from_email", ""),
+        email_reply_to=email_settings.get("reply_to", ""),
+        email_front_desk=email_settings.get("front_desk_email", ""),
+        email_backup=email_settings.get("backup_email", ""),
+        smtp_host=email_settings.get("smtp_host", ""),
+        smtp_port=email_settings.get("smtp_port", ""),
+        smtp_username=email_settings.get("smtp_username", ""),
+        smtp_password=email_settings.get("smtp_password", ""),
+        smtp_tls='selected' if email_settings.get("smtp_security", "tls") == "tls" else '',
+        smtp_ssl='selected' if email_settings.get("smtp_security") == "ssl" else '',
+        smtp_none='selected' if not email_settings.get("smtp_security") else '',
+        delivery_draft='selected' if email_settings.get("delivery_mode", "email_draft") == "email_draft" else '',
+        delivery_direct='selected' if email_settings.get("delivery_mode") == "direct_email" else '',
+        template_subject=template_subject,
+        template_body=template_body,
+        br_new_patient=br.get("new_patient_minutes", 90),
+        br_normal=br.get("normal_appointment_minutes", 30),
+        br_emergency=br.get("emergency_minutes", 60),
+        br_doctors=br.get("doctor_columns", 2),
+        br_hygiene=br.get("hygiene_columns", 1),
+        br_confirm_hours=br.get("confirmation_hours", 48),
+        br_no_show_fee=br.get("no_show_fee", "$65"),
+        notif_email_on=notif_email_on,
+        notif_email_off=notif_email_off,
+        notif_handoff_on=notif_handoff_on,
+        notif_handoff_off=notif_handoff_off,
+        notif_handoff_msg=handoff_msg,
+        webhook_url=webhook_url,
+        concierge_mode_chatbot='selected' if concierge_mode == 'chatbot' else '',
+        concierge_mode_form='selected' if concierge_mode == 'form' else '',
+        concierge_mode_hybrid='selected' if concierge_mode == 'chat+form' else '',
+        auto_open_instant='selected' if concierge_auto_open == 'instant' else '',
+        auto_open_3s='selected' if concierge_auto_open == '3s' else '',
+        auto_open_5s='selected' if concierge_auto_open == '5s' else '',
+        auto_open_10s='selected' if concierge_auto_open == '10s' else '',
+        auto_open_never='selected' if concierge_auto_open == 'never' else '',
+        auth_token=cu.token_claims.get("access_token") if hasattr(cu, "token_claims") else "",
+    )
+    return HTMLResponse(content=html)
+
+@admin_app.get("/tenants/{tenant_id}/audit")
+def admin_audit_log(tenant_id: int, limit: int = 50, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+    with connect() as c:
+        return rows(c, "SELECT * FROM audit_logs WHERE tenant_id = ? ORDER BY id DESC LIMIT ?", tenant_id, limit)
+
+
+# ── API Keys Admin ────────────────────────────────────────────────────────────
+
+@admin_app.post("/tenants/{tenant_id}/api-keys")
+def admin_create_api_key(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    from saas.repositories import create_api_key
+    label = body.get("label", "default")
+    secret = body.get("secret") or __import__("secrets").token_urlsafe(24)
+    key = create_api_key(tenant_id, label, secret)
+    return {"id": key.id, "label": key.label, "public_key": key.public_key, "secret": secret}
+
+
+@admin_app.delete("/api-keys/{key_id}")
+def admin_revoke_api_key(key_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+    from saas.repositories import revoke_api_key, get_api_key
+    key = get_api_key(key_id)
+    if not key:
+        raise HTTPException(status_code=404, detail="key not found")
+    revoke_api_key(key_id)
+    return {"ok": True}
+
+
+@admin_app.get("/tenants/{tenant_id}/integration/wordpress")
+def admin_download_wordpress(tenant_id: int, cu: Any = Depends(get_current)):
+    if cu.user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    plugin_dir = Path(__file__).resolve().parent.parent.parent / "wordpress" / "heyjarvis-concierge"
+    if not plugin_dir.exists():
+        raise HTTPException(status_code=404, detail="plugin not found")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in plugin_dir.rglob("*"):
+            if f.is_file():
+                zf.write(f, f.relative_to(plugin_dir))
+    buf.seek(0)
+    from fastapi.responses import Response
+    return Response(content=buf.read(), media_type="application/zip",
+                    headers={"Content-Disposition": f"attachment; filename=heyjarvis-concierge.zip"})
+
+
+# ── Front Desk Routes ──────────────────────────────────────────────────────────
+
+@admin_app.get("/fd/stats")
+def fd_stats(cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    with connect() as c:
+        total = c.execute("SELECT COUNT(*) FROM conversations WHERE tenant_id=?", (tid,)).fetchone()[0]
+        new_leads = c.execute("SELECT COUNT(*) FROM leads WHERE tenant_id=? AND status='new'", (tid,)).fetchone()[0]
+        emails = c.execute("SELECT COUNT(*) FROM notifications WHERE tenant_id=? AND status='sent'", (tid,)).fetchone()[0]
+        failed = c.execute("SELECT COUNT(*) FROM notifications WHERE tenant_id=? AND status='failed'", (tid,)).fetchone()[0]
+        t = row(c, "SELECT name FROM tenants WHERE id=?", tid)
+    return {
+        "tenant_name": t["name"] if t else "",
+        "total_conversations": total,
+        "new_leads": new_leads,
+        "emails_sent": emails,
+        "failed": failed,
+    }
+
+
+@admin_app.get("/fd/leads")
+def fd_leads(status: str = "", intent: str = "", limit: int = 50, cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    sql = "SELECT id,name,email,phone,service,intent,urgency,preferred_date,preferred_time,message,status,created_at,conversation_id FROM leads WHERE tenant_id=?"
+    args = [tid]
+    if status:
+        sql += " AND status=?"; args.append(status)
+    if intent:
+        sql += " AND intent=?"; args.append(intent)
+    sql += " ORDER BY id DESC LIMIT ?"
+    args.append(limit)
+    with connect() as c:
+        leads = rows(c, sql, *args)
+        intents = rows(c, "SELECT DISTINCT intent FROM leads WHERE tenant_id=? AND intent IS NOT NULL ORDER BY 1", tid)
+    return {"leads": leads, "intents": [r["intent"] for r in intents]}
+
+
+@admin_app.get("/fd/leads/{lead_id}")
+def fd_lead_detail(lead_id: int, cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    with connect() as c:
+        l = row(c, "SELECT * FROM leads WHERE id=? AND tenant_id=?", lead_id, tid)
+        if not l:
+            raise HTTPException(404, "lead not found")
+        msgs = rows(c, "SELECT id,conversation_id,role,body,created_at FROM messages WHERE conversation_id=? ORDER BY id ASC", l.get("conversation_id"))
+    l["messages"] = msgs
+    return l
+
+
+@admin_app.post("/fd/leads/{lead_id}/status")
+def fd_update_status(lead_id: int, body: dict, cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    status = body.get("status", "")
+    allowed = {"new","contacted","qualified","booked","closed","spam"}
+    if status not in allowed:
+        raise HTTPException(400, "invalid status")
+    with connect() as c:
+        r = c.execute("UPDATE leads SET status=?,updated_at=? WHERE id=? AND tenant_id=?", (status, now_iso(), lead_id, tid))
+        if r.rowcount == 0:
+            raise HTTPException(404, "lead not found")
+    return {"ok": True}
+
+
+@admin_app.post("/fd/leads/{lead_id}/reply")
+def fd_reply(lead_id: int, body: dict, cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    message = (body.get("message") or "").strip()
+    if not message:
+        raise HTTPException(400, "message required")
+    with connect() as c:
+        l = row(c, "SELECT * FROM leads WHERE id=? AND tenant_id=?", lead_id, tid)
+        if not l:
+            raise HTTPException(404, "lead not found")
+        conv_id = l.get("conversation_id")
+        if conv_id:
+            c.execute("INSERT INTO messages (tenant_id,conversation_id,role,body,created_at) VALUES (?,?,?,?,?)",
+                      (tid, conv_id, "assistant", message, now_iso()))
+        track_event(tid, "frontdesk_reply", {"lead_id": lead_id})
+        # Send actual email reply to visitor
+        from saas.emailer import send_email
+        tenant = row(c, "SELECT name FROM tenants WHERE id=?", tid)
+        tenant_name = tenant["name"] if tenant else "HeyJarvis"
+        subj = "Re: " + (l.get("service") or l.get("intent") or "Your request")
+        body_text = "Hi " + (l.get("name") or "there") + ",\n\n" + message + "\n\n" + tenant_name + "\n"
+        send_email(tid, l["email"], subj, body_text)
+    return {"ok": True}
+
+
+@admin_app.post("/fd/leads/{lead_id}/resend")
+def fd_resend(lead_id: int, cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    with connect() as c:
+        l = row(c, "SELECT * FROM leads WHERE id=? AND tenant_id=?", lead_id, tid)
+        if not l:
+            raise HTTPException(404, "lead not found")
+    try:
+        send_lead_notification(tid, lead_id, intent=l.get("intent", "default"))
+        return {"ok": True, "detail": "Email sent"}
+    except Exception as e:
+        return {"ok": False, "detail": str(e)[:200]}
+
+
+@admin_app.post("/fd/leads/{lead_id}/notify")
+def fd_retry_notify(lead_id: int, cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    with connect() as c:
+        l = row(c, "SELECT * FROM leads WHERE id=? AND tenant_id=?", lead_id, tid)
+        if not l:
+            raise HTTPException(404, "lead not found")
+    try:
+        send_lead_notification(tid, lead_id, intent=l.get("intent", "default"))
+        return {"ok": True, "detail": "Notification sent"}
+    except Exception as e:
+        return {"ok": False, "detail": str(e)[:200]}
+
+
+# ── AI Front Desk Routes ──────────────────────────────────────────────────────
+
+class AIDraftBody(BaseModel):
+    lead_id: int | None = None
+    conversation_id: int | None = None
+    instruction: str = ""
+    draft_type: str = "reply"
+
+
+@admin_app.post("/fd/ai/draft")
+def fd_ai_draft(body: AIDraftBody, cu: Any = Depends(get_current)) -> dict:
+    """Generate an AI reply draft. Front desk reviews before sending."""
+    tid = cu.user.tenant_id
+
+    # Load lead context
+    lead = None
+    if body.lead_id:
+        with connect() as c:
+            r = row(c, "SELECT * FROM leads WHERE id=? AND tenant_id=?", body.lead_id, tid)
+            if r:
+                lead = r
+
+    # Load conversation messages
+    conv_id = body.conversation_id or (lead.get("conversation_id") if lead else None)
+    messages = []
+    if conv_id:
+        with connect() as c:
+            msgs = rows(c, "SELECT role, body, created_at FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 20", conv_id)
+            messages = list(reversed(msgs))
+
+    # Build context
+    patient_context = {}
+    if lead:
+        patient_context = {
+            "name": lead.get("name"),
+            "email": lead.get("email"),
+            "phone": lead.get("phone"),
+            "service": lead.get("service"),
+            "intent": lead.get("intent"),
+            "preferred_date": lead.get("preferred_date"),
+            "preferred_time": lead.get("preferred_time"),
+            "urgency": lead.get("urgency"),
+            "insurance": lead.get("insurance"),
+            "financing": lead.get("financing"),
+            "message": lead.get("message"),
+        }
+
+    practice_context = _get_practice_context(tid)
+
+    # Build conversation text
+    conv_text = "\n".join(f"{m['role']}: {m['body']}" for m in messages) if messages else "No conversation history."
+
+    from saas.ai_engine import draft_reply
+    result = draft_reply(conv_text, patient_context, practice_context, body.instruction)
+
+    # Store draft
+    draft = create_ai_draft(
+        tid, body.lead_id, conv_id, body.draft_type,
+        result.get("subject", ""), result.get("body", ""),
+        result.get("sms"), result.get("internal_note"),
+        result.get("confidence", "medium"), result.get("provider"),
+        created_by=cu.user.id, metadata={"instruction": body.instruction}
+    )
+    track_event(tid, "ai_draft_created", {"draft_id": draft["id"], "lead_id": body.lead_id})
+    return draft
+
+
+@admin_app.post("/fd/ai/summarize")
+def fd_ai_summarize(body: dict, cu: Any = Depends(get_current)) -> dict:
+    """Summarize a conversation."""
+    tid = cu.user.tenant_id
+    conv_id = body.get("conversation_id")
+    lead_id = body.get("lead_id")
+
+    messages = []
+    if conv_id:
+        with connect() as c:
+            msgs = rows(c, "SELECT role, body FROM messages WHERE conversation_id=? ORDER BY id ASC LIMIT 50", conv_id)
+            messages = msgs
+    elif lead_id:
+        with connect() as c:
+            l = row(c, "SELECT * FROM leads WHERE id=? AND tenant_id=?", lead_id, tid)
+            if l:
+                messages = [{"role": "user", "body": l.get("message", "")}]
+
+    conv_text = "\n".join(f"{m['role']}: {m['body']}" for m in messages) if messages else "No messages."
+    from saas.ai_engine import summarize_conversation
+    return summarize_conversation(conv_text)
+
+
+@admin_app.post("/fd/ai/parse-time")
+def fd_ai_parse_time(body: dict, cu: Any = Depends(get_current)) -> dict:
+    """Parse natural language time instruction."""
+    instruction = body.get("instruction", "")
+    from saas.ai_engine import parse_time_instruction
+    return parse_time_instruction(instruction)
+
+
+@admin_app.post("/fd/ai/classify")
+def fd_ai_classify(body: dict, cu: Any = Depends(get_current)) -> dict:
+    """Classify a message: intent, urgency, extracted fields."""
+    message = body.get("message", "")
+    existing = body.get("existing_fields")
+    from saas.ai_engine import classify_message
+    return classify_message(message, existing)
+
+
+@admin_app.post("/fd/ai/next-action")
+def fd_ai_next_action(body: dict, cu: Any = Depends(get_current)) -> dict:
+    """Get AI recommended next action for a conversation."""
+    tid = cu.user.tenant_id
+    lead_id = body.get("lead_id")
+    conv_id = body.get("conversation_id")
+
+    # Load conversation
+    messages = []
+    if conv_id:
+        with connect() as c:
+            msgs = rows(c, "SELECT role, body FROM messages WHERE conversation_id=? ORDER BY id ASC LIMIT 50", conv_id)
+            messages = msgs
+
+    conv_text = "\n".join(f"{m['role']}: {m['body']}" for m in messages) if messages else ""
+
+    # Load lead data
+    lead_data = {}
+    if lead_id:
+        with connect() as c:
+            l = row(c, "SELECT * FROM leads WHERE id=? AND tenant_id=?", lead_id, tid)
+            if l:
+                lead_data = dict(l)
+
+    state = body.get("conversation_state", "open")
+    from saas.ai_engine import next_best_action
+    return next_best_action(conv_text, lead_data, state)
+
+
+@admin_app.post("/fd/ai/follow-up")
+def fd_ai_follow_up(body: dict, cu: Any = Depends(get_current)) -> dict:
+    """Generate a follow-up draft for a lead."""
+    tid = cu.user.tenant_id
+    lead_id = body.get("lead_id")
+    hours = int(body.get("hours", 24))
+
+    lead = {}
+    if lead_id:
+        with connect() as c:
+            l = row(c, "SELECT * FROM leads WHERE id=? AND tenant_id=?", lead_id, tid)
+            if l:
+                lead = dict(l)
+
+    from saas.ai_engine import generate_follow_up
+    return generate_follow_up(lead, hours)
+
+
+@admin_app.post("/fd/ai/confirm")
+def fd_ai_confirm(body: dict, cu: Any = Depends(get_current)) -> dict:
+    """Generate appointment confirmation draft."""
+    tid = cu.user.tenant_id
+    lead_id = body.get("lead_id")
+    appointment_time = body.get("appointment_time", "")
+
+    lead = {}
+    if lead_id:
+        with connect() as c:
+            l = row(c, "SELECT * FROM leads WHERE id=? AND tenant_id=?", lead_id, tid)
+            if l:
+                lead = dict(l)
+
+    from saas.ai_engine import generate_confirmation
+    return generate_confirmation(lead, appointment_time)
+
+
+@admin_app.post("/fd/ai/reschedule")
+def fd_ai_reschedule(body: dict, cu: Any = Depends(get_current)) -> dict:
+    """Generate rescheduling draft."""
+    tid = cu.user.tenant_id
+    lead_id = body.get("lead_id")
+    new_time = body.get("new_time", "")
+    reason = body.get("reason", "")
+
+    lead = {}
+    if lead_id:
+        with connect() as c:
+            l = row(c, "SELECT * FROM leads WHERE id=? AND tenant_id=?", lead_id, tid)
+            if l:
+                lead = dict(l)
+
+    from saas.ai_engine import generate_reschedule
+    return generate_reschedule(lead, new_time, reason)
+
+
+@admin_app.post("/fd/ai/shorten")
+def fd_ai_shorten(body: dict, cu: Any = Depends(get_current)) -> dict:
+    """Shorten a message."""
+    text = body.get("text", "")
+    result, _ = _llm(
+        f"Shorten this to 2-3 short sentences, keep it warm:\n\n{text}",
+        system=_SYSTEM_REPLY,
+        schema={"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]},
+    )
+    return result or {"body": text}
+
+
+@admin_app.post("/fd/ai/professional")
+def fd_ai_professional(body: dict, cu: Any = Depends(get_current)) -> dict:
+    """Make a message more professional."""
+    text = body.get("text", "")
+    result, _ = _llm(
+        f"Rewrite this to be more professional while keeping it warm:\n\n{text}",
+        system=_SYSTEM_REPLY,
+        schema={"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]},
+    )
+    return result or {"body": text}
+
+
+@admin_app.post("/fd/ai/warmer")
+def fd_ai_warmer(body: dict, cu: Any = Depends(get_current)) -> dict:
+    """Make a message warmer/more friendly."""
+    text = body.get("text", "")
+    result, _ = _llm(
+        f"Rewrite this to be warmer and more friendly:\n\n{text}",
+        system=_SYSTEM_REPLY,
+        schema={"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]},
+    )
+    return result or {"body": text}
+
+
+@admin_app.post("/fd/drafts/send")
+def fd_send_draft(draft_id: int, cu: Any = Depends(get_current)) -> dict:
+    """Send an AI draft to the patient."""
+    tid = cu.user.tenant_id
+    with connect() as c:
+        d = row(c, "SELECT * FROM ai_drafts WHERE id=? AND tenant_id=?", draft_id, tid)
+        if not d:
+            raise HTTPException(404, "draft not found")
+        lead = None
+        if d.get("lead_id"):
+            lead = row(c, "SELECT * FROM leads WHERE id=?", d["lead_id"])
+
+    if not lead:
+        return {"ok": False, "detail": "No lead associated with this draft"}
+
+    # Send the email
+    from saas.emailer import send_email
+    to = lead.get("email")
+    if not to:
+        return {"ok": False, "detail": "Patient has no email address"}
+
+    subject = d.get("subject") or "Re: Your Request"
+    body_text = d.get("body") or ""
+    result = send_email(tid, to, subject, body_text)
+
+    # Update draft
+    update_ai_draft(draft_id, status="sent" if result.ok else "failed", sent_at=now_iso())
+
+    # Record notification
+    track_event(tid, "frontdesk_reply_sent", {"draft_id": draft_id, "lead_id": d.get("lead_id")})
+
+    return {"ok": result.ok, "detail": "Sent" if result.ok else f"Failed: {result.error}"}
+
+
+@admin_app.post("/fd/drafts/{draft_id}/save")
+def fd_save_draft(draft_id: int, body: dict, cu: Any = Depends(get_current)) -> dict:
+    """Save edits to a draft."""
+    tid = cu.user.tenant_id
+    with connect() as c:
+        d = row(c, "SELECT * FROM ai_drafts WHERE id=? AND tenant_id=?", draft_id, tid)
+        if not d:
+            raise HTTPException(404, "draft not found")
+
+    allowed = {"subject", "body", "sms", "internal_note"}
+    updates = {k: v for k, v in body.items() if k in allowed and v is not None}
+    if updates:
+        update_ai_draft(draft_id, **updates)
+    return {"ok": True}
+
+
+# ── Internal Notes ────────────────────────────────────────────────────────────
+
+class NoteBody(BaseModel):
+    lead_id: int | None = None
+    conversation_id: int | None = None
+    note: str
+
+
+@admin_app.post("/fd/notes")
+def fd_create_note(body: NoteBody, cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    note = create_internal_note(tid, body.lead_id, body.conversation_id, body.note, created_by=cu.user.id)
+    audit(tid, cu.user.id, "note_created", {"note_id": note["id"]})
+    return note
+
+
+@admin_app.get("/fd/notes")
+def fd_list_notes(lead_id: int | None = None, conversation_id: int | None = None, cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    notes = list_internal_notes(tid, lead_id, conversation_id)
+    return {"notes": notes}
+
+
+@admin_app.delete("/fd/notes/{note_id}")
+def fd_delete_note(note_id: int, cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    delete_internal_note(note_id, tid)
+    audit(tid, cu.user.id, "note_deleted", {"note_id": note_id})
+    return {"ok": True}
+
+
+# ── Tasks ─────────────────────────────────────────────────────────────────────
+
+class TaskBody(BaseModel):
+    lead_id: int | None = None
+    title: str
+    priority: str = "normal"
+    due_at: str | None = None
+
+
+@admin_app.post("/fd/tasks")
+def fd_create_task(body: TaskBody, cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    task = create_task(tid, body.title, body.lead_id, body.priority, body.due_at, assigned_to=cu.user.id)
+    audit(tid, cu.user.id, "task_created", {"task_id": task["id"]})
+    return task
+
+
+@admin_app.get("/fd/tasks")
+def fd_list_tasks(status: str | None = None, cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    tasks = list_tasks(tid, status)
+    return {"tasks": tasks}
+
+
+@admin_app.post("/fd/tasks/{task_id}/complete")
+def fd_complete_task(task_id: int, cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    update_task(task_id, status="completed")
+    audit(tid, cu.user.id, "task_completed", {"task_id": task_id})
+    return {"ok": True}
+
+
+@admin_app.delete("/fd/tasks/{task_id}")
+def fd_delete_task(task_id: int, cu: Any = Depends(get_current)) -> dict:
+    tid = cu.user.tenant_id
+    with connect() as c:
+        c.execute("DELETE FROM front_desk_tasks WHERE id=? AND tenant_id=?", (task_id, tid))
+    audit(tid, cu.user.id, "task_deleted", {"task_id": task_id})
+    return {"ok": True}
+
+
+# ── Dashboard / Stats ────────────────────────────────────────────────────────
+
+@admin_app.get("/fd/dashboard")
+def fd_dashboard(cu: Any = Depends(get_current)) -> dict:
+    """Full front desk dashboard data."""
+    tid = cu.user.tenant_id
+    with connect() as c:
+        # Core counts
+        total_convs = c.execute("SELECT COUNT(*) FROM conversations WHERE tenant_id=?", (tid,)).fetchone()[0]
+        new_leads = c.execute("SELECT COUNT(*) FROM leads WHERE tenant_id=? AND status='new'", (tid,)).fetchone()[0]
+        contacted = c.execute("SELECT COUNT(*) FROM leads WHERE tenant_id=? AND status='contacted'", (tid,)).fetchone()[0]
+        booked = c.execute("SELECT COUNT(*) FROM leads WHERE tenant_id=? AND status='booked'", (tid,)).fetchone()[0]
+        emails_sent = c.execute("SELECT COUNT(*) FROM notifications WHERE tenant_id=? AND status='sent'", (tid,)).fetchone()[0]
+        failed = c.execute("SELECT COUNT(*) FROM notifications WHERE tenant_id=? AND status='failed'", (tid,)).fetchone()[0]
+
+        # Tasks
+        open_tasks = c.execute("SELECT COUNT(*) FROM front_desk_tasks WHERE tenant_id=? AND status='open'", (tid,)).fetchone()[0]
+        overdue_tasks = c.execute(
+            "SELECT COUNT(*) FROM front_desk_tasks WHERE tenant_id=? AND status='open' AND due_at IS NOT NULL AND due_at < ?",
+            (tid, now_iso())
+        ).fetchone()[0]
+
+        # AI drafts
+        pending_drafts = c.execute("SELECT COUNT(*) FROM ai_drafts WHERE tenant_id=? AND status='draft'", (tid,)).fetchone()[0]
+
+        # Recent leads
+        recent_leads = rows(c,
+            "SELECT id, name, email, service, intent, status, created_at FROM leads WHERE tenant_id=? ORDER BY id DESC LIMIT 10",
+            tid)
+
+        # Intent breakdown
+        intents = rows(c,
+            "SELECT intent, COUNT(*) as cnt FROM leads WHERE tenant_id=? AND intent IS NOT NULL GROUP BY intent ORDER BY cnt DESC",
+            tid)
+
+        # Recent tasks
+        tasks = rows(c,
+            "SELECT id, title, priority, status, due_at FROM front_desk_tasks WHERE tenant_id=? AND status='open' ORDER BY id DESC LIMIT 10",
+            tid)
+
+        t = row(c, "SELECT name FROM tenants WHERE id=?", tid)
+
+    return {
+        "tenant_name": t["name"] if t else "",
+        "total_conversations": total_convs,
+        "new_leads": new_leads,
+        "contacted": contacted,
+        "booked": booked,
+        "emails_sent": emails_sent,
+        "failed": failed,
+        "open_tasks": open_tasks,
+        "overdue_tasks": overdue_tasks,
+        "pending_drafts": pending_drafts,
+        "recent_leads": recent_leads,
+        "intents": intents,
+        "tasks": tasks,
+    }
+
+
+@admin_app.get("/fd/insights")
+def fd_insights(cu: Any = Depends(get_current)) -> dict:
+    """AI-generated insights for the front desk."""
+    tid = cu.user.tenant_id
+    with connect() as c:
+        waiting = c.execute(
+            "SELECT COUNT(*) FROM leads WHERE tenant_id=? AND status IN ('new','contacted') AND updated_at < datetime('now', '-24 hours')",
+            (tid,)
+        ).fetchone()[0]
+        urgent = c.execute(
+            "SELECT COUNT(*) FROM leads WHERE tenant_id=? AND urgency='urgent' AND status='new'",
+            (tid,)
+        ).fetchone()[0]
+        overdue = c.execute(
+            "SELECT COUNT(*) FROM front_desk_tasks WHERE tenant_id=? AND status='open' AND due_at IS NOT NULL AND due_at < ?",
+            (tid, now_iso())
+        ).fetchone()[0]
+
+    insights = []
+    if waiting > 0:
+        insights.append(f"{waiting} conversation{'s' if waiting > 1 else ''} waiting for a response (24h+)")
+    if urgent > 0:
+        insights.append(f"{urgent} urgent request{'s' if urgent > 1 else ''} needs immediate attention")
+    if overdue > 0:
+        insights.append(f"{overdue} task{'s' if overdue > 1 else ''} is overdue")
+    if not insights:
+        insights.append("All caught up! No urgent items right now.")
+
+    return {"insights": insights}
+
+
+# ── Practice Context Helper ───────────────────────────────────────────────────
+
+def _get_practice_context(tenant_id: int) -> dict[str, Any]:
+    """Load practice context for AI generation."""
+    with connect() as c:
+        # Business rules
+        br = row(c, "SELECT rules FROM business_rules WHERE tenant_id=?", tenant_id)
+        # Tenant name
+        t = row(c, "SELECT name FROM tenants WHERE id=?", tenant_id)
+        # Email settings (for from_name)
+        es = row(c, "SELECT from_name FROM email_settings WHERE tenant_id=?", tenant_id)
+
+    context = {}
+    if t:
+        context["practice_name"] = t["name"]
+    if es and es.get("from_name"):
+        context["from_name"] = es["from_name"]
+    if br:
+        try:
+            rules = json.loads(br["rules"]) if isinstance(br["rules"], str) else br["rules"]
+            for key in ["new_patient_duration", "emergency_duration", "cleaning_duration",
+                        "confirmation_hours", "no_show_fee", "financing_options"]:
+                if key in rules:
+                    context[key] = rules[key]
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return context

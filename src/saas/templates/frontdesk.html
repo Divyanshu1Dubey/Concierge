@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HeyJarvis — Front Desk</title>
+<style>
+:root{--bg:#f0f2f5;--card:#fff;--border:#e2e5ea;--primary:#0f2b1f;--accent:#2d8a6e;--accent2:#1f6b54;--text:#1a1a1a;--muted:#6b7280;--red:#dc2626;--green:#16a34a;--amber:#d97706;--blue:#2563eb;--purple:#7c3aed;--pink:#db2777;--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.04);--shadow-lg:0 4px 20px rgba(0,0,0,.08)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh}
+.header{background:linear-gradient(135deg,#0a1f15,#1d4a36);color:#fff;padding:14px 24px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.header h1{font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
+.header .sub{font-size:12px;opacity:.75;margin-top:2px}
+.header .right{display:flex;align-items:center;gap:16px}
+.insights{display:flex;gap:8px;flex-wrap:wrap}
+.insight-chip{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:5px 12px;font-size:12px;white-space:nowrap}
+.insight-chip.urgent{background:rgba(220,38,38,.2);border-color:rgba(220,38,38,.3);color:#fca5a5}
+.stats{display:flex;gap:10px;padding:12px 24px;flex-shrink:0;overflow-x:auto}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;min-width:120px;flex:1}
+.stat .num{font-size:22px;font-weight:700;color:var(--primary)}
+.stat .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.layout{display:flex;height:calc(100vh - 130px);padding:0 16px 16px;gap:12px}
+.sidebar{width:300px;min-width:260px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow)}
+.sidebar-header{padding:12px 14px;border-bottom:1px solid var(--border);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+.sidebar-tabs{display:flex;border-bottom:1px solid var(--border);overflow-x:auto;flex-shrink:0}
+.sidebar-tab{padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;color:var(--muted);font-weight:500}
+.sidebar-tab:hover{color:var(--text)}
+.sidebar-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.filter-bar{padding:8px 12px;border-bottom:1px solid var(--border);display:flex;gap:6px;flex-shrink:0}
+.filter-bar select{flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:#fff}
+.lead-list{flex:1;overflow-y:auto}
+.lead-item{padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s;position:relative}
+.lead-item:hover{background:#f9fafb}
+.lead-item.active{background:#f0fdf4;border-left:3px solid var(--accent)}
+.lead-item .name{font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center}
+.lead-item .svc{font-size:12px;color:var(--muted);margin-top:2px}
+.lead-item .time{font-size:11px;color:var(--muted);margin-top:3px}
+.lead-item .badges{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}
+.badge{display:inline-block;padding:1px 7px;border-radius:5px;font-size:10px;font-weight:600;text-transform:uppercase}
+.badge-new{background:#dbeafe;color:#1d4ed8}
+.badge-contacted{background:#fef3c7;color:#92400e}
+.badge-booked{background:#d1fae5;color:#065f46}
+.badge-closed{background:#f3f4f6;color:#6b7280}
+.badge-spam{background:#fee2e2;color:#991b1b}
+.badge-urgent{background:#fee2e2;color:#991b1b;animation:pulse 2s infinite}
+.badge-ai{background:#ede9fe;color:#7c3aed}
+.badge-waiting{background:#fef3c7;color:#92400e}
+.badge-scheduled{background:#dbeafe;color:#1d4ed8}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+.main{flex:1;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow);min-width:0}
+.right-panel{width:320px;min-width:280px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow)}
+.empty-state{flex:1;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;text-align:center;padding:40px}
+.detail-header{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start}
+.detail-header h2{font-size:17px;font-weight:700}
+.detail-header .meta{font-size:12px;color:var(--muted);margin-top:3px}
+.detail-header .badges{display:flex;gap:4px;margin-top:6px}
+.detail-actions{display:flex;gap:6px;flex-wrap:wrap}
+.detail-actions button{padding:5px 12px;border:1px solid var(--border);border-radius:7px;font-size:12px;cursor:pointer;background:#fff;font-weight:500}
+.detail-actions button:hover{background:#f3f4f6}
+.detail-actions button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.detail-actions button.primary:hover{background:var(--accent2)}
+.detail-actions button.danger{color:var(--red);border-color:#fecaca}
+.fields{padding:14px 22px;border-bottom:1px solid var(--border);display:flex;gap:16px;flex-wrap:wrap}
+.field{display:flex;gap:4px;align-items:center}
+.field .fl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;min-width:55px}
+.field .fv{font-size:13px;font-weight:500}
+.field .fv a{color:var(--accent);text-decoration:none}
+.field .fv a:hover{text-decoration:underline}
+.messages{flex:1;overflow-y:auto;padding:18px 22px;background:#fafbfc}
+.msg{padding:10px 14px;border-radius:12px;margin-bottom:10px;max-width:85%;position:relative}
+.msg-visitor{background:#fff;border:1px solid var(--border);margin-right:auto}
+.msg-system{background:#f0fdf4;border:1px solid #bbf7d0;margin-left:auto;text-align:right}
+.msg .who{font-size:11px;color:var(--muted);margin-bottom:3px;font-weight:600}
+.msg .text{font-size:13px;line-height:1.5}
+.msg .ts{font-size:10px;color:var(--muted);margin-top:4px;opacity:.7}
+.msg.ai-draft{border:2px dashed var(--accent);background:#f0fdfa}
+.msg.ai-draft::before{content:'🤖 AI Draft';display:block;font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px}
+.reply-box{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;flex-shrink:0;background:#fff}
+.reply-box textarea{flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;resize:none;min-height:42px;max-height:120px}
+.reply-box textarea:focus{outline:none;border-color:var(--accent)}
+.reply-box button{padding:10px 18px;background:var(--accent);color:#fff;border:0;border-radius:10px;font-weight:600;cursor:pointer;font-size:13px;white-space:nowrap}
+.reply-box button:hover{background:var(--accent2)}
+.reply-box button:disabled{opacity:.5;cursor:not-allowed}
+.actions{padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0;background:#fafbfc}
+.actions select{padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:#fff}
+.actions button{padding:5px 12px;border:1px solid var(--border);border-radius:7px;font-size:12px;cursor:pointer;background:#fff;font-weight:500}
+.actions button:hover{background:#f3f4f6}
+.actions button.ai-btn{background:#f5f3ff;color:#7c3aed;border-color:#ddd6fe}
+.actions button.ai-btn:hover{background:#ede9fe}
+.right-section{padding:14px 16px;border-bottom:1px solid var(--border)}
+.right-section h3{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:10px;font-weight:600}
+.context-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px;gap:8px}
+.context-row .cl{color:var(--muted);font-size:12px;flex-shrink:0}
+.context-row .cv{font-weight:500;text-align:right;word-break:break-all}
+.context-row .cv a{color:var(--accent);text-decoration:none}
+.ai-quick{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.ai-quick button{padding:7px 10px;border:1px solid #ddd6fe;border-radius:8px;font-size:11px;cursor:pointer;background:#faf5ff;color:#7c3aed;font-weight:500;text-align:left}
+.ai-quick button:hover{background:#ede9fe}
+.ai-quick button .icon{font-size:14px;margin-right:3px}
+.ai-result{background:#faf5ff;border:1px solid #ddd6fe;border-radius:10px;padding:12px;margin-top:8px;font-size:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap}
+.ai-result .label{font-size:10px;text-transform:uppercase;color:var(--purple);font-weight:600;margin-bottom:4px}
+.ai-loading{display:inline-flex;align-items:center;gap:6px;color:var(--purple);font-size:12px}
+.ai-loading::after{content:'';width:14px;height:14px;border:2px solid var(--purple);border-right-color:transparent;border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ai-input{padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:100%;font-family:inherit;margin-bottom:6px;background:#fff}
+.ai-input:focus{outline:none;border-color:var(--purple)}
+.notes-section{padding:14px 16px;overflow-y:auto;flex:1}
+.note{padding:8px 10px;background:#f9fafb;border-radius:8px;margin-bottom:6px;font-size:12px;border:1px solid var(--border)}
+.note .note-meta{color:var(--muted);font-size:10px;margin-bottom:2px}
+.tasks-section{padding:14px 16px;overflow-y:auto;max-height:250px;border-top:1px solid var(--border)}
+.task{padding:8px 10px;background:#f9fafb;border-radius:8px;margin-bottom:6px;font-size:12px;border:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;cursor:pointer}
+.task:hover{background:#f3f4f6}
+.task .task-title{flex:1;font-weight:500}
+.task .task-priority{font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600}
+.task .task-priority.high{background:#fee2e2;color:#991b1b}
+.task .task-priority.normal{background:#fef3c7;color:#92400e}
+.task .task-priority.low{background:#f3f4f6;color:#6b7280}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;justify-content:center;align-items:center}
+.modal-overlay.active{display:flex}
+.modal{background:#fff;border-radius:14px;padding:24px;width:520px;max-width:92vw;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal h3{font-size:16px;margin-bottom:14px}
+.modal textarea{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;min-height:100px}
+.modal input[type="text"],.modal input[type="date"],.modal input[type="time"]{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:8px}
+.modal-actions{display:flex;gap:8px;margin-top:14px;justify-content:flex-end}
+.modal-actions button{padding:8px 16px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:13px;font-weight:500}
+.modal-actions .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.toast{position:fixed;bottom:20px;right:20px;background:#1f3b2e;color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;z-index:2000;box-shadow:var(--shadow-lg);animation:slideIn .3s}
+@keyframes slideIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+.draft-actions{display:flex;gap:5px;margin-top:8px}
+.draft-actions button{padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid var(--border)}
+.timeline-legend{padding:8px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;font-size:11px}
+.timeline-legend span{color:var(--muted);display:flex;align-items:center;gap:3px}
+.timeline-legend .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+</style>
+</head>
+<body>
+<div class="header">
+  <div><h1>🦷 HeyJarvis Front Desk</h1><div class="sub" id="tenant-name">Loading…</div></div>
+  <div class="right">
+    <div class="insights" id="insights"></div>
+    <div style="font-size:12px;opacity:.75" id="clock"></div>
+    <button onclick="logout()" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:5px 12px;cursor:pointer;font-size:12px">Logout</button>
+  </div>
+</div>
+<div class="stats" id="stats"></div>
+<div class="layout">
+  <div class="sidebar">
+    <div class="sidebar-header">Conversations <span id="unread-badge" style="background:var(--red);color:#fff;padding:1px 8px;border-radius:10px;font-size:11px"></span></div>
+    <div class="sidebar-tabs" id="sidebar-tabs">
+      <div class="sidebar-tab active" data-cat="all" onclick="setCategory('all',this)">All</div>
+      <div class="sidebar-tab" data-cat="new" onclick="setCategory('new',this)">New</div>
+      <div class="sidebar-tab" data-cat="waiting" onclick="setCategory('waiting',this)">Waiting</div>
+      <div class="sidebar-tab" data-cat="appointment" onclick="setCategory('appointment',this)">Appts</div>
+      <div class="sidebar-tab" data-cat="urgent" onclick="setCategory('urgent',this)">Urgent</div>
+      <div class="sidebar-tab" data-cat="notes" onclick="setCategory('notes',this)">Notes</div>
+      <div class="sidebar-tab" data-cat="tasks" onclick="setCategory('tasks',this)">Tasks</div>
+    </div>
+    <div class="filter-bar">
+      <select id="filter-status" onchange="loadLeads()"><option value="">All status</option><option value="new">New</option><option value="contacted">Contacted</option><option value="booked">Booked</option><option value="closed">Closed</option><option value="spam">Spam</option></select>
+      <select id="filter-intent" onchange="loadLeads()"><option value="">All intents</option></select>
+    </div>
+    <div class="lead-list" id="lead-list"><div class="empty-state" style="padding:40px 20px">Loading…</div></div>
+  </div>
+  <div class="main" id="main">
+    <div class="empty-state"><div><div style="font-size:40px;margin-bottom:12px">🦷</div><div style="font-weight:600;margin-bottom:4px">HeyJarvis AI Front Desk</div><div style="font-size:13px;max-width:300px">Select a conversation from the sidebar to view details, use AI tools, and respond to patients.</div></div></div>
+  </div>
+  <div class="right-panel" id="right-panel">
+    <div class="empty-state" style="height:100%"><div><div style="font-size:32px;margin-bottom:8px">✨</div><div style="font-size:13px">AI tools and patient context will appear here when you open a conversation.</div></div></div>
+  </div>
+</div>
+
+<!-- New Note Modal -->
+<div class="modal-overlay" id="note-modal">
+  <div class="modal">
+    <h3>📝 New Internal Note</h3>
+    <textarea id="note-text" placeholder="Add a note about this conversation..."></textarea>
+    <div class="modal-actions">
+      <button onclick="closeNoteModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveNote()">Save Note</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Task Modal -->
+<div class="modal-overlay" id="task-modal">
+  <div class="modal">
+    <h3>📋 New Task</h3>
+    <input type="text" id="task-title" placeholder="Task description">
+    <select id="task-priority" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:8px">
+      <option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select>
+    <input type="datetime-local" id="task-due">
+    <div class="modal-actions">
+      <button onclick="closeTaskModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveTask()">Save Task</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var API = 'http://localhost:8000/api/admin';
+var currentLeadId = null;
+var currentCategory = 'all';
+var pollTimer = null;
+var noteLeadId = null;
+
+function clock() {
+  var el = document.getElementById('clock');
+  if (el) el.textContent = new Date().toLocaleString();
+}
+setInterval(clock, 1000); clock();
+
+function toast(msg) {
+  var t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function() { t.remove(); }, 3000);
+}
+
+function logout() {
+  localStorage.removeItem('fd_jwt');
+  location.reload();
+}
+
+async function api(path, opts) {
+  var token = localStorage.getItem('fd_jwt');
+  if (!token) { showLogin(); return Promise.reject('no token'); }
+  var headers = {'Authorization': 'Bearer ' + token};
+  if (opts && opts.body) headers['Content-Type'] = 'application/json';
+  try {
+    var r = await fetch(API + path, Object.assign({headers: headers}, opts || {}));
+    if (r.status === 401) { localStorage.removeItem('fd_jwt'); showLogin(); return Promise.reject('unauth'); }
+    if (!r.ok) { var err = await r.json().catch(function() {return {detail: r.statusText};}); return Promise.reject(err); }
+    return r;
+  } catch(e) { return Promise.reject(e); }
+}
+
+function showLogin() {
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:14px;font-family:system-ui,sans-serif;background:#f5f6f8">' +
+    '<h2 style="color:#1f3b2e">🦷 Front Desk Login</h2>' +
+    '<div style="background:#fff;padding:28px 32px;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,.08);width:340px">' +
+    '<input id="fd-email" type="email" placeholder="Email" value="admin@raleighdentistry.com" style="width:100%;padding:10px 14px;margin-bottom:10px;border:1px solid #ddd;border-radius:10px;font-size:15px">' +
+    '<input id="fd-pw" type="password" placeholder="Password" style="width:100%;padding:10px 14px;margin-bottom:8px;border:1px solid #ddd;border-radius:10px;font-size:15px">' +
+    '<p id="fd-err" style="color:#dc2626;font-size:13px;margin:0"></p>' +
+    '<button onclick="doLogin()" style="width:100%;padding:12px;background:#1f3b2e;color:#fff;border:0;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;margin-top:10px">Login to Front Desk</button>' +
+    '<p style="color:#6b7280;font-size:12px;text-align:center;margin-top:10px">Your admin can set up your login</p>' +
+    '</div></div>';
+}
+
+async function doLogin() {
+  var email = document.getElementById('fd-email').value.trim();
+  var pw = document.getElementById('fd-pw').value;
+  var errEl = document.getElementById('fd-err');
+  if (!email || !pw) { if (errEl) errEl.textContent = 'Enter email and password'; return; }
+  try {
+    var r = await fetch(API + '/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({tenant_slug: 'raleigh-dental-demo', email: email, password: pw})
+    });
+    var data = await r.json();
+    if (!r.ok) { if (errEl) errEl.textContent = data.detail || 'Login failed'; return; }
+    localStorage.setItem('fd_jwt', data.access_token);
+    location.reload();
+  } catch (e) { if (errEl) errEl.textContent = 'Connection error'; }
+}
+
+async function loadStats() {
+  try {
+    var r = await api('/fd/dashboard');
+    if (!r || !r.ok) return;
+    var d = await r.json();
+    document.getElementById('stats').innerHTML =
+      '<div class="stat"><div class="num">' + (d.total_conversations||0) + '</div><div class="lbl">Conversations</div></div>' +
+      '<div class="stat"><div class="num" style="color:' + (d.new_leads > 0 ? 'var(--amber)' : '') + '">' + (d.new_leads||0) + '</div><div class="lbl">New Leads</div></div>' +
+      '<div class="stat"><div class="num">' + (d.emails_sent||0) + '</div><div class="lbl">Emails Sent</div></div>' +
+      '<div class="stat"><div class="num">' + (d.open_tasks||0) + '</div><div class="lbl">Open Tasks</div></div>' +
+      '<div class="stat"><div class="num" style="color:' + (d.overdue_tasks > 0 ? 'var(--red)' : '') + '">' + (d.overdue_tasks||0) + '</div><div class="lbl">Overdue</div></div>' +
+      '<div class="stat"><div class="num">' + (d.pending_drafts||0) + '</div><div class="lbl">AI Drafts</div></div>';
+    document.getElementById('tenant-name').textContent = d.tenant_name || 'Front Desk';
+
+    // Insights
+    var ins = document.getElementById('insights');
+    if (d.insights && d.insights.length) {
+      ins.innerHTML = d.insights.map(function(i) {
+        var cls = i.indexOf('urgent') > -1 || i.indexOf('Urgent') > -1 ? 'urgent' : '';
+        return '<div class="insight-chip ' + cls + '">' + i + '</div>';
+      }).join('');
+    }
+  } catch(e) {}
+}
+
+function setCategory(cat, el) {
+  currentCategory = cat;
+  document.querySelectorAll('.sidebar-tab').forEach(function(t) { t.classList.remove('active'); });
+  if (el) el.classList.add('active');
+  loadLeads();
+}
+
+async function loadLeads() {
+  if (currentCategory === 'notes' || currentCategory === 'tasks') {
+    loadSidebarItems();
+    return;
+  }
+
+  var status = document.getElementById('filter-status').value;
+  var intent = document.getElementById('filter-intent').value;
+  var qs = '?limit=50';
+
+  if (currentCategory === 'new') qs += '&status=new';
+  else if (currentCategory === 'waiting') qs += '&status=contacted';
+  else if (currentCategory === 'urgent') qs += '&urgency=urgent';
+  else if (currentCategory === 'appointment') qs += '&intent=appointment_request';
+  if (status && currentCategory === 'all') qs += '&status=' + status;
+  if (intent && currentCategory === 'all') qs += '&intent=' + intent;
+
+  try {
+    var r = await api('/fd/leads' + qs);
+    if (!r || !r.ok) return;
+    var data = await r.json();
+    var list = document.getElementById('lead-list');
+
+    if (data.intents && data.intents.length > 0 && currentCategory === 'all') {
+      var sel = document.getElementById('filter-intent');
+      var cur = sel.value;
+      sel.innerHTML = '<option value="">All intents</option>';
+      data.intents.forEach(function(it) {
+        var o = document.createElement('option');
+        o.value = it; o.textContent = it.replace(/_/g, ' ').replace(/\b\w/g, function(l){return l.toUpperCase()});
+        sel.appendChild(o);
+      });
+      sel.value = cur;
+    }
+
+    var leads = data.leads || [];
+    if (!leads.length) { list.innerHTML = '<div class="empty-state" style="padding:40px 20px">No items</div>'; return; }
+
+    list.innerHTML = leads.map(function(l) {
+      var badgeClass = 'badge-new';
+      if (l.status === 'contacted') badgeClass = 'badge-contacted';
+      if (l.status === 'booked') badgeClass = 'badge-booked';
+      if (l.status === 'closed') badgeClass = 'badge-closed';
+      if (l.status === 'spam') badgeClass = 'badge-spam';
+
+      var badges = '<span class="badge ' + badgeClass + '">' + (l.status || 'new') + '</span>';
+      if (l.urgency === 'urgent' || l.urgency === 'high') badges += '<span class="badge badge-urgent">' + (l.urgency || '') + '</span>';
+      if (l.intent) badges += '<span class="badge" style="background:#f3f4f6;color:#6b7280">' + l.intent.replace(/_/g,' ') + '</span>';
+
+      var when = new Date(l.created_at).toLocaleString();
+      var sub = l.service || l.intent || 'Request';
+      var preview = l.message ? l.message.substring(0,60) : '';
+
+      return '<div class="lead-item' + (l.id === currentLeadId ? ' active' : '') + '" data-id="' + l.id + '" onclick="openLead(' + l.id + ')">' +
+        '<div class="name"><span>' + (l.name || 'Anonymous') + '</span><span style="font-size:11px;color:var(--muted);font-weight:400">' + sub + '</span></div>' +
+        '<div class="svc">' + (l.email || '') + ' ' + preview + '</div>' +
+        '<div class="time">' + when + '</div>' +
+        '<div class="badges">' + badges + '</div></div>';
+    }).join('');
+  } catch(e) {}
+}
+
+async function loadSidebarItems() {
+  var list = document.getElementById('lead-list');
+  if (currentCategory === 'notes') {
+    try {
+      var r = await api('/fd/notes');
+      if (!r || !r.ok) return;
+      var d = await r.json();
+      var notes = d.notes || [];
+      if (!notes.length) { list.innerHTML = '<div class="empty-state" style="padding:40px 20px">No notes yet</div>'; return; }
+      list.innerHTML = notes.map(function(n) {
+        return '<div class="lead-item" onclick="openNote(' + n.id + ')"><div class="name">Note</div><div class="svc">' + n.note.substring(0,80) + '</div><div class="time">' + new Date(n.created_at).toLocaleString() + '</div></div>';
+      }).join('');
+    } catch(e) {}
+  } else if (currentCategory === 'tasks') {
+    try {
+      var r2 = await api('/fd/tasks');
+      if (!r2 || !r2.ok) return;
+      var d2 = await r2.json();
+      var tasks = d2.tasks || [];
+      if (!tasks.length) { list.innerHTML = '<div class="empty-state" style="padding:40px 20px">No open tasks</div>'; return; }
+      list.innerHTML = tasks.map(function(t) {
+        return '<div class="lead-item" onclick="openTask(' + t.id + ')"><div class="name">' + t.title + ' <span class="badge badge-' + (t.priority === 'urgent' ? 'urgent' : t.priority === 'high' ? 'contacted' : 'new') + '">' + t.priority + '</span></div><div class="time">' + (t.due_at ? 'Due: ' + new Date(t.due_at).toLocaleString() : 'No due date') + '</div></div>';
+      }).join('');
+    } catch(e) {}
+  }
+}
+
+function openNote(nid) {
+  // Could show note detail in main panel
+  toast('Note: ' + nid);
+}
+
+function openTask(tid) {
+  toast('Task: ' + tid);
+}
+
+async function openLead(lid) {
+  currentLeadId = lid;
+  document.querySelectorAll('.lead-item').forEach(function(el) { el.classList.remove('active'); });
+  document.querySelector('.lead-item[data-id="' + lid + '"]')?.classList.add('active');
+
+  try {
+    var r = await api('/fd/leads/' + lid);
+    if (!r || !r.ok) return;
+    var lead = await r.json();
+
+    // Load conversation messages
+    var convId = lead.conversation_id;
+    var messages = [];
+    if (convId) {
+      try {
+        var mr = await api('/fd/conversations/' + convId + '/messages');
+        if (mr && mr.ok) { var md = await mr.json(); messages = md.messages || []; }
+      } catch(e) {}
+    }
+
+    // Load notes
+    var notes = [];
+    try {
+      var nr = await api('/fd/notes?lead_id=' + lid);
+      if (nr && nr.ok) { var nd = await nr.json(); notes = nd.notes || []; }
+    } catch(e) {}
+
+    // Load tasks
+    var tasks = [];
+    try {
+      var tr = await api('/fd/tasks');
+      if (tr && tr.ok) { var td = await tr.json(); tasks = (td.tasks || []).filter(function(t) { return t.lead_id == lid || !t.lead_id; }); }
+    } catch(e) {}
+
+    // Load drafts
+    var drafts = [];
+    try {
+      var dr = await api('/fd/drafts?lead_id=' + lid);
+      if (dr && dr.ok) { var dd = await dr.json(); drafts = dd.drafts || []; }
+    } catch(e) {}
+
+    renderMain(lead, messages, notes, tasks, drafts);
+    renderRightPanel(lead, notes, tasks);
+  } catch(e) {}
+}
+
+function renderMain(lead, messages, notes, tasks, drafts) {
+  var urgencyBadge = lead.urgency === 'urgent' ? '<span class="badge badge-urgent">URGENT</span>' : '';
+  var intentBadge = lead.intent ? '<span class="badge" style="background:#f3f4f6;color:#6b7280">' + lead.intent.replace(/_/g,' ') + '</span>' : '';
+
+  var html = '<div class="detail-header"><div><h2>' + (lead.name || 'Anonymous') + ' ' + urgencyBadge + '</h2>' +
+    '<div class="meta">' + (lead.email || '') + (lead.phone ? ' · ' + lead.phone : '') + ' · ID #' + lead.id + ' · ' + new Date(lead.created_at).toLocaleString() + '</div>' +
+    '<div class="badges">' + intentBadge + (lead.service ? '<span class="badge" style="background:#f3f4f6;color:#6b7280">' + lead.service + '</span>' : '') + '</div></div>' +
+    '<div class="detail-actions">' +
+    '<select id="status-select" onchange="updateStatus(' + lead.id + ',this.value)"><option value="">Change status…</option><option value="new">New</option><option value="contacted">Contacted</option><option value="qualified">Qualified</option><option value="booked">Booked</option><option value="closed">Closed</option><option value="spam">Spam</option></select>' +
+    '<button onclick="resendEmail(' + lead.id + ')">Resend Email</button>' +
+    '<button onclick="retryNotify(' + lead.id + ')">Retry Notify</button>' +
+    '<button onclick="showNoteModal()">+ Note</button>' +
+    '<button onclick="showTaskModal()">+ Task</button>' +
+    '</div></div>';
+
+  // Fields
+  html += '<div class="fields">';
+  if (lead.phone) html += '<div class="field"><span class="fl">Phone</span><span class="fv"><a href="tel:' + lead.phone + '">' + lead.phone + '</a></span></div>';
+  if (lead.email) html += '<div class="field"><span class="fl">Email</span><span class="fv"><a href="mailto:' + lead.email + '">' + lead.email + '</a></span></div>';
+  if (lead.service) html += '<div class="field"><span class="fl">Service</span><span class="fv">' + lead.service + '</span></div>';
+  if (lead.intent) html += '<div class="field"><span class="fl">Intent</span><span class="fv">' + lead.intent.replace(/_/g,' ') + '</span></div>';
+  if (lead.preferred_date) html += '<div class="field"><span class="fl">Date</span><span class="fv">' + lead.preferred_date + '</span></div>';
+  if (lead.preferred_time) html += '<div class="field"><span class="fl">Time</span><span class="fv">' + lead.preferred_time + '</span></div>';
+  if (lead.insurance) html += '<div class="field"><span class="fl">Insurance</span><span class="fv">' + lead.insurance + '</span></div>';
+  html += '</div>';
+
+  // Messages
+  html += '<div class="timeline-legend"><span><span class="dot" style="background:#2563eb"></span> Visitor</span><span><span class="dot" style="background:#bbf7d0"></span> System</span><span><span class="dot" style="background:#7c3aed"></span> AI Draft</span><span><span class="dot" style="background:#d97706"></span> Note</span></div>';
+  html += '<div class="messages" id="messages">';
+  if (messages.length) {
+    messages.forEach(function(m) {
+      var cls = m.role === 'user' ? 'msg-visitor' : (m.role === 'assistant' ? 'msg-system' : 'msg-system');
+      html += '<div class="msg ' + cls + '"><div class="who">' + (m.role === 'user' ? 'Visitor' : 'Concierge') + '</div><div class="text">' + escapeHtml(m.body) + '</div><div class="ts">' + new Date(m.created_at).toLocaleString() + '</div></div>';
+    });
+  } else {
+    html += '<div style="color:var(--muted);text-align:center;padding:40px;font-size:14px">No messages in this conversation</div>';
+  }
+  if (notes.length) {
+    notes.forEach(function(n) {
+      html += '<div class="msg" style="background:#fffbeb;border:1px solid #fde68a;margin-left:auto;text-align:right"><div class="who" style="color:var(--amber)">📝 Internal Note</div><div class="text">' + escapeHtml(n.note) + '</div><div class="ts">' + new Date(n.created_at).toLocaleString() + '</div></div>';
+    });
+  }
+  html += '</div>';
+
+  // AI Composer
+  html += '<div class="reply-box"><textarea id="reply-text" placeholder="Type a reply or AI instruction (e.g., "Offer 10:30 AM tomorrow")…" rows="2"></textarea><button onclick="sendReply()">Send Reply</button></div>';
+  html += '<div id="ai-panel" style="display:none;padding:8px 18px;border-top:1px solid #ddd6fe;background:#faf5ff">' +
+    '<div style="font-size:11px;color:var(--purple);font-weight:600;margin-bottom:4px">✨ AI Assistance</div>' +
+    '<div style="display:flex;gap:5px;flex-wrap:wrap">' +
+    '<button class="ai-btn" onclick="aiDraft()" title="Generate full email draft">✉️ Draft Email</button>' +
+    '<button class="ai-btn" onclick="aiShortReply()" title="Quick reply suggestion">💬 Quick Reply</button>' +
+    '<button class="ai-btn" onclick="aiSummarize()" title="Summarize this conversation">📋 Summarize</button>' +
+    '<button class="ai-btn" onclick="aiNextAction()" title="AI recommended action">🎯 Next Action</button>' +
+    '<button class="ai-btn" onclick="aiFollowUp()" title="Generate follow-up">🔄 Follow Up</button>' +
+    '<button class="ai-btn" onclick="aiConfirm()" title="Appointment confirmation">✅ Confirm</button>' +
+    '<button class="ai-btn" onclick="aiShorten()" title="Make shorter">🔽 Shorten</button>' +
+    '<button class="ai-btn" onclick="aiWarmer()" title="Make warmer">🔥 Warmer</button>' +
+    '</div>' +
+    '<div id="ai-result"></div></div>';
+  html += '<div class="actions"><span style="color:var(--muted);font-size:12px">💡 Tip: Use AI buttons below the composer for smart suggestions. Type instructions like "offer 10:30 AM tomorrow" in the reply box and press Send.</span></div>';
+
+  document.getElementById('main').innerHTML = html;
+  document.getElementById('reply-text')?.focus();
+}
+
+function renderRightPanel(lead, notes, tasks) {
+  var html = '<div class="right-section"><h3>Patient Context</h3>';
+  var fields = [
+    {label:'Name', val: lead.name}, {label:'Email', val: lead.email ? '<a href="mailto:' + lead.email + '">' + lead.email + '</a>' : null},
+    {label:'Phone', val: lead.phone ? '<a href="tel:' + lead.phone + '">' + lead.phone + '</a>' : null},
+    {label:'Intent', val: lead.intent ? lead.intent.replace(/_/g,' ') : null},
+    {label:'Service', val: lead.service}, {label:'Date', val: lead.preferred_date}, {label:'Time', val: lead.preferred_time},
+    {label:'Insurance', val: lead.insurance}, {label:'Financing', val: lead.financing}, {label:'Urgency', val: lead.urgency},
+    {label:'Status', val: lead.status}, {label:'Source', val: lead.page_url ? lead.page_url.substring(0,40) : 'Widget'},
+    {label:'Created', val: new Date(lead.created_at).toLocaleString()},
+  ];
+  fields.forEach(function(f) {
+    html += '<div class="context-row"><span class="cl">' + f.label + '</span><span class="cv">' + (f.val || '<span style="color:#d1d5db">—</span>') + '</span></div>';
+  });
+  html += '</div>';
+
+  // AI Quick Actions
+  html += '<div class="right-section"><h3>AI Actions</h3><div class="ai-quick">' +
+    '<button onclick="aiDraft()"><span class="icon">✉️</span> Draft Email</button>' +
+    '<button onclick="aiQuickReply()"><span class="icon">💬</span> Quick Reply</button>' +
+    '<button onclick="aiSummarize()"><span class="icon">📋</span> Summarize</button>' +
+    '<button onclick="aiNextAction()"><span class="icon">🎯</span> Next Action</button>' +
+    '<button onclick="aiFollowUp()"><span class="icon">🔄</span> Follow Up</button>' +
+    '<button onclick="aiConfirm()"><span class="icon">✅</span> Confirm Appt</button>' +
+    '<button onclick="aiClassify()"><span class="icon">🏷️</span> Classify</button>' +
+    '<button onclick="aiParseTime()"><span class="icon">🕐</span> Parse Time</button>' +
+    '</div><div id="ai-result-side"></div></div>';
+
+  // Notes
+  html += '<div class="notes-section"><h3 style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:8px;font-weight:600">Internal Notes (' + notes.length + ')</h3>';
+  if (notes.length) {
+    notes.forEach(function(n) {
+      html += '<div class="note"><div class="note-meta">' + new Date(n.created_at).toLocaleString() + '</div>' + escapeHtml(n.note) + '</div>';
+    });
+  } else {
+    html += '<div style="color:var(--muted);font-size:12px">No notes yet</div>';
+  }
+  html += '<button onclick="showNoteModal(' + lead.id + ')" style="margin-top:8px;width:100%;padding:6px;border:1px dashed var(--border);border-radius:8px;background:none;cursor:pointer;font-size:12px;color:var(--muted)">+ Add note</button>';
+  html += '</div>';
+
+  // Tasks
+  html += '<div class="tasks-section"><h3 style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:8px;font-weight:600">Tasks (' + (tasks ? tasks.length : 0) + ')</h3>';
+  if (tasks && tasks.length) {
+    tasks.forEach(function(t) {
+      html += '<div class="task" onclick="completeTask(' + t.id + ')"><span class="task-title">' + escapeHtml(t.title) + '</span><span class="task-priority ' + t.priority + '">' + t.priority + '</span></div>';
+    });
+  } else {
+    html += '<div style="color:var(--muted);font-size:12px">No tasks</div>';
+  }
+  html += '<button onclick="showTaskModal(' + lead.id + ')" style="margin-top:8px;width:100%;padding:6px;border:1px dashed var(--border);border-radius:8px;background:none;cursor:pointer;font-size:12px;color:var(--muted)">+ Add task</button>';
+  html += '</div>';
+
+  document.getElementById('right-panel').innerHTML = html;
+}
+
+// ── Actions ──────────────────────────────────────────────────────────────────
+
+async function updateStatus(lid, status) {
+  if (!status) return;
+  try {
+    var r = await api('/fd/leads/' + lid + '/status', {method:'PATCH', body: JSON.stringify({status: status})});
+    if (r && r.ok) { toast('Status updated'); loadStats(); loadLeads(); }
+  } catch(e) {}
+}
+
+async function sendReply() {
+  var text = document.getElementById('reply-text').value.trim();
+  if (!text || !currentLeadId) return;
+
+  // Check if this looks like an AI instruction (short, imperative)
+  var isInstruction = text.length < 120 && /^(offer|tell|ask|say|confirm|reply|schedule|reschedule|follow|send|let them know)/i.test(text);
+
+  if (isInstruction) {
+    await aiDraft(text);
+    return;
+  }
+
+  // Direct send
+  try {
+    var r = await api('/fd/leads/' + currentLeadId + '/reply', {method:'POST', body: JSON.stringify({body: text})});
+    if (r && r.ok) { toast('Reply sent'); document.getElementById('reply-text').value = ''; loadStats(); loadLeads(); openLead(currentLeadId); }
+    else { toast('Failed to send'); }
+  } catch(e) { toast('Error: ' + (e.detail || e)); }
+}
+
+async function resendEmail(lid) {
+  try {
+    var r = await api('/fd/leads/' + lid + '/resend', {method:'POST'});
+    if (r && r.ok) { toast('Email resent'); }
+  } catch(e) { toast('Failed'); }
+}
+
+async function retryNotify(lid) {
+  try {
+    var r = await api('/fd/leads/' + lid + '/retry', {method:'POST'});
+    if (r && r.ok) { toast('Notification retried'); }
+  } catch(e) { toast('Failed'); }
+}
+
+// ── AI Functions ─────────────────────────────────────────────────────────────
+
+function showAiResult(text, where) {
+  var el = document.getElementById(where || 'ai-result');
+  if (!el) return;
+  el.innerHTML = '<div class="ai-result"><div class="label">✨ AI Generated</div>' + escapeHtml(text) + '<div class="draft-actions"><button onclick="useAiText(\'' + escapeAttr(text) + '\')">Use this text</button><button onclick="copyAiText(\'' + escapeAttr(text) + '\')">Copy</button></div></div>';
+  // Also show in side panel
+  var side = document.getElementById('ai-result-side');
+  if (side) side.innerHTML = '<div class="ai-result"><div class="label">✨ AI Result</div>' + escapeHtml(text) + '</div>';
+}
+
+function escapeAttr(s) { return s.replace(/'/g, "\\'").replace(/\n/g, '\\n'); }
+
+function useAiText(text) {
+  var ta = document.getElementById('reply-text');
+  if (ta) { ta.value = text; ta.focus(); }
+}
+
+function copyAiText(text) {
+  navigator.clipboard?.writeText(text).then(function() { toast('Copied'); });
+}
+
+async function aiCall(path, body) {
+  var r = await api('/fd' + path, {method:'POST', body: JSON.stringify(body)});
+  if (!r || !r.ok) { showAiResult('Error: ' + (r ? r.status : 'No response')); return; }
+  var d = await r.json();
+  var text = d.body || d.summary || JSON.stringify(d, null, 2);
+  if (d.subject) text = 'Subject: ' + d.subject + '\\n\\n' + text;
+  showAiResult(text);
+}
+
+async function aiDraft(instruction) {
+  if (!currentLeadId) return;
+  showAiResult('Generating draft…');
+  await aiCall('/ai/draft', {lead_id: currentLeadId, instruction: instruction || '', draft_type: 'reply'});
+}
+
+async function aiQuickReply() {
+  if (!currentLeadId) return;
+  showAiResult('Generating quick reply…');
+  await aiCall('/ai/draft', {lead_id: currentLeadId, instruction: 'Draft a brief, friendly reply to the patient. Keep it under 3 sentences.', draft_type: 'reply'});
+}
+
+async function aiSummarize() {
+  if (!currentLeadId) return;
+  showAiResult('Summarizing conversation…');
+  await aiCall('/ai/summarize', {lead_id: currentLeadId});
+}
+
+async function aiNextAction() {
+  if (!currentLeadId) return;
+  showAiResult('Analyzing conversation…');
+  await aiCall('/ai/next-action', {lead_id: currentLeadId, conversation_state: 'open'});
+}
+
+async function aiFollowUp() {
+  if (!currentLeadId) return;
+  showAiResult('Generating follow-up…');
+  await aiCall('/ai/follow-up', {lead_id: currentLeadId, hours: 24});
+}
+
+async function aiConfirm() {
+  if (!currentLeadId) return;
+  var time = prompt('Enter appointment time (e.g., "tomorrow at 10:30 AM"):');
+  if (!time) return;
+  showAiResult('Generating confirmation…');
+  await aiCall('/ai/confirm', {lead_id: currentLeadId, appointment_time: time});
+}
+
+async function aiClassify() {
+  if (!currentLeadId) return;
+  showAiResult('Classifying message…');
+  await aiCall('/ai/classify', {lead_id: currentLeadId});
+}
+
+async function aiParseTime() {
+  var time = prompt('Enter time instruction (e.g., "tomorrow morning"):');
+  if (!time) return;
+  showAiResult('Parsing time…');
+  await aiCall('/ai/parse-time', {instruction: time});
+}
+
+async function aiShortReply() {
+  if (!currentLeadId) return;
+  showAiResult('Generating reply…');
+  await aiCall('/ai/draft', {lead_id: currentLeadId, instruction: 'Generate a very brief, warm reply. 1-2 sentences only.', draft_type: 'reply'});
+}
+
+async function aiShorten() {
+  var text = document.getElementById('reply-text')?.value;
+  if (!text) { toast('Enter text in the reply box first'); return; }
+  showAiResult('Shortening…');
+  await aiCall('/ai/shorten', {text: text});
+}
+
+async function aiWarmer() {
+  var text = document.getElementById('reply-text')?.value;
+  if (!text) { toast('Enter text in the reply box first'); return; }
+  showAiResult('Rewriting…');
+  await aiCall('/ai/warmer', {text: text});
+}
+
+// ── Notes ────────────────────────────────────────────────────────────────────
+
+function showNoteModal(leadId) {
+  noteLeadId = leadId || currentLeadId;
+  document.getElementById('note-modal').classList.add('active');
+  document.getElementById('note-text').value = '';
+  document.getElementById('note-text').focus();
+}
+
+function closeNoteModal() {
+  document.getElementById('note-modal').classList.remove('active');
+}
+
+async function saveNote() {
+  var text = document.getElementById('note-text').value.trim();
+  if (!text || !noteLeadId) return;
+  try {
+    var r = await api('/fd/notes', {method:'POST', body: JSON.stringify({lead_id: noteLeadId, note: text})});
+    if (r && r.ok) { toast('Note saved'); closeNoteModal(); openLead(noteLeadId); }
+  } catch(e) { toast('Failed'); }
+}
+
+// ── Tasks ────────────────────────────────────────────────────────────────────
+
+function showTaskModal(leadId) {
+  window._taskLeadId = leadId || currentLeadId;
+  document.getElementById('task-modal').classList.add('active');
+  document.getElementById('task-title').value = '';
+  document.getElementById('task-due').value = '';
+}
+
+function closeTaskModal() {
+  document.getElementById('task-modal').classList.remove('active');
+}
+
+async function saveTask() {
+  var title = document.getElementById('task-title').value.trim();
+  var priority = document.getElementById('task-priority').value;
+  var due = document.getElementById('task-due').value;
+  if (!title || !window._taskLeadId) return;
+  try {
+    var r = await api('/fd/tasks', {method:'POST', body: JSON.stringify({lead_id: window._taskLeadId, title: title, priority: priority, due_at: due ? new Date(due).toISOString() : null})});
+    if (r && r.ok) { toast('Task created'); closeTaskModal(); }
+  } catch(e) { toast('Failed'); }
+}
+
+async function completeTask(tid) {
+  try {
+    var r = await api('/fd/tasks/' + tid + '/complete', {method:'POST'});
+    if (r && r.ok) { toast('Task completed'); loadStats(); loadLeads(); }
+  } catch(e) {}
+}
+
+// ── Utilities ────────────────────────────────────────────────────────────────
+
+function escapeHtml(text) {
+  var div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+
+async function init() {
+  var token = localStorage.getItem('fd_jwt');
+  if (!token) { showLogin(); return; }
+  await loadStats();
+  await loadLeads();
+  pollTimer = setInterval(function() { loadStats(); loadLeads(); if (currentLeadId) openLead(currentLeadId); }, 15000);
+}
+
+init();
+</script>
+</body>
+</html>

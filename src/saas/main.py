@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from saas.config import get_settings
 from saas.database import connect, rows
-from saas.public_api import admin_app, public_app, _tenant_config
+from saas.public_api import admin_app, frontdesk_app, public_app, _tenant_config
 from saas.repositories import get_tenant_by_slug
 
 settings = get_settings()
@@ -30,8 +30,9 @@ app.add_middleware(
 )
 
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="saas-static")
-app.mount("/api", public_app)
 app.mount("/api/admin", admin_app)
+admin_app.mount("/fd", frontdesk_app)
+app.mount("/api", public_app)
 
 
 @app.get("/health")

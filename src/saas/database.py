@@ -207,6 +207,52 @@ CREATE TABLE IF NOT EXISTS email_templates (
     updated_at TEXT NOT NULL,
     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
+CREATE TABLE IF NOT EXISTS frontdesk_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL,
+    lead_id INTEGER,
+    conversation_id INTEGER,
+    note TEXT NOT NULL,
+    created_by INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+);
+CREATE TABLE IF NOT EXISTS frontdesk_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL,
+    lead_id INTEGER,
+    title TEXT NOT NULL,
+    description TEXT,
+    priority TEXT NOT NULL DEFAULT 'medium',
+    status TEXT NOT NULL DEFAULT 'open',
+    due_at TEXT,
+    completed_at TEXT,
+    created_by INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+    FOREIGN KEY (lead_id) REFERENCES leads(id)
+);
+CREATE TABLE IF NOT EXISTS ai_drafts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL,
+    lead_id INTEGER,
+    conversation_id INTEGER,
+    subject TEXT,
+    body TEXT NOT NULL,
+    html_body TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    sent_at TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+);
 CREATE TABLE IF NOT EXISTS integration_settings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER NOT NULL UNIQUE,

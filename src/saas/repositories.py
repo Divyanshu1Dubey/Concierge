@@ -309,6 +309,188 @@ def get_business_rules(tenant_id: int) -> dict | None:
         return {}
 
 
+# ── Front Desk ─────────────────────────────────────────────────────────────
+
+def create_frontdesk_note(tenant_id: int, note: str, lead_id: int | None = None,
+                          conversation_id: int | None = None, created_by: int | None = None) -> dict:
+    now = now_iso()
+    with connect() as c:
+        cur = c.execute(
+            "INSERT INTO frontdesk_notes (tenant_id, lead_id, conversation_id, note, created_by, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (tenant_id, lead_id, conversation_id, note, created_by, now, now),
+        )
+        nid = cur.lastrowid
+        return row(c, "SELECT * FROM frontdesk_notes WHERE id = ?", nid)
+
+
+def get_frontdesk_notes(tenant_id: int, lead_id: int | None = None, limit: int = 50) -> list[dict]:
+    with connect() as c:
+        if lead_id is not None:
+            return rows(c,
+                "SELECT * FROM frontdesk_notes WHERE tenant_id = ? AND lead_id = ? ORDER BY created_at DESC LIMIT ?",
+                (tenant_id, lead_id, limit))
+        return rows(c,
+            "SELECT * FROM frontdesk_notes WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ?",
+            (tenant_id, limit))
+
+
+def create_frontdesk_task(tenant_id: int, title: str, priority: str = "medium",
+                          lead_id: int | None = None, description: str | None = None,
+                          due_at: str | None = None, created_by: int | None = None) -> dict:
+    now = now_iso()
+    with connect() as c:
+        cur = c.execute(
+            "INSERT INTO frontdesk_tasks (tenant_id, lead_id, title, description, priority, status, due_at, created_by, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)",
+            (tenant_id, lead_id, title, description, priority, due_at, created_by, now, now),
+        )
+        tid = cur.lastrowid
+        return row(c, "SELECT * FROM frontdesk_tasks WHERE id = ?", tid)
+
+
+def get_frontdesk_tasks(tenant_id: int, status: str | None = None, limit: int = 50) -> list[dict]:
+    with connect() as c:
+        if status:
+            return rows(c,
+                "SELECT * FROM frontdesk_tasks WHERE tenant_id = ? AND status = ? ORDER BY "
+                "CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, "
+                "due_at IS NOT NULL DESC, created_at DESC LIMIT ?",
+                (tenant_id, status, limit))
+        return rows(c,
+            "SELECT * FROM frontdesk_tasks WHERE tenant_id = ? ORDER BY "
+            "CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, "
+            "due_at IS NOT NULL DESC, created_at DESC LIMIT ?",
+            (tenant_id, limit))
+
+
+def complete_frontdesk_task(task_id: int, tenant_id: int) -> dict | None:
+    now = now_iso()
+    with connect() as c:
+        r = row(c, "SELECT * FROM frontdesk_tasks WHERE id = ? AND tenant_id = ?", task_id, tenant_id)
+        if not r:
+            return None
+        c.execute("UPDATE frontdesk_tasks SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?",
+                  (now, now, task_id))
+        return row(c, "SELECT * FROM frontdesk_tasks WHERE id = ?", task_id)
+
+
+def create_ai_draft(tenant_id: int, lead_id: int | None = None, conversation_id: int | None = None,
+                    subject: str | None = None, body: str = "", html_body: str | None = None) -> dict:
+    now = now_iso()
+    with connect() as c:
+        cur = c.execute(
+            "INSERT INTO ai_drafts (tenant_id, lead_id, conversation_id, subject, body, html_body, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
+            (tenant_id, lead_id, conversation_id, subject, body, html_body, now, now),
+        )
+        did = cur.lastrowid
+        return row(c, "SELECT * FROM ai_drafts WHERE id = ?", did)
+
+
+def get_ai_drafts(tenant_id: int, lead_id: int | None = None, status: str | None = None,
+                  limit: int = 50) -> list[dict]:
+    with connect() as c:
+        q = "SELECT * FROM ai_drafts WHERE tenant_id = ?"
+        params: list = [tenant_id]
+        if lead_id is not None:
+            q += " AND lead_id = ?"
+            params.append(lead_id)
+        if status is not None:
+            q += " AND status = ?"
+            params.append(status)
+        q += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        return rows(c, q, tuple(params))
+
+
+def mark_draft_sent(draft_id: int, tenant_id: int) -> dict | None:
+    now = now_iso()
+    with connect() as c:
+        r = row(c, "SELECT * FROM ai_drafts WHERE id = ? AND tenant_id = ?", draft_id, tenant_id)
+        if not r:
+            return None
+        c.execute("UPDATE ai_drafts SET status = 'sent', sent_at = ?, updated_at = ? WHERE id = ?",
+                  (now, now, draft_id))
+        return row(c, "SELECT * FROM ai_drafts WHERE id = ?", draft_id)
+
+
+def mark_draft_failed(draft_id: int, tenant_id: int, error: str) -> dict | None:
+    now = now_iso()
+    with connect() as c:
+        r = row(c, "SELECT * FROM ai_drafts WHERE id = ? AND tenant_id = ?", draft_id, tenant_id)
+        if not r:
+            return None
+        c.execute("UPDATE ai_drafts SET status = 'failed', error = ?, updated_at = ? WHERE id = ?",
+                  (error, now, draft_id))
+        return row(c, "SELECT * FROM ai_drafts WHERE id = ?", draft_id)
+
+
+def get_frontdesk_dashboard(tenant_id: int) -> dict:
+    with connect() as c:
+        total_conv = row(c, "SELECT COUNT(*) AS n FROM conversations WHERE tenant_id = ?", tenant_id)["n"]
+        new_leads = row(c, "SELECT COUNT(*) AS n FROM leads WHERE tenant_id = ? AND status = 'new'", tenant_id)["n"]
+        contacted = row(c, "SELECT COUNT(*) AS n FROM leads WHERE tenant_id = ? AND status = 'contacted'", tenant_id)["n"]
+        booked = row(c, "SELECT COUNT(*) AS n FROM leads WHERE tenant_id = ? AND status = 'booked'", tenant_id)["n"]
+        pending_drafts = row(c, "SELECT COUNT(*) AS n FROM ai_drafts WHERE tenant_id = ? AND status = 'pending'", tenant_id)["n"]
+        open_tasks = row(c, "SELECT COUNT(*) AS n FROM frontdesk_tasks WHERE tenant_id = ? AND status = 'open'", tenant_id)["n"]
+        overdue_tasks = row(c,
+            "SELECT COUNT(*) AS n FROM frontdesk_tasks WHERE tenant_id = ? AND status = 'open' AND due_at IS NOT NULL AND due_at < ?",
+            (tenant_id, now_iso()))
+        total_notes = row(c, "SELECT COUNT(*) AS n FROM frontdesk_notes WHERE tenant_id = ?", tenant_id)["n"]
+
+        intents_rows = rows(c,
+            "SELECT intent, COUNT(*) AS cnt FROM leads WHERE tenant_id = ? AND intent IS NOT NULL GROUP BY intent ORDER BY cnt DESC LIMIT 5",
+            (tenant_id,))
+        top_intents = [r["intent"] for r in intents_rows]
+
+        insights: list[str] = []
+        if new_leads > 0:
+            insights.append(f"{new_leads} new lead{'s' if new_leads != 1 else ''} awaiting response")
+        if int(overdue_tasks["n"]) > 0:
+            insights.append(f"{overdue_tasks['n']} overdue task{'s' if int(overdue_tasks['n']) != 1 else ''}")
+        if pending_drafts > 0:
+            insights.append(f"{pending_drafts} AI draft{'s' if pending_drafts != 1 else ''} ready to send")
+
+    return {
+        "tenant_id": tenant_id,
+        "total_conversations": total_conv,
+        "new_leads": new_leads,
+        "contacted_leads": contacted,
+        "booked_leads": booked,
+        "pending_drafts": pending_drafts,
+        "open_tasks": open_tasks,
+        "overdue_tasks": int(overdue_tasks["n"]),
+        "total_notes": total_notes,
+        "top_intents": top_intents,
+        "insights": insights,
+    }
+
+
+def get_fd_lead_detail(tenant_id: int, lead_id: int) -> dict | None:
+    with connect() as c:
+        lead = row(c, "SELECT * FROM leads WHERE id = ? AND tenant_id = ?", lead_id, tenant_id)
+        if not lead:
+            return None
+        conv = None
+        if lead.get("conversation_id"):
+            conv = row(c, "SELECT * FROM conversations WHERE id = ?", lead["conversation_id"])
+        msgs = []
+        if conv:
+            msgs = rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC", conv["id"])
+        notes = rows(c, "SELECT * FROM frontdesk_notes WHERE lead_id = ? ORDER BY created_at DESC", lead_id)
+        tasks = rows(c, "SELECT * FROM frontdesk_tasks WHERE lead_id = ? ORDER BY created_at DESC", lead_id)
+        drafts = rows(c, "SELECT * FROM ai_drafts WHERE lead_id = ? ORDER BY created_at DESC", lead_id)
+        return {
+            "lead": lead,
+            "conversation": conv,
+            "messages": msgs,
+            "notes": notes,
+            "tasks": tasks,
+            "drafts": drafts,
+        }
+
+
 def save_template(tenant_id: int, name: str, subject: str, body: str) -> None:
     import json as _json
     now = now_iso()
