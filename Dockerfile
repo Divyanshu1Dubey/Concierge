@@ -17,8 +17,9 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
-# Copy application
+# Copy application and config
 COPY src/ ./src/
+COPY config/ ./config/
 
 # Expose port
 EXPOSE 8000
@@ -29,3 +30,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 # Run server
 CMD ["uv", "run", "uvicorn", "saas.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+
