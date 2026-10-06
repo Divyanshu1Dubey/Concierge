@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patient requests</title>
+<style>
+:root{--bg:#121816;--panel:#1a211e;--line:#2c3631;--soft:#232c28;--sel:#2e3b35;--text:#eef2ef;--muted:#9aa8a1;--accent:#c6e2cf;--accent-ink:#13261b;--danger:#f1a9a0}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;display:flex;justify-content:center;padding:24px}
+.app{width:100%;max-width:1100px;height:calc(100vh - 48px);background:var(--panel);border:1px solid var(--line);border-radius:18px;display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;justify-content:space-between;align-items:flex-end;padding:22px 28px;border-bottom:1px solid var(--line)}
+header .brand{font-size:14px;color:var(--muted)}
+header h1{margin:2px 0 0;font-size:22px;font-weight:600}
+header .right{font-size:13px;color:var(--muted);display:flex;gap:14px;align-items:center}
+header a{color:var(--muted);text-decoration:none}
+header a:hover{color:var(--text)}
+.body{flex:1;display:flex;min-height:0}
+aside{width:300px;border-right:1px solid var(--line);overflow-y:auto;padding:18px 14px}
+aside h2{font-size:13px;font-weight:500;color:var(--muted);margin:0 12px 10px}
+.item{padding:12px 14px;border-radius:10px;cursor:pointer;margin-bottom:4px}
+.item:hover{background:var(--soft)}
+.item.sel{background:var(--sel)}
+.item .n{font-weight:500}
+.item .s{font-size:13px;color:var(--muted)}
+.item .s.urgent{color:var(--danger)}
+main{flex:1;overflow-y:auto;padding:26px 30px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.top h3{margin:0;font-size:22px;font-weight:600}
+.top .e{color:var(--muted);font-size:14px}
+.btn{border:1px solid var(--line);background:transparent;color:var(--text);border-radius:10px;padding:9px 16px;font:inherit;font-size:14px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600;padding:11px 22px}
+.btn.primary:disabled{opacity:.6;cursor:default}
+.label{font-size:13px;color:var(--muted);margin:24px 0 8px}
+.label.strong{color:var(--text);font-weight:500}
+.ask{background:var(--soft);border-radius:10px;padding:14px 16px;white-space:pre-wrap}
+textarea{width:100%;min-height:190px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font:inherit;line-height:1.6;resize:vertical}
+textarea:focus{outline:none;border-color:var(--muted)}
+.send{display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:12px}
+.send .hint{font-size:13px;color:var(--muted)}
+details{margin-top:30px;border-top:1px solid var(--line);padding-top:14px}
+summary{cursor:pointer;color:var(--text);list-style:none}
+summary::before{content:"\25B8  ";color:var(--muted)}
+details[open] summary::before{content:"\25BE  "}
+.hist{margin-top:12px;font-size:14px}
+.hist .row{padding:10px 0;border-bottom:1px solid var(--line)}
+.hist .who{font-size:12px;color:var(--muted)}
+.hist .txt{white-space:pre-wrap}
+.next{font-size:13px;color:var(--muted);margin-top:8px}
+.demo{margin-top:14px;padding:12px;border:1px dashed var(--line);border-radius:10px;font-size:13px;color:var(--muted)}
+.demo input{width:100%;margin:8px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:8px 10px;font:inherit}
+.empty{color:var(--muted);text-align:center;margin-top:18vh}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--accent);color:var(--accent-ink);padding:10px 18px;border-radius:10px;font-size:14px;font-weight:500}
+.login{max-width:340px;margin:12vh auto;display:flex;flex-direction:column;gap:10px}
+.login input{background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:11px 14px;font:inherit}
+.login .err{color:var(--danger);font-size:13px;min-height:18px}
+@media (max-width:760px){body{padding:0}.app{height:100vh;border-radius:0}.body{flex-direction:column}aside{width:auto;max-height:34vh;border-right:0;border-bottom:1px solid var(--line)}main{padding:20px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div><div class="brand" id="clinic">HeyJarvis</div><h1>Patient requests</h1></div>
+    <div class="right"><span id="mode"></span><a href="/frontdesk/full">Settings</a><a href="#" onclick="logout();return false">Log out</a></div>
+  </header>
+  <div class="body" id="root">
+    <aside><h2 id="count">Ready for review</h2><div id="list"></div></aside>
+    <main id="detail"><div class="empty">Loading…</div></main>
+  </div>
+</div>
+<script>
+var API = location.origin + '/api/admin';
+var leads = [], current = null, demo = false;
+
+function esc(v) { var d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
+function toast(m) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 2600); }
+function when(ts) {
+  if (!ts) return '';
+  var d = new Date(ts), now = new Date();
+  var t = d.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+  return (d.toDateString() === now.toDateString() ? 'Today' : d.toLocaleDateString([], {month: 'short', day: 'numeric'})) + ', ' + t;
+}
+function list(d, k) { return Array.isArray(d) ? d : ((d && d[k]) || []); }
+
+async function api(path, opts) {
+  opts = opts || {};
+  var h = {'Authorization': 'Bearer ' + localStorage.getItem('fd_jwt')};
+  if (opts.body) h['Content-Type'] = 'application/json';
+  var r = await fetch(API + path, {method: opts.method || 'GET', headers: h, body: opts.body ? JSON.stringify(opts.body) : undefined});
+  if (r.status === 401) { localStorage.removeItem('fd_jwt'); showLogin(); throw new Error('signed out'); }
+  var data = await r.json().catch(function () { return {}; });
+  if (!r.ok) { toast(data.detail || 'Something went wrong'); throw new Error(data.detail); }
+  return data;
+}
+
+// ── Inbox: every open request that has a reply waiting for approval ─────────
+async function load() {
+  await api('/fd/cadence/run', {method: 'POST'}).catch(function () {});
+  var drafts = list(await api('/fd/drafts?status=pending'), 'drafts');
+  var all = list(await api('/fd/leads?limit=200'), 'leads');
+  var byLead = {};
+  drafts.forEach(function (d) { if (d.lead_id && !byLead[d.lead_id]) byLead[d.lead_id] = d; });
+  leads = all.filter(function (l) { return byLead[l.id] && ['closed', 'booked', 'completed', 'archived', 'spam'].indexOf(l.status) < 0; })
+    .map(function (l) { l._draft = byLead[l.id]; return l; })
+    .sort(function (a, b) { return (b.intent === 'emergency') - (a.intent === 'emergency') || (a.created_at < b.created_at ? 1 : -1); });
+  renderList();
+  if (current && !leads.some(function (l) { return l.id === current; })) current = null;
+  if (!current && leads.length) openLead(leads[0].id);
+  if (!leads.length) document.getElementById('detail').innerHTML = '<div class="empty">You\'re all caught up.<br>New requests from the website will appear here.</div>';
+}
+
+function renderList() {
+  document.getElementById('count').textContent = 'Ready for review · ' + leads.length;
+  document.getElementById('list').innerHTML = leads.map(function (l) {
+    var urgent = l.intent === 'emergency';
+    var status = urgent ? 'Emergency' : (l._draft.source === 'reply' ? 'Patient replied' : (l._draft.cadence_step && l._draft.cadence_step !== 'first_reply' ? 'Follow-up due' : 'Ready for review'));
+    return '<div class="item' + (l.id === current ? ' sel' : '') + '" onclick="openLead(' + l.id + ')"><div class="n">' + esc(l.name || l.email || 'New patient') +
+      '</div><div class="s' + (urgent ? ' urgent' : '') + '">' + status + '</div></div>';
+  }).join('');
+}
+
+// What the patient asked for, in their own words where we have them.
+function patientAsk(lead, chat, emails) {
+  var lastIn = emails.filter(function (m) { return m.direction === 'in'; }).pop();
+  if (lastIn) return {src: 'Email', at: lastIn.sent_at, text: lastIn.body};
+  if (lead.message) return {src: 'Booking form', at: lead.created_at, text: lead.message};
+  var said = chat.filter(function (m) { return m.role === 'user'; }).map(function (m) { return m.body; });
+  var parts = [];
+  if (lead.service) parts.push('Looking for: ' + lead.service);
+  if (lead.preferred_date || lead.preferred_time) parts.push('Prefers: ' + [lead.preferred_date, lead.preferred_time].filter(Boolean).join(', '));
+  if (lead.phone) parts.push('Phone: ' + lead.phone);
+  return {src: 'Website chat', at: lead.created_at, text: parts.length ? parts.join('\n') : said.join('\n')};
+}
+
+async function openLead(id) {
+  current = id; renderList();
+  var lead = leads.filter(function (l) { return l.id === id; })[0];
+  var detail = await api('/fd/leads/' + id); lead = Object.assign({}, lead, detail.lead || detail);
+  var mail = await api('/fd/leads/' + id + '/emails');
+  var chat = lead.conversation_id ? list(await api('/fd/conversations/' + lead.conversation_id + '/messages'), 'messages') : [];
+  var draft = (mail.drafts || [])[0] || lead._draft;
+  var ask = patientAsk(lead, chat, mail.messages || []);
+  var c = mail.cadence;
+  var waitingOnThis = c && c.next_step && draft && draft.cadence_step === c.next_step.id;
+  var next = !c ? 'No automatic follow-ups' :
+    c.status !== 'active' ? 'Automatic follow-ups ' + esc(c.status) + (c.reason ? ' (' + esc(c.reason) + ')' : '') :
+    waitingOnThis ? 'Automatic follow-ups on. The reply above is waiting for your approval.' :
+    c.next_step ? 'Next automatic follow-up: ' + when(c.next_due_at) + ' (you approve it first)' : 'Follow-ups finished';
+
+  var hist = (mail.messages || []).map(function (m) {
+    return '<div class="row"><div class="who">' + (m.direction === 'in' ? 'Patient' : 'You') + ' · ' + when(m.sent_at) + (m.source === 'demo' ? ' · demo' : '') + '</div><div class="txt">' + esc(m.body) + '</div></div>';
+  }).join('') || '<div class="row"><div class="txt" style="color:var(--muted)">No emails yet.</div></div>';
+
+  var demoTools = demo ? '<div class="demo">Demo: pretend the patient replied<input id="sim" placeholder="e.g. Thursday morning works / I already booked">' +
+    '<button class="btn" onclick="simulate(' + id + ')">Simulate reply</button> <button class="btn" onclick="skipDay()">Skip ahead 1 day</button></div>' : '';
+
+  document.getElementById('detail').innerHTML =
+    '<div class="top"><div><h3>' + esc(lead.name || 'New patient') + '</h3><div class="e">' + esc(lead.email || '') + (lead.phone ? ' · ' + esc(lead.phone) : '') + '</div></div>' +
+      '<button class="btn" onclick="resolve(' + id + ')">Mark resolved</button></div>' +
+    '<div class="label">' + ask.src + ' · ' + when(ask.at) + '</div><div class="ask">' + esc(ask.text || '(no message)') + '</div>' +
+    '<div class="label strong">Ready to send</div><textarea id="reply">' + esc(draft ? draft.body : '') + '</textarea>' +
+    '<div class="send"><span class="hint">' + (demo ? 'Demo: recorded, not emailed' : 'Sent by email after your approval') + '</span>' +
+      '<button class="btn primary" id="go" onclick="approve(' + (draft ? draft.id : 'null') + ')">Approve &amp; send</button></div>' +
+    '<details><summary>Follow-up &amp; history</summary><div class="next">' + next + '</div><div class="hist">' + hist + '</div>' + demoTools + '</details>';
+}
+
+async function approve(draftId) {
+  var body = document.getElementById('reply').value.trim();
+  if (!draftId || !body) return;
+  var b = document.getElementById('go'); b.disabled = true; b.textContent = 'Sending…';
+  try {
+    await api('/fd/drafts/' + draftId + '/send', {method: 'POST', body: {body: body}});
+    toast(demo ? 'Recorded (demo)' : 'Sent');
+    current = null; await load();
+  } catch (e) { b.disabled = false; b.textContent = 'Approve & send'; }
+}
+
+async function resolve(id) {
+  await api('/fd/leads/' + id + '/status', {method: 'PATCH', body: {status: 'closed'}});
+  await api('/fd/leads/' + id + '/cadence', {method: 'POST', body: {action: 'stop'}}).catch(function () {});
+  toast('Marked resolved'); current = null; await load();
+}
+
+async function simulate(id) {
+  var v = document.getElementById('sim').value.trim(); if (!v) return;
+  var r = await api('/fd/demo/leads/' + id + '/reply', {method: 'POST', body: {body: v}});
+  toast('Patient reply: ' + r.intent.replace(/_/g, ' '));
+  current = id; await load(); if (leads.some(function (l) { return l.id === id; })) openLead(id);
+}
+
+async function skipDay() {
+  var r = await api('/fd/demo/fast-forward', {method: 'POST', body: {hours: 24}});
+  toast('A day later: ' + r.drafts_created + ' follow-up(s) ready'); await load();
+}
+
+// ── Sign-in (code by email; one-click on local demos) ─────────────────────
+function logout() { localStorage.removeItem('fd_jwt'); showLogin(); }
+function showLogin() {
+  document.getElementById('root').innerHTML = '<div class="login" style="flex:1"><h3 style="margin:0 0 6px">Sign in</h3>' +
+    '<input id="l-slug" placeholder="Clinic ID" value="' + esc(localStorage.getItem('fd_slug') || new URLSearchParams(location.search).get('clinic') || '') + '">' +
+    '<input id="l-email" type="email" placeholder="Work email"><input id="l-code" placeholder="6-digit code" style="display:none" inputmode="numeric" autocomplete="one-time-code">' +
+    '<div class="err" id="l-err"></div><button class="btn primary" id="l-go" onclick="loginStep()">Email me a code</button>' +
+    '<button class="btn" id="l-demo" style="display:none" onclick="demoLogin()">Open demo</button></div>';
+  fetch(API + '/auth/demo').then(function (r) { return r.json(); }).then(function (d) { if (d.available) document.getElementById('l-demo').style.display = ''; }).catch(function () {});
+}
+var codeSent = false;
+async function loginStep() {
+  var slug = document.getElementById('l-slug').value.trim(), email = document.getElementById('l-email').value.trim(), err = document.getElementById('l-err');
+  if (!slug || !email) { err.textContent = 'Enter clinic ID and email'; return; }
+  var path = codeSent ? '/auth/code/verify' : '/auth/code/request';
+  var r = await fetch(API + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tenant_slug: slug, email: email, code: (document.getElementById('l-code') || {}).value})});
+  var d = await r.json();
+  if (!r.ok) { err.textContent = d.detail || 'Could not sign in'; return; }
+  if (!codeSent) { codeSent = true; document.getElementById('l-code').style.display = ''; document.getElementById('l-go').textContent = 'Sign in'; err.style.color = 'var(--accent)'; err.textContent = 'Check your email for the code.'; return; }
+  localStorage.setItem('fd_jwt', d.access_token); localStorage.setItem('fd_slug', slug); location.reload();
+}
+async function demoLogin() {
+  var r = await fetch(API + '/auth/demo', {method: 'POST'}); var d = await r.json();
+  if (r.ok) { localStorage.setItem('fd_jwt', d.access_token); localStorage.setItem('fd_slug', 'raleigh-dental-demo'); location.reload(); }
+}
+
+async function init() {
+  if (!localStorage.getItem('fd_jwt')) { showLogin(); return; }
+  try {
+    var m = await api('/fd/mailbox'); demo = !!m.demo_mode;
+    document.getElementById('mode').textContent = demo ? 'Demo · emails are not really sent' : (m.connected ? 'Sending from ' + m.address : 'Mailbox not connected');
+    var t = list(await api('/tenants').catch(function () { return []; }), 'tenants')[0]; if (t && t.name) document.getElementById('clinic').textContent = t.name;
+    await load();
+    setInterval(function () { var a = document.activeElement; if (!a || (a.tagName !== 'TEXTAREA' && a.tagName !== 'INPUT')) load(); }, 30000);
+  } catch (e) {}
+}
+init();
+</script>
+</body>
+</html>

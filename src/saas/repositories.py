@@ -644,4 +644,11 @@ def ensure_demo_data() -> Tenant:
             except Exception:
                 pass
 
+    # Sample patients join the follow-up cadence so the demo inbox has replies ready to approve.
+    from saas import cadence
+    with connect() as c:
+        sample = rows(c, "SELECT id FROM leads WHERE tenant_id = ? AND email IS NOT NULL AND status = 'new'", tenant.id)
+    for l in sample:
+        cadence.enroll(tenant.id, l["id"])
+
     return tenant

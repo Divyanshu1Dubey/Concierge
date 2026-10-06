@@ -70,7 +70,7 @@ def test_full_google_connect_flow(client, google):
     assert q["redirect_uri"][0].endswith("/oauth/google/callback")
 
     r = client.get("/oauth/google/callback", params={"code": "good-code", "state": q["state"][0]})
-    assert r.status_code == 303 and r.headers["location"] == "/frontdesk?mailbox=connected"
+    assert r.status_code == 303 and r.headers["location"] == "/frontdesk/full?mailbox=connected"
     st = client.get("/api/admin/fd/mailbox", headers=h).json()
     assert st["connected"] and st["method"] == "oauth" and st["address"] == "frontdesk@clinic.test"
     assert st["from_name"] == "Bright Smiles Dental"

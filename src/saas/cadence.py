@@ -68,6 +68,16 @@ DEFAULT_CADENCE: dict[str, Any] = {
 }
 
 
+EMERGENCY_INSTRUCTION = ("This patient reported a dental emergency. Reply briefly and urgently: ask them to call the "
+                         "office right away so we can see them as soon as possible, and say that if they have swelling "
+                         "affecting breathing or swallowing, a high fever, or bleeding that won't stop they should call "
+                         "911 or go to the ER. Do not ask for preferred times.")
+EMERGENCY_TEMPLATE = ("Hi {{name}},\n\nWe're sorry you're in pain. Please call our office right away so we can see you "
+                      "as soon as possible.\n\nIf you have swelling that affects your breathing or swallowing, a high "
+                      "fever, or bleeding that won't stop, call 911 or go to the nearest emergency room.\n\n"
+                      "{{practice_name}}")
+
+
 # ── Config ───────────────────────────────────────────────────────────────────
 
 
@@ -255,14 +265,18 @@ def draft_for_step(tenant_id: int, lead_id: int, step: dict) -> int:
     lead = get_lead(lead_id)
     subject = "Your appointment request"
     body = None
+    urgent_first = step["id"] == "first_reply" and lead.get("intent") == "emergency"
+    if urgent_first:
+        subject = "We got your message - please call us"
     if step.get("mode", "ai") == "ai":
         from saas import ai_engine
+        instruction = EMERGENCY_INSTRUCTION if urgent_first else step.get("instruction", "")
         result = ai_engine.draft_reply(_history(tenant_id, lead), _patient(lead), _practice(tenant_id),
-                                       instruction=step.get("instruction", ""))
+                                       instruction=instruction)
         if result.get("provider") not in (None, "disabled") and not str(result.get("provider")).startswith("failed"):
             body, subject = result.get("body"), result.get("subject") or subject
     if not body:  # template mode, or AI unavailable
-        body = _fill(step.get("template") or "", lead, tenant_id)
+        body = _fill(EMERGENCY_TEMPLATE if urgent_first else (step.get("template") or ""), lead, tenant_id)
     with connect() as c:
         did = insert(c, "ai_drafts", tenant_id=tenant_id, lead_id=lead_id, conversation_id=lead.get("conversation_id"),
                      subject=subject, body=body, status="pending", cadence_step=step["id"], to_email=lead.get("email"),

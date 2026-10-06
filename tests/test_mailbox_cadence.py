@@ -431,3 +431,13 @@ def test_email_address_does_not_overwrite_chosen_service():
     with connect() as c:
         lead = rows(c, "SELECT service FROM leads ORDER BY id DESC LIMIT 1")[0]
     assert lead["service"] == "Implants"
+
+
+def test_emergency_first_reply_says_call_now():
+    t = create_tenant(slug=f"er-{uuid.uuid4().hex[:6]}", name="ER Clinic")
+    lead = create_lead(t.id, {"name": "Mike Chang", "email": "mike@x.test", "intent": "emergency"})
+    cadence.enroll(t.id, lead["id"])
+    [did] = cadence.run_due(t.id)
+    with connect() as c:
+        body = rows(c, "SELECT body FROM ai_drafts WHERE id = ?", did)[0]["body"]
+    assert "call our office right away" in body and "times" not in body
