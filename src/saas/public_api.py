@@ -1038,6 +1038,25 @@ def _check_tenant(cu: CurrentUser, tenant_id: int) -> None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
 
 
+@admin_app.get("/auth/demo")
+def admin_demo_available() -> dict:
+    from saas.repositories import _demo_allowed
+    return {"available": _demo_allowed()}
+
+
+@admin_app.post("/auth/demo")
+def admin_demo_login(request: Request) -> TokenOut:
+    """One-click login to the demo clinic. Local/dev only; refused on production servers."""
+    from saas.auth import _user_payload
+    from saas.repositories import _demo_allowed, ensure_demo_data, get_user_by_email
+    from saas.security import create_access_token
+    if not _demo_allowed():
+        raise HTTPException(status_code=404, detail="not found")
+    tenant = ensure_demo_data()
+    user = get_user_by_email(tenant.id, "admin@raleighdentistry.com")
+    return TokenOut(access_token=create_access_token(subject=str(user.id), tenant_id=tenant.id), user=_user_payload(user))
+
+
 @admin_app.post("/auth/code/request")
 def admin_request_code(body: dict[str, Any], request: Request) -> dict:
     """Email a 6-digit login code. Same answer whether or not the account exists."""

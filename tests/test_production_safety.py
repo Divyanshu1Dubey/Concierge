@@ -51,3 +51,16 @@ def test_production_never_fakes_a_send(production):
         mailbox.send_draft(t.id, d["id"])
     with pytest.raises(mailbox.MailboxError):
         mailbox.simulate_reply(t.id, lead["id"], "hi")
+
+
+def test_demo_login_refused_in_production(production):
+    from saas.main import app
+    c = TestClient(app)
+    assert c.get("/api/admin/auth/demo").json()["available"] is False
+    assert c.post("/api/admin/auth/demo").status_code == 404
+
+
+def test_demo_login_works_locally():
+    from saas.main import app
+    r = TestClient(app).post("/api/admin/auth/demo")
+    assert r.status_code == 200 and r.json()["access_token"]
