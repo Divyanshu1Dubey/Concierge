@@ -55,6 +55,25 @@ def hosted_concierge(tenant_slug: str) -> HTMLResponse:
     return HTMLResponse(html)
 
 
+DIST_DIR = STATIC / "dist"
+if (DIST_DIR / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="app-root-assets")
+    app.mount("/desk/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="desk-assets")
+    app.mount("/app/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="app-assets")
+
+
+@app.get("/desk")
+@app.get("/desk/")
+@app.get("/app")
+@app.get("/app/")
+def modern_react_frontdesk() -> HTMLResponse:
+    index_file = DIST_DIR / "index.html"
+    if index_file.exists():
+        return HTMLResponse(index_file.read_text(encoding="utf-8"))
+    path = ROOT / "src" / "saas" / "templates" / "frontdesk.html"
+    return HTMLResponse(path.read_text(encoding="utf-8"))
+
+
 @app.get("/frontdesk")
 def frontdesk_page() -> HTMLResponse:
     path = ROOT / "src" / "saas" / "templates" / "frontdesk.html"

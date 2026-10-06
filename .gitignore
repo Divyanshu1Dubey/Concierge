@@ -29,6 +29,7 @@ Thumbs.db
 .DS_Store
 
 # Build
-dist/
+/dist/
 build/
 *.egg-info/
+!src/saas/static/dist/

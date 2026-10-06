@@ -300,9 +300,13 @@ def connect():
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
-        conn = sqlite3.connect(path)
+        conn = sqlite3.connect(path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=-64000")
+        conn.execute("PRAGMA temp_store=MEMORY")
         conn.execute("PRAGMA foreign_keys=ON")
         try:
             if str(path) not in _ready:
