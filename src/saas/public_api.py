@@ -432,13 +432,41 @@ async def fd_get_messages(request: Request, conversation_id: int):
         raise HTTPException(status_code=403, detail="forbidden")
     with connect() as c:
         msgs = rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC", (conversation_id,))
-    return msgs
+    # Wrap in {messages: []} to match frontend expectation
+    return {"messages": msgs}
 
 
 @frontdesk_app.get("/leads")
-async def fd_list_leads(request: Request, status: str | None = None, limit: int = 100):
+async def fd_list_leads(
+    request: Request,
+    status: str | None = None,
+    intent: str | None = None,
+    urgency: str | None = None,
+    limit: int = 100,
+):
     auth = await _fd_auth(request)
-    return list_leads(auth["tenant_id"], status=status, limit=limit)
+    tid = auth["tenant_id"]
+    sql = "SELECT * FROM leads WHERE tenant_id = ?"
+    args: list[Any] = [tid]
+    if status:
+        sql += " AND status = ?"
+        args.append(status)
+    if intent:
+        sql += " AND intent = ?"
+        args.append(intent)
+    if urgency:
+        sql += " AND urgency = ?"
+        args.append(urgency)
+    sql += " ORDER BY id DESC LIMIT ?"
+    args.append(limit)
+    with connect() as c:
+        lead_list = rows(c, sql, tuple(args))
+        intent_rows = rows(c,
+            "SELECT DISTINCT intent FROM leads WHERE tenant_id = ? AND intent IS NOT NULL ORDER BY intent",
+            (tid,),
+        )
+    intents = [r["intent"] for r in intent_rows if r["intent"]]
+    return {"leads": lead_list, "intents": intents}
 
 
 @frontdesk_app.get("/leads/{lead_id}")
@@ -459,12 +487,14 @@ async def fd_update_lead_status(request: Request, lead_id: int, body: dict[str, 
     new_status = body.get("status")
     if not new_status:
         raise HTTPException(status_code=422, detail="status required")
-    valid_statuses = {"new", "contacted", "scheduled", "completed", "archived", "emergency", "appointment_request"}
+    valid_statuses = {"new", "contacted", "scheduled", "completed", "archived", "emergency", "appointment_request", "booked", "closed"}
     if new_status not in valid_statuses:
         raise HTTPException(status_code=422, detail=f"invalid status: {new_status}")
     with connect() as c:
         c.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", (new_status, now_iso(), lead_id))
-    return {"ok": True}
+    # Return the full updated lead so the frontend can update its state
+    updated = get_lead(lead_id)
+    return updated
 
 
 @frontdesk_app.post("/leads/{lead_id}/reply")
@@ -495,6 +525,7 @@ async def fd_reply_lead(request: Request, lead_id: int, body: dict[str, Any]):
 
 
 @frontdesk_app.post("/leads/{lead_id}/retry")
+@frontdesk_app.post("/leads/{lead_id}/retry-notify")  # alias used by frontend
 async def fd_retry_lead(request: Request, lead_id: int):
     auth = await _fd_auth(request)
     lead = get_lead(lead_id)
@@ -502,10 +533,11 @@ async def fd_retry_lead(request: Request, lead_id: int):
         raise HTTPException(status_code=404, detail="lead not found")
     from saas.emailer import send_lead_notification
     send_lead_notification(auth["tenant_id"], lead_id, intent="retry")
-    return {"ok": True}
+    return {"ok": True, "status": "queued"}
 
 
 @frontdesk_app.post("/leads/{lead_id}/resend")
+@frontdesk_app.post("/leads/{lead_id}/resend-email")  # alias used by frontend
 async def fd_resend_lead(request: Request, lead_id: int):
     auth = await _fd_auth(request)
     lead = get_lead(lead_id)
@@ -513,13 +545,15 @@ async def fd_resend_lead(request: Request, lead_id: int):
         raise HTTPException(status_code=404, detail="lead not found")
     from saas.emailer import send_lead_notification
     send_lead_notification(auth["tenant_id"], lead_id, intent="resend")
-    return {"ok": True}
+    return {"ok": True, "status": "sent"}
 
 
 @frontdesk_app.get("/notes")
 async def fd_list_notes(request: Request, lead_id: int | None = None):
     auth = await _fd_auth(request)
-    return get_frontdesk_notes(auth["tenant_id"], lead_id=lead_id)
+    note_list = get_frontdesk_notes(auth["tenant_id"], lead_id=lead_id)
+    # Wrap in {notes: []} to match frontend expectation
+    return {"notes": note_list}
 
 
 @frontdesk_app.post("/notes")
@@ -540,9 +574,25 @@ async def fd_create_note(request: Request, body: dict[str, Any]):
 
 
 @frontdesk_app.get("/tasks")
-async def fd_list_tasks(request: Request, status: str | None = None):
+async def fd_list_tasks(request: Request, status: str | None = None, lead_id: int | None = None):
     auth = await _fd_auth(request)
-    return get_frontdesk_tasks(auth["tenant_id"], status=status)
+    tid = auth["tenant_id"]
+    with connect() as c:
+        sql = "SELECT * FROM frontdesk_tasks WHERE tenant_id = ?"
+        params: list[Any] = [tid]
+        if lead_id is not None:
+            sql += " AND lead_id = ?"
+            params.append(lead_id)
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        sql += (
+            " ORDER BY CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,"
+            " due_at IS NOT NULL DESC, created_at DESC LIMIT 100"
+        )
+        task_list = rows(c, sql, tuple(params))
+    # Wrap in {tasks: []} to match frontend expectation
+    return {"tasks": task_list}
 
 
 @frontdesk_app.post("/tasks")
@@ -757,6 +807,58 @@ async def fd_ai_parse_time(request: Request, body: dict[str, Any]):
     instruction = body.get("instruction", "")
     result = _ai_engine.parse_time_instruction(instruction)
     return result
+
+
+@frontdesk_app.post("/ai/action")
+async def fd_ai_action(request: Request, body: dict[str, Any]):
+    """Unified AI action endpoint used by the React front desk app.
+
+    Actions: draft, summarize, next-action, follow-up, confirm, classify, shorten, warmer
+    """
+    auth = await _fd_auth(request)
+    action = body.get("action", "")
+    lead_id = body.get("lead_id")
+    instruction = body.get("instruction", "")
+    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
+    lead = ctx.get("lead") or {}
+    conv_text = ctx.get("conv_text", "")
+
+    if action == "draft":
+        result = _ai_engine.draft_reply(conv_text, lead, instruction)
+        return {"result": result.get("reply") or result.get("body", ""), "model": result.get("model", "unknown")}
+    elif action == "summarize":
+        result = _ai_engine.summarize_conversation(conv_text)
+        return {"result": result.get("summary", "")}
+    elif action == "next-action" or action == "next_action":
+        result = _ai_engine.next_best_action(conv_text, lead, "open")
+        return {"result": result.get("action", "") or result.get("recommendation", "")}
+    elif action == "follow-up" or action == "follow_up":
+        result = _ai_engine.generate_follow_up(lead, hours_passed=24)
+        return {"result": result.get("body", "")}
+    elif action == "confirm":
+        result = _ai_engine.generate_confirmation(lead, instruction or "")
+        return {"result": result.get("body", "")}
+    elif action == "classify":
+        result = _ai_engine.classify_message(lead.get("message", ""), existing_fields={
+            "intent": lead.get("intent", ""), "urgency": lead.get("urgency", ""), "service": lead.get("service", ""),
+        })
+        if lead_id and result:
+            updates = {k: v for k, v in result.items() if k in {"intent", "urgency", "service"}}
+            if updates:
+                repo_update_lead(lead_id, **updates)
+        return {"result": f"Classified: intent={result.get('intent','?')}, urgency={result.get('urgency','?')}"}
+    elif action == "shorten":
+        text = instruction or conv_text or lead.get("message", "")
+        prompt = "Shorten this text to 1-2 concise sentences while keeping the key information:\n\n" + text
+        result, _ = _ai_engine._llm(prompt)
+        return {"result": result.get("reply", text) if result else text}
+    elif action == "warmer":
+        text = instruction or conv_text or lead.get("message", "")
+        prompt = "Rewrite this text to be warmer and more personable, keeping it professional but friendly:\n\n" + text
+        result, _ = _ai_engine._llm(prompt)
+        return {"result": result.get("reply", text) if result else text}
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
 
 
 # ── Search ──────────────────────────────────────────────────────────────────

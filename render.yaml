@@ -3,14 +3,30 @@ services:
     name: concierge
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && cd frontend && npm ci && npm run build
     startCommand: PYTHONPATH=src uvicorn saas.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     autoDeploy: true
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.4
+        value: "3.11.4"
+      - key: NODE_VERSION
+        value: "20"
       - key: DATABASE_URL
         value: data/saas.db
       - key: CORS_ORIGINS
         value: "*"
+      # IMPORTANT: Set these as SECRET env vars in Render dashboard (not here):
+      # JWT_SECRET             → 64-char random string
+      # ENCRYPTION_KEY         → 32-char random string
+      # GEMINI_API_KEY         → your Gemini API key (rotated)
+      # GROQ_API_KEY           → your Groq API key (rotated)
+      # CONCIERGE_MODEL        → gemini-1.5-flash
+      # CONCIERGE_FALLBACK_MODEL → gemini-1.5-flash-8b
+      # CONCIERGE_GROQ_MODEL   → llama3-8b-8192
+      # SMTP_HOST              → smtp.gmail.com
+      # SMTP_PORT              → 465
+      # SMTP_USER              → your Gmail
+      # SMTP_PASSWORD          → Gmail app password (rotated)
+      # APP_ENV                → production
+      # APP_URL                → https://<your-app>.onrender.com

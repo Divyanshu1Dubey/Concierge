@@ -133,8 +133,9 @@ export const api = {
   },
 
   // Tasks
-  getTasks: async () => {
-    return request<{ tasks: import('../types').Task[] }>('/fd/tasks');
+  getTasks: async (leadId?: number) => {
+    const qs = leadId ? `?lead_id=${leadId}` : '';
+    return request<{ tasks: import('../types').Task[] }>(`/fd/tasks${qs}`);
   },
 
   createTask: async (data: { lead_id?: number; title: string; priority: string; due_at?: string | null }) => {

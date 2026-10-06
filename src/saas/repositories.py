@@ -567,18 +567,18 @@ def ensure_demo_data() -> Tenant:
         if ea not in existing_emails:
             create_user(tenant.id, ea, password="password", display_name="Clinic Staff", role="admin")
 
-    # Configure SMTP from environment variables
+    # Configure SMTP from environment variables only — no hardcoded credentials
     smtp_host = os.getenv("SMTP_HOST") or os.getenv("DEFAULT_SMTP_HOST") or "smtp.gmail.com"
     smtp_port = int(os.getenv("SMTP_PORT") or os.getenv("DEFAULT_SMTP_PORT") or 465)
-    smtp_user = os.getenv("SMTP_USER") or os.getenv("DEFAULT_SMTP_USER") or "parulmaterial@gmail.com"
-    smtp_pass = os.getenv("SMTP_PASSWORD") or "iapjgasrmazuzqgd"
-    front_desk = os.getenv("FRONT_DESK_EMAIL") or smtp_user
+    smtp_user = os.getenv("SMTP_USER") or os.getenv("DEFAULT_SMTP_USER") or ""
+    smtp_pass = os.getenv("SMTP_PASSWORD") or os.getenv("DEFAULT_SMTP_PASSWORD") or ""
+    front_desk = os.getenv("FRONT_DESK_EMAIL") or smtp_user or ""
     from saas.security import encrypt_value
-    enc = encrypt_value(smtp_pass)
+    enc = encrypt_value(smtp_pass) if smtp_pass else None
 
     with connect() as c:
         existing_es = rows(c, "SELECT id FROM email_settings WHERE tenant_id = ?", (tenant.id,))
-        if not existing_es:
+        if not existing_es and smtp_user:
             c.execute(
                 """INSERT INTO email_settings (tenant_id, provider, smtp_host, smtp_port, smtp_user, smtp_password_enc, from_name, from_email, reply_to, updated_at)
                    VALUES (?, 'smtp', ?, ?, ?, ?, 'Raleigh Dental Clinic', ?, ?, ?)""",

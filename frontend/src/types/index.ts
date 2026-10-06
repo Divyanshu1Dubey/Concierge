@@ -19,7 +19,7 @@ export interface Lead {
 
 export interface Message {
   id: number;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'agent';
   body: string;
   created_at: string;
 }
