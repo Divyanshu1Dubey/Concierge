@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: concierge
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: PYTHONPATH=src uvicorn saas.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.4
+      - key: DATABASE_URL
+        value: data/saas.db
+      - key: CORS_ORIGINS
+        value: "*"
