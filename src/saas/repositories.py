@@ -679,7 +679,7 @@ _DEMO_PATIENTS = [
      None, 75,
      [("out", 72, "Hi David,\n\nThanks for reaching out! Could you reply with a few times that work for your cleaning?\n\n{clinic}"),
       ("in", 48, "Thursday at 10am works great."),
-      ("out", 46, "Perfect, you're all set for Thursday at 10:00 AM. See you then!\n\n{clinic}")],
+      ("out", 46, "Perfect, you're all set for {appt} at 10:00 AM. See you then!\n\n{clinic}")],
      ("stopped", 1, 46, "booked by front desk"), None),
     ("Aisha Rahman", "aisha.r@example.com", "(919) 555-0124", "new_patient", "New patient visit", "booked",
      None, 50,
@@ -710,16 +710,32 @@ def _seed_demo_story(tenant_id: int, clinic: str) -> None:
     def ago(hours: float) -> str:
         return (datetime.now() - timedelta(hours=hours)).isoformat(timespec="seconds")
 
+    def next_weekday(weekday: int) -> datetime:
+        today = datetime.now()
+        return today + timedelta(days=(weekday - today.weekday()) % 7 or 7)
+
+    def label(d: datetime) -> str:
+        return d.strftime("%A, %B ") + str(d.day)
+
+    # Booked appointments land on upcoming days so the demo never shows stale dates.
+    appointments = {"David Okafor": (label(next_weekday(3)), "10:00 AM"),
+                    "Aisha Rahman": (label(next_weekday(0)), "2:00 PM"),
+                    "Robert Nguyen": (label(datetime.now() - timedelta(days=6)), "9:00 AM"),
+                    "Hannah Weiss": (label(datetime.now() - timedelta(days=4)), "11:30 AM")}
+
     for (name, email, phone, intent, service, status, message, created, emails, follow, draft) in _DEMO_PATIENTS:
+        appt_date, appt_time = appointments.get(name, (None, None))
         with connect() as c:
             lid = insert(c, "leads", tenant_id=tenant_id, name=name, email=email, phone=phone, intent=intent,
                          service=service, status=status, message=message, source="website_widget",
+                         preferred_date=appt_date, preferred_time=appt_time,
                          created_at=ago(created), updated_at=ago(min([h for _, h, _ in emails] or [created])),
                          metadata="{}")
             for direction, hours, body in emails:
                 insert(c, "email_messages", tenant_id=tenant_id, lead_id=lid, direction=direction,
                        message_id=make_msgid(domain="demo.heyjarvis"), subject="Your appointment request",
-                       body=body.format(clinic=clinic), from_addr=email if direction == "in" else None,
+                       body=body.format(clinic=clinic, appt=(appt_date or "").split(",")[0]),
+                       from_addr=email if direction == "in" else None,
                        to_addr=None if direction == "in" else email, source="demo",
                        sent_at=ago(hours), created_at=ago(hours))
             if follow:

@@ -5,70 +5,120 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Patient requests</title>
 <style>
-:root{--bg:#ffffff;--panel:#ffffff;--line:#e6e8eb;--soft:#f5f6f7;--sel:#eef0f2;--text:#111418;--muted:#6b7280;--accent:#111418;--accent-ink:#ffffff;--danger:#c0392b}
+:root{
+  --page:#ede3d8; --frame:#faf7f3; --card:#fdfbf8; --soft:#f3eee8; --sel:#e9e6dc; --line:#e7e0d7;
+  --text:#2a211d; --muted:#7d726b; --ink:#3a2a24; --ink-text:#fff;
+  --sage:#7c8c6e; --sage-soft:#e6eadf; --danger:#b5463a;
+}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
-body{background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif}
-.app{width:100%;height:100vh;background:var(--panel);display:flex;flex-direction:column;overflow:hidden}
-header{display:flex;justify-content:space-between;align-items:flex-end;padding:22px 28px;border-bottom:1px solid var(--line)}
-header .brand{font-size:14px;color:var(--muted)}
-header h1{margin:2px 0 0;font-size:22px;font-weight:600}
-header .right{font-size:13px;color:var(--muted);display:flex;gap:14px;align-items:center}
-header a{color:var(--muted);text-decoration:none}
-header a:hover{color:var(--text)}
-.body{flex:1;display:flex;min-height:0}
-aside{width:min(340px,30vw);flex-shrink:0;border-right:1px solid var(--line);overflow-y:auto;padding:18px 14px}
-aside h2{font-size:12px;font-weight:600;color:var(--muted);margin:18px 12px 6px;text-transform:uppercase;letter-spacing:.04em}
-aside h2:first-child{margin-top:0}
-.pill{display:inline-block;font-size:12px;padding:3px 10px;border-radius:999px;background:var(--soft);color:var(--muted)}
-.item{padding:12px 14px;border-radius:10px;cursor:pointer;margin-bottom:4px}
+body{background:var(--page);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;padding:20px}
+.app{height:calc(100vh - 40px);background:var(--frame);border-radius:16px;box-shadow:0 10px 40px rgba(80,55,35,.10);display:flex;flex-direction:column;overflow:hidden}
+button{font:inherit;color:inherit}
+svg{flex-shrink:0}
+
+/* top bar */
+.bar{display:flex;align-items:center;gap:18px;padding:16px 28px;border-bottom:1px solid var(--line)}
+.logo{display:flex;align-items:center;gap:8px;font-family:Georgia,"Times New Roman",serif;font-size:24px;letter-spacing:-.01em}
+.sep{width:1px;height:28px;background:var(--line)}
+.clinic{opacity:.85}
+.bar .grow{flex:1}
+.mode{font-size:12px;color:var(--muted);background:var(--soft);padding:4px 10px;border-radius:999px}
+.icon-btn{background:none;border:0;padding:6px;border-radius:8px;cursor:pointer;color:var(--text);display:flex}
+.icon-btn:hover{background:var(--soft)}
+.avatar{position:relative}
+.avatar>button{display:flex;align-items:center;gap:6px;background:none;border:0;cursor:pointer;padding:0}
+.initials{width:38px;height:38px;border-radius:50%;background:var(--sage-soft);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px}
+.menu{position:absolute;right:0;top:46px;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(60,40,25,.12);padding:6px;min-width:200px;z-index:5;display:none}
+.menu.show{display:block}
+.menu a,.menu button{display:block;width:100%;text-align:left;background:none;border:0;padding:8px 12px;border-radius:6px;cursor:pointer;color:var(--text);text-decoration:none;font-size:14px}
+.menu a:hover,.menu button:hover{background:var(--soft)}
+
+h1{font-size:30px;font-weight:600;margin:22px 34px 16px;letter-spacing:-.01em}
+.body{flex:1;display:flex;gap:10px;padding:0 18px 18px;min-height:0}
+
+/* list */
+aside{width:min(340px,30vw);flex-shrink:0;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow-y:auto;padding:18px 14px}
+.group+.group{border-top:1px solid var(--line);margin-top:10px;padding-top:6px}
+.group h2{font-size:12px;font-weight:600;letter-spacing:.14em;color:var(--muted);margin:10px 14px 8px;text-transform:uppercase}
+.item{display:flex;align-items:center;gap:8px;padding:11px 14px;border-radius:10px;cursor:pointer}
 .item:hover{background:var(--soft)}
 .item.sel{background:var(--sel)}
-.item .n{font-weight:500}
-.item .s{font-size:13px;color:var(--muted)}
+.item .t{flex:1;min-width:0}
+.item .n{font-weight:500;font-size:16px}
+.item .s{font-size:14px;color:var(--muted)}
 .item .s.urgent{color:var(--danger)}
-main{flex:1;overflow-y:auto;padding:28px clamp(24px,4vw,56px)}
-#detail>*{max-width:900px}
-.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
-.top h3{margin:0;font-size:22px;font-weight:600}
-.top .e{color:var(--muted);font-size:14px}
-.btn{border:1px solid var(--line);background:transparent;color:var(--text);border-radius:10px;padding:9px 16px;font:inherit;font-size:14px;cursor:pointer}
-.btn:hover{border-color:var(--muted)}
-.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600;padding:11px 22px}
-.btn.primary:hover{opacity:.88}
-.btn.primary:disabled{opacity:.6;cursor:default}
-.label{font-size:13px;color:var(--muted);margin:24px 0 8px}
-.label.strong{color:var(--text);font-weight:500}
-.ask{background:var(--soft);border-radius:10px;padding:14px 16px;white-space:pre-wrap}
-textarea{width:100%;min-height:clamp(200px,32vh,420px);background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font:inherit;line-height:1.6;resize:vertical}
-textarea:focus{outline:none;border-color:var(--muted)}
-.send{display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:12px}
-.send .hint{font-size:13px;color:var(--muted)}
-details{margin-top:30px;border-top:1px solid var(--line);padding-top:14px}
-summary{cursor:pointer;color:var(--text);list-style:none}
-summary::before{content:"\25B8  ";color:var(--muted)}
-details[open] summary::before{content:"\25BE  "}
-.hist{margin-top:12px;font-size:14px}
-.hist .row{padding:10px 0;border-bottom:1px solid var(--line)}
-.hist .who{font-size:12px;color:var(--muted)}
-.hist .txt{white-space:pre-wrap}
-.next{font-size:13px;color:var(--muted);margin-top:8px}
-.demo{margin-top:14px;padding:12px;border:1px dashed var(--line);border-radius:10px;font-size:13px;color:var(--muted)}
-.demo input{width:100%;margin:8px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:8px 10px;font:inherit}
-.empty{color:var(--muted);text-align:center;margin-top:18vh}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--accent);color:var(--accent-ink);padding:10px 18px;border-radius:10px;font-size:14px;font-weight:500}
-.login{max-width:340px;margin:12vh auto;display:flex;flex-direction:column;gap:10px}
-.login input{background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:11px 14px;font:inherit}
+.item svg{color:var(--muted)}
+
+/* detail */
+main{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow-y:auto;padding:28px 34px}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:20px;border-bottom:1px solid var(--line)}
+.head h3{margin:0;font-size:28px;font-weight:600;letter-spacing:-.01em}
+.head .c{color:var(--muted);font-size:16px;margin-top:2px}
+.head .acts{display:flex;gap:10px;position:relative}
+.btn{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 18px;cursor:pointer;font-size:15px;font-weight:500;box-shadow:0 1px 2px rgba(60,40,25,.05)}
+.btn:hover{background:var(--soft)}
+.btn.square{padding:9px 13px;letter-spacing:.05em}
+.btn.dark{background:var(--ink);border-color:var(--ink);color:var(--ink-text);padding:12px 30px;font-size:16px}
+.btn.dark:hover{opacity:.9;background:var(--ink)}
+.btn.dark:disabled{opacity:.6;cursor:default}
+
+.lbl{font-size:14px;color:var(--muted);margin:22px 10px 8px}
+.ask{background:var(--soft);border-radius:10px;padding:16px 20px;font-size:16px;white-space:pre-wrap}
+.rule{border:0;border-top:1px solid var(--line);margin:20px 0}
+
+.compose{border:1px solid var(--line);border-radius:14px;padding:18px 24px;box-shadow:0 2px 10px rgba(60,40,25,.05);background:var(--card)}
+.compose .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.compose .top b{font-weight:600}
+.compose .ch{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:14px}
+textarea{width:100%;min-height:clamp(170px,26vh,360px);background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:16px 20px;font:inherit;font-size:16px;line-height:1.75;resize:vertical}
+textarea:focus{outline:none;border-color:#cdbfb2}
+.compose .bot{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px}
+.hint{font-size:14px;color:var(--muted)}
+.note{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;margin:16px 4px}
+
+/* booked card */
+.booked{display:flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:14px;padding:26px 30px;gap:24px 30px;box-shadow:0 2px 10px rgba(60,40,25,.05);margin-top:20px}
+.booked .l{flex:1 1 320px;min-width:0;display:flex;gap:18px}
+.booked .k{color:var(--sage);font-weight:500;font-size:17px;margin-top:6px}
+.booked .when{font-size:clamp(24px,2.6vw,36px);font-weight:600;line-height:1.15;margin:12px 0 8px;letter-spacing:-.01em}
+.booked .svc{font-size:20px}
+.booked .r{flex:0 0 210px;border-left:1px solid var(--line);padding-left:30px;display:flex;flex-direction:column;justify-content:center;gap:10px}
+
+details{border-top:1px solid var(--line);margin-top:14px;padding-top:16px}
+summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;font-size:18px;font-weight:500}
+summary::-webkit-details-marker{display:none}
+summary svg{transition:transform .15s}
+details[open] summary svg{transform:rotate(90deg)}
+.histh{font-size:18px;font-weight:600;margin:22px 0 6px}
+.hist .row{padding:14px 20px;border-bottom:1px solid var(--line)}
+.hist .row:last-child{border-bottom:0}
+.hist .who{font-size:14px;color:var(--muted)}
+.hist .txt{font-size:16px;white-space:pre-wrap}
+.demo{margin-top:16px;padding:14px 16px;border:1px dashed #d8cdc2;border-radius:10px;font-size:14px;color:var(--muted)}
+.demo input{width:100%;margin:8px 0;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font:inherit}
+.empty{color:var(--muted);text-align:center;margin-top:18vh;font-size:16px}
+.toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 20px;border-radius:10px;font-size:14px;z-index:10}
+.login{max-width:360px;margin:10vh auto;display:flex;flex-direction:column;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px}
+.login input{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 14px;font:inherit}
 .login .err{color:var(--danger);font-size:13px;min-height:18px}
-@media (max-width:760px){.body{flex-direction:column}aside{width:auto;max-height:34vh;border-right:0;border-bottom:1px solid var(--line)}main{padding:20px}}
+@media (max-width:820px){body{padding:0}.app{height:100vh;border-radius:0}.body{flex-direction:column}aside{width:auto;max-height:36vh}main{padding:20px}.booked{flex-direction:column}.booked .r{border-left:0;padding-left:0}h1{margin:16px 20px 10px;font-size:24px}}
 </style>
 </head>
 <body>
 <div class="app">
-  <header>
-    <div><div class="brand" id="clinic">HeyJarvis</div><h1>Patient requests</h1></div>
-    <div class="right"><span id="mode"></span><a href="/frontdesk/full">Settings</a><a href="#" onclick="logout();return false">Log out</a></div>
-  </header>
+  <div class="bar">
+    <div class="logo"><svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14z" fill="#8a9a7b"/><path d="M5 19c3-5 6-8 10-10" stroke="#fdfbf8" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>HeyJarvis</div>
+    <div class="sep"></div>
+    <div class="clinic" id="clinic"></div>
+    <div class="grow"></div>
+    <span class="mode" id="mode" style="display:none"></span>
+    <a class="icon-btn" href="/frontdesk/full" title="Settings"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></a>
+    <div class="sep"></div>
+    <div class="avatar"><button onclick="toggleMenu('acct-menu', event)"><span class="initials" id="initials">FD</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+      <div class="menu" id="acct-menu"><a href="/frontdesk/full">Settings &amp; follow-up rules</a><button onclick="logout()">Log out</button></div></div>
+  </div>
+  <h1>Patient requests</h1>
   <div class="body" id="root">
     <aside id="list"></aside>
     <main id="detail"><div class="empty">Loading…</div></main>
@@ -77,16 +127,31 @@ details[open] summary::before{content:"\25BE  "}
 <script>
 var API = location.origin + '/api/admin';
 var leads = [], current = null, demo = false;
+var CHEVRON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+var MAIL = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>';
+var SHIELD = '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z" fill="#7c8c6e"/><path d="M8.5 12l2.3 2.3L15.5 9.8" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+var CHECK = '<svg width="42" height="42" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#7c8c6e"/><path d="M7.5 12.3l3 3 6-6.3" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+var STOPPED = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#a39890" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M6 18L18 6"/></svg>';
 
 function esc(v) { var d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
 function toast(m) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 2600); }
+function list(d, k) { return Array.isArray(d) ? d : ((d && d[k]) || []); }
 function when(ts) {
   if (!ts) return '';
   var d = new Date(ts), now = new Date();
   var t = d.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
   return (d.toDateString() === now.toDateString() ? 'Today' : d.toLocaleDateString([], {month: 'short', day: 'numeric'})) + ', ' + t;
 }
-function list(d, k) { return Array.isArray(d) ? d : ((d && d[k]) || []); }
+function ago(ts) {
+  if (!ts) return '';
+  var h = (Date.now() - new Date(ts).getTime()) / 36e5;
+  if (h < 1) return 'just now';
+  if (h < 24) return Math.round(h) + 'h ago';
+  if (h < 48) return 'yesterday';
+  return Math.round(h / 24) + ' days ago';
+}
+function toggleMenu(id, e) { e.stopPropagation(); document.querySelectorAll('.menu').forEach(function (m) { if (m.id !== id) m.classList.remove('show'); }); document.getElementById(id).classList.toggle('show'); }
+document.addEventListener('click', function () { document.querySelectorAll('.menu').forEach(function (m) { m.classList.remove('show'); }); });
 
 async function api(path, opts) {
   opts = opts || {};
@@ -99,7 +164,7 @@ async function api(path, opts) {
   return data;
 }
 
-// ── Inbox: grouped by what the front desk needs to do ──────────────────────
+// ── Inbox grouped by what the front desk needs to do ───────────────────────
 var GROUPS = [['reply', 'Needs your reply'], ['waiting', 'Waiting on patient'], ['booked', 'Booked'], ['visited', 'Visited']];
 function groupOf(l) {
   if (l.status === 'completed') return 'visited';
@@ -107,24 +172,16 @@ function groupOf(l) {
   if (l.draft || l.last_direction === 'in' || !l.last_direction) return 'reply';
   return 'waiting';
 }
-function ago(ts) {
-  if (!ts) return '';
-  var h = (Date.now() - new Date(ts).getTime()) / 36e5;
-  if (h < 1) return 'just now';
-  if (h < 24) return Math.round(h) + 'h ago';
-  var d = Math.round(h / 24); return d + (d === 1 ? ' day ago' : ' days ago');
-}
 function statusLine(l) {
   var g = groupOf(l);
   if (g === 'reply') {
     if (l.intent === 'emergency') return ['Emergency', true];
-    if (l.last_direction === 'in') return ['Patient replied ' + ago(l.last_email_at), false];
+    if (l.last_direction === 'in') return ['Replied ' + ago(l.last_email_at), false];
     if (l.draft && l.draft.cadence_step && l.draft.cadence_step !== 'first_reply') return ['Follow-up due', false];
     return ['New request', false];
   }
-  if (g === 'waiting') return ['You emailed ' + ago(l.last_email_at), false];
-  if (g === 'booked') return [l.service || 'Booked', false];
-  return ['Visited · ' + (l.service || ''), false];
+  if (g === 'waiting') return ['Emailed ' + ago(l.last_email_at), false];
+  return [l.service || (g === 'booked' ? 'Booked' : 'Visited'), false];
 }
 
 async function load() {
@@ -138,84 +195,99 @@ async function load() {
   renderList();
   if (current && !leads.some(function (l) { return l.id === current; })) current = null;
   if (!current && leads.length) openLead(leads[0].id);
-  if (!leads.length) document.getElementById('detail').innerHTML = '<div class="empty">No patient requests yet.<br>New requests from the website will appear here.</div>';
+  if (!leads.length) document.getElementById('detail').innerHTML = '<div class="empty">No patient requests yet.<br>New requests from your website will appear here.</div>';
 }
 
 function renderList() {
   document.getElementById('list').innerHTML = GROUPS.map(function (g) {
     var items = leads.filter(function (l) { return groupOf(l) === g[0]; });
     if (!items.length) return '';
-    return '<h2>' + g[1] + ' · ' + items.length + '</h2>' + items.map(function (l) {
+    return '<div class="group"><h2>' + g[1] + ' · ' + items.length + '</h2>' + items.map(function (l) {
       var st = statusLine(l);
-      return '<div class="item' + (l.id === current ? ' sel' : '') + '" onclick="openLead(' + l.id + ')"><div class="n">' +
-        esc(l.name || l.email || 'New patient') + '</div><div class="s' + (st[1] ? ' urgent' : '') + '">' + esc(st[0]) + '</div></div>';
-    }).join('');
+      return '<div class="item' + (l.id === current ? ' sel' : '') + '" onclick="openLead(' + l.id + ')"><div class="t"><div class="n">' +
+        esc(l.name || l.email || 'New patient') + '</div><div class="s' + (st[1] ? ' urgent' : '') + '">' + esc(st[0]) + '</div></div>' + CHEVRON + '</div>';
+    }).join('') + '</div>';
   }).join('');
 }
 
 // What the patient asked for, in their own words where we have them.
 function patientAsk(lead, chat, emails) {
   var lastIn = emails.filter(function (m) { return m.direction === 'in'; }).pop();
-  if (lastIn) return {src: 'Email', at: lastIn.sent_at, text: lastIn.body};
+  if (lastIn) return {src: 'Patient reply', at: lastIn.sent_at, text: lastIn.body};
   if (lead.message) return {src: 'Booking form', at: lead.created_at, text: lead.message};
   var said = chat.filter(function (m) { return m.role === 'user'; }).map(function (m) { return m.body; });
   var parts = [];
   if (lead.service) parts.push('Looking for: ' + lead.service);
-  if (lead.preferred_date || lead.preferred_time) parts.push('Prefers: ' + [lead.preferred_date, lead.preferred_time].filter(Boolean).join(', '));
   if (lead.phone) parts.push('Phone: ' + lead.phone);
   return {src: 'Website chat', at: lead.created_at, text: parts.length ? parts.join('\n') : said.join('\n')};
 }
 
+function historyRows(messages) {
+  return messages.map(function (m) {
+    return '<div class="row"><div class="who">' + (m.direction === 'in' ? 'Patient' : 'You') + ' · ' + when(m.sent_at) + '</div><div class="txt">' + esc(m.body) + '</div></div>';
+  }).join('') || '<div class="row"><div class="txt" style="color:var(--muted)">No emails yet.</div></div>';
+}
+
 async function openLead(id) {
   current = id; renderList();
-  var lead = leads.filter(function (l) { return l.id === id; })[0];
-  var detail = await api('/fd/leads/' + id); lead = Object.assign({}, lead, detail.lead || detail);
+  var row = leads.filter(function (l) { return l.id === id; })[0] || {};
+  var detail = await api('/fd/leads/' + id); var lead = Object.assign({}, row, detail.lead || detail);
   var mail = await api('/fd/leads/' + id + '/emails');
   var chat = lead.conversation_id ? list(await api('/fd/conversations/' + lead.conversation_id + '/messages'), 'messages') : [];
-  var draft = (mail.drafts || [])[0] || lead.draft;
-  var ask = patientAsk(lead, chat, mail.messages || []);
-  var c = mail.cadence;
-  var waitingOnThis = c && c.next_step && draft && draft.cadence_step === c.next_step.id;
-  var next = !c ? 'No automatic follow-ups' :
-    c.status !== 'active' ? 'Automatic follow-ups ' + esc(c.status) + (c.reason ? ' (' + esc(c.reason) + ')' : '') :
-    waitingOnThis ? 'Automatic follow-ups on. The reply above is waiting for your approval.' :
-    c.next_step ? 'Next automatic follow-up: ' + when(c.next_due_at) + ' (you approve it first)' : 'Follow-ups finished';
+  var draft = (mail.drafts || [])[0] || row.draft;
+  var msgs = mail.messages || [];
+  var ask = patientAsk(lead, chat, msgs);
+  var c = mail.cadence, g = groupOf(row.id ? row : lead);
+  var first = esc((lead.name || 'the patient').split(' ')[0]);
 
-  var hist = (mail.messages || []).map(function (m) {
-    return '<div class="row"><div class="who">' + (m.direction === 'in' ? 'Patient' : 'You') + ' · ' + when(m.sent_at) + (m.source === 'demo' ? ' · demo' : '') + '</div><div class="txt">' + esc(m.body) + '</div></div>';
-  }).join('') || '<div class="row"><div class="txt" style="color:var(--muted)">No emails yet.</div></div>';
-
-  var demoTools = demo ? '<div class="demo">Demo: pretend the patient replied<input id="sim" placeholder="e.g. Thursday morning works / I already booked">' +
+  var demoTools = demo && (g === 'reply' || g === 'waiting') ? '<div class="demo">Demo: pretend the patient replied<input id="sim" placeholder="e.g. Thursday morning works / I already booked">' +
     '<button class="btn" onclick="simulate(' + id + ')">Simulate reply</button> <button class="btn" onclick="skipDay()">Skip ahead 1 day</button></div>' : '';
 
-  var g = groupOf(lead);
-  var action;
-  if (g === 'reply' && draft) {
-    action = '<div class="label strong">Ready to send</div><textarea id="reply">' + esc(draft.body) + '</textarea>' +
-      '<div class="send"><span class="hint">' + (demo ? 'Demo: recorded, not emailed' : 'Sent by email after your approval') + '</span>' +
-      '<button class="btn primary" id="go" onclick="approve(' + draft.id + ')">Approve &amp; send</button></div>';
-  } else if (g === 'reply' || g === 'waiting') {
-    action = '<div class="label strong">' + (g === 'waiting' ? 'Waiting on ' + esc((lead.name || 'patient').split(' ')[0]) + ' · you emailed ' + ago(lead.last_email_at) : 'Write a reply') + '</div>' +
-      (g === 'waiting' ? '<div class="next" style="margin:-4px 0 12px">' + next + '</div>' : '') +
-      '<textarea id="reply" style="min-height:' + (g === 'waiting' ? '110px' : '200px') + '" placeholder="' + (g === 'waiting' ? 'Send another message (optional)' : 'Write your reply') + '"></textarea>' +
-      '<div class="send"><span class="hint">' + (demo ? 'Demo: recorded, not emailed' : 'Sent by email') + '</span>' +
-      '<button class="btn primary" id="go" onclick="sendNew(' + id + ')">Send</button></div>';
-  } else if (g === 'booked') {
-    action = '<div class="label strong">Appointment booked</div><div class="send" style="margin-top:0"><span class="hint">' + esc(lead.service || '') +
-      '</span><button class="btn primary" onclick="setStatus(' + id + ', \'completed\', \'Marked as visited\')">Mark visited</button></div>';
-  } else {
-    action = '<div class="label strong">Visited</div><div class="hint" style="color:var(--muted)">' + esc(lead.service || '') + ' · nothing to do.</div>';
-  }
-  var resolveBtn = (g === 'reply' || g === 'waiting') ? '<button class="btn" onclick="resolve(' + id + ')">Mark resolved</button>' :
-    (g === 'booked' ? '' : '');
-  var openHist = (g !== 'reply' || !draft) ? ' open' : '';
+  var html = '<div class="head"><div><h3>' + esc(lead.name || 'New patient') + '</h3><div class="c">' + esc(lead.email || '') + (lead.phone ? ' · ' + esc(lead.phone) : '') + '</div></div>' +
+    '<div class="acts">' + (g === 'reply' || g === 'waiting' ? '<button class="btn" onclick="resolve(' + id + ')">Mark resolved</button>' : '') +
+    '<button class="btn square" onclick="toggleMenu(\'lead-menu\', event)" aria-label="More actions">&middot;&middot;&middot;</button>' +
+    '<div class="menu" id="lead-menu">' +
+      (g !== 'booked' && g !== 'visited' ? '<button onclick="setStatus(' + id + ', \'booked\', \'Marked as booked\')">Mark as booked</button>' : '') +
+      (g === 'booked' ? '<button onclick="setStatus(' + id + ', \'completed\', \'Marked as visited\')">Mark visited</button>' : '') +
+      (lead.phone ? '<a href="tel:' + esc(lead.phone) + '">Call ' + esc(lead.phone) + '</a>' : '') +
+      '<a href="/frontdesk/full">Open detailed view</a></div></div></div>';
 
-  document.getElementById('detail').innerHTML =
-    '<div class="top"><div><h3>' + esc(lead.name || 'New patient') + '</h3><div class="e">' + esc(lead.email || '') + (lead.phone ? ' · ' + esc(lead.phone) : '') + '</div></div>' +
-      resolveBtn + '</div>' +
-    '<div class="label">' + ask.src + ' · ' + when(ask.at) + '</div><div class="ask">' + esc(ask.text || '(no message)') + '</div>' +
-    action +
-    '<details' + openHist + '><summary>Follow-up &amp; history</summary><div class="next">' + next + '</div><div class="hist">' + hist + '</div>' + (g === 'reply' || g === 'waiting' ? demoTools : '') + '</details>';
+  html += '<div class="lbl">' + ask.src + ' · ' + when(ask.at) + '</div><div class="ask">' + esc(ask.text || '(no message)') + '</div>';
+
+  if (g === 'reply' || g === 'waiting') {
+    var title = draft ? 'Ready to send' : (g === 'waiting' ? 'Waiting on ' + first + ' · emailed ' + ago(lead.last_email_at) : 'Write a reply');
+    html += '<hr class="rule"><div class="compose"><div class="top"><b>' + title + '</b><span class="ch">' + MAIL + 'Email</span></div>' +
+      '<textarea id="reply" style="' + (!draft && g === 'waiting' ? 'min-height:110px' : '') + '" placeholder="' + (g === 'waiting' ? 'Send another message (optional)' : 'Write your reply') + '">' + esc(draft ? draft.body : '') + '</textarea>' +
+      '<div class="bot"><span class="hint">' + (demo ? 'Demo: recorded, not emailed.' : (draft ? 'You can edit this message before sending.' : 'Sent from your clinic email.')) + '</span>' +
+      '<button class="btn dark" id="go" onclick="' + (draft ? 'approve(' + draft.id + ')' : 'sendNew(' + id + ')') + '">' + (draft ? 'Approve &amp; send' : 'Send') + '</button></div></div>';
+    var auto = !c ? 'No automatic follow-ups for this patient.' :
+      c.status === 'active' ? (draft && c.next_step && draft.cadence_step === c.next_step.id ? 'Follow-ups are prepared automatically.' :
+        'Next follow-up is prepared ' + (c.next_due_at ? when(c.next_due_at) : 'automatically') + ', for your approval.') :
+      'Automatic follow-ups ' + esc(c.status) + '.';
+    html += '<div class="note">' + (c && c.status === 'active' ? SHIELD : STOPPED) + auto + '</div>';
+    html += '<details><summary>' + CHEVRON + 'Follow-up &amp; history</summary><div class="hist">' + historyRows(msgs) + '</div>' + demoTools + '</details>';
+  } else {
+    var whenTxt = lead.preferred_date ? esc(lead.preferred_date) + (lead.preferred_time ? '<br>' + esc(lead.preferred_time) : '') : 'Time to be confirmed';
+    var by = c && c.reason && c.reason.indexOf('patient') === 0 ? 'Booked by patient' : 'Booked by front desk';
+    html += '<div class="booked"><div class="l">' + CHECK + '<div><div class="k">' + (g === 'visited' ? 'Visited' : 'Appointment booked') + '</div>' +
+      '<div class="when">' + whenTxt + '</div><div class="svc">' + esc(lead.service || '') + '</div></div></div>' +
+      '<div class="r"><span class="hint">' + (g === 'visited' ? 'Patient came in' : by) + '</span>' +
+      (g === 'booked' ? '<button class="btn dark" onclick="setStatus(' + id + ', \'completed\', \'Marked as visited\')">Mark visited</button>' : '') + '</div></div>';
+    html += '<div class="note">' + STOPPED + 'Automatic follow-ups stopped</div><hr class="rule" style="margin:6px 0 0">';
+    html += '<div class="histh">Conversation history</div><div class="hist">' + historyRows(msgs) + '</div>';
+  }
+  document.getElementById('detail').innerHTML = html;
+}
+
+async function approve(draftId) {
+  var body = document.getElementById('reply').value.trim();
+  if (!draftId || !body) return;
+  var b = document.getElementById('go'); b.disabled = true; b.textContent = 'Sending…';
+  try {
+    await api('/fd/drafts/' + draftId + '/send', {method: 'POST', body: {body: body}});
+    toast(demo ? 'Recorded (demo)' : 'Sent');
+    current = null; await load();
+  } catch (e) { b.disabled = false; b.textContent = 'Approve & send'; }
 }
 
 async function sendNew(id) {
@@ -230,18 +302,8 @@ async function sendNew(id) {
 
 async function setStatus(id, status, msg) {
   await api('/fd/leads/' + id + '/status', {method: 'PATCH', body: {status: status}});
+  if (status === 'booked' || status === 'completed') await api('/fd/leads/' + id + '/cadence', {method: 'POST', body: {action: 'stop'}}).catch(function () {});
   toast(msg); await load(); openLead(id);
-}
-
-async function approve(draftId) {
-  var body = document.getElementById('reply').value.trim();
-  if (!draftId || !body) return;
-  var b = document.getElementById('go'); b.disabled = true; b.textContent = 'Sending…';
-  try {
-    await api('/fd/drafts/' + draftId + '/send', {method: 'POST', body: {body: body}});
-    toast(demo ? 'Recorded (demo)' : 'Sent');
-    current = null; await load();
-  } catch (e) { b.disabled = false; b.textContent = 'Approve & send'; }
 }
 
 async function resolve(id) {
@@ -262,13 +324,13 @@ async function skipDay() {
   toast('A day later: ' + r.drafts_created + ' follow-up(s) ready'); await load();
 }
 
-// ── Sign-in (code by email; one-click on local demos) ─────────────────────
+// ── Sign-in (code by email; one click on local demos) ─────────────────────
 function logout() { localStorage.removeItem('fd_jwt'); showLogin(); }
 function showLogin() {
   document.getElementById('root').innerHTML = '<div class="login" style="flex:1"><h3 style="margin:0 0 6px">Sign in</h3>' +
     '<input id="l-slug" placeholder="Clinic ID" value="' + esc(localStorage.getItem('fd_slug') || new URLSearchParams(location.search).get('clinic') || '') + '">' +
     '<input id="l-email" type="email" placeholder="Work email"><input id="l-code" placeholder="6-digit code" style="display:none" inputmode="numeric" autocomplete="one-time-code">' +
-    '<div class="err" id="l-err"></div><button class="btn primary" id="l-go" onclick="loginStep()">Email me a code</button>' +
+    '<div class="err" id="l-err"></div><button class="btn dark" id="l-go" onclick="loginStep()">Email me a code</button>' +
     '<button class="btn" id="l-demo" style="display:none" onclick="demoLogin()">Open demo</button></div>';
   fetch(API + '/auth/demo').then(function (r) { return r.json(); }).then(function (d) { if (d.available) document.getElementById('l-demo').style.display = ''; }).catch(function () {});
 }
@@ -280,7 +342,7 @@ async function loginStep() {
   var r = await fetch(API + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tenant_slug: slug, email: email, code: (document.getElementById('l-code') || {}).value})});
   var d = await r.json();
   if (!r.ok) { err.textContent = d.detail || 'Could not sign in'; return; }
-  if (!codeSent) { codeSent = true; document.getElementById('l-code').style.display = ''; document.getElementById('l-go').textContent = 'Sign in'; err.style.color = 'var(--accent)'; err.textContent = 'Check your email for the code.'; return; }
+  if (!codeSent) { codeSent = true; document.getElementById('l-code').style.display = ''; document.getElementById('l-go').textContent = 'Sign in'; err.style.color = 'var(--sage)'; err.textContent = 'Check your email for the code.'; return; }
   localStorage.setItem('fd_jwt', d.access_token); localStorage.setItem('fd_slug', slug); location.reload();
 }
 async function demoLogin() {
@@ -292,8 +354,13 @@ async function init() {
   if (!localStorage.getItem('fd_jwt')) { showLogin(); return; }
   try {
     var m = await api('/fd/mailbox'); demo = !!m.demo_mode;
-    document.getElementById('mode').textContent = demo ? 'Demo · emails are not really sent' : (m.connected ? 'Sending from ' + m.address : 'Mailbox not connected');
-    var t = list(await api('/tenants').catch(function () { return []; }), 'tenants')[0]; if (t && t.name) document.getElementById('clinic').textContent = t.name;
+    var mode = document.getElementById('mode');
+    if (demo || !m.connected) { mode.style.display = ''; mode.textContent = demo ? 'Demo · emails are not really sent' : 'Mailbox not connected'; }
+    var t = list(await api('/tenants').catch(function () { return []; }), 'tenants')[0];
+    if (t && t.name) {
+      document.getElementById('clinic').textContent = t.name;
+      document.getElementById('initials').textContent = t.name.split(/\s+/).filter(function (w) { return /^[A-Za-z]/.test(w); }).slice(0, 2).map(function (w) { return w[0].toUpperCase(); }).join('');
+    }
     await load();
     setInterval(function () { var a = document.activeElement; if (!a || (a.tagName !== 'TEXTAREA' && a.tagName !== 'INPUT')) load(); }, 30000);
   } catch (e) {}
