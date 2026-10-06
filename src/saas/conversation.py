@@ -45,8 +45,8 @@ class ConversationContext(BaseModel):
 
 
 DEFAULT_GREETING = "Hi! How can we help today?"
-DEFAULT_SERVICE_OPTIONS = ["Cleaning & checkup", "New patient visit", "Tooth pain or emergency",
-                           "Cosmetic (whitening, veneers)", "Crowns, fillings or implants", "Something else"]
+DEFAULT_SERVICE_OPTIONS = ["Checkup & cleaning", "Implants", "Restorative (fillings, crowns)", "Emergency",
+                           "Something else"]
 WELCOME_BY_INTENT = {
     "appointment_request": "Sure, I can help with that. What's your name?",
     "emergency": "I'm sorry you're in pain. Let's get you help fast. What's your name?",
@@ -92,7 +92,9 @@ def _rule_fields(body: str, asked: str | None) -> dict[str, Any]:
     elif any(k in lowered for k in ["cleaning", "checkup", "check-up", "exam", "appointment", "whitening", "crown",
                                     "filling", "implant", "consult"]):
         out["intent"] = "appointment_request"
-    service = next((k for k in _SERVICES if k in lowered), None)
+    # Whole words only, and never inside an email address ("avi@example.test" is not an "exam").
+    words_only = _EMAIL.sub(" ", lowered)
+    service = next((k for k in _SERVICES if re.search(r"\b" + re.escape(k) + r"\b", words_only)), None)
     if service:
         out["service"] = service
     if asked == "service" and "intent" not in out and not out.get("email"):
@@ -108,7 +110,8 @@ class ConversationEngine:
               visitor_id: str | None) -> dict:
         conv = create_conversation(tenant_id, page_url, referrer, user_agent, visitor_id)
         append_message(conv["id"], "assistant", self.config.get("greeting", DEFAULT_GREETING))
-        return {"conversation_id": conv["id"], "state": State.STARTED.value, "reply": self.config.get("greeting", DEFAULT_GREETING)}
+        return {"conversation_id": conv["id"], "state": State.STARTED.value,
+                "reply": self.config.get("greeting", DEFAULT_GREETING), "options": self.options_for(None)}
 
     def handle(self, context: ConversationContext, body: str) -> dict:
         context.turn_count += 1
@@ -141,7 +144,8 @@ class ConversationEngine:
 
     def options_for(self, field: str | None) -> list[str]:
         """Tap-to-answer choices shown under a question. Clinics can override via the 'service_options' setting."""
-        if field != "service":
+        # None = the opening greeting: offer the same choices so one tap answers "how can we help?"
+        if field not in (None, "service"):
             return []
         custom = self.config.get("service_options")
         if isinstance(custom, list) and custom:
@@ -172,6 +176,8 @@ class ConversationEngine:
                 logger.exception("AI intake extraction failed; using rules")
         for key, value in _rule_fields(body, asked).items():
             out.setdefault(key, value)
+        if existing.get("service") and "service" in out and asked != "service":
+            out.pop("service")  # keep what the patient already chose
         # A tapped choice is the patient's exact answer: store the label they picked.
         picked = next((o for o in self.options_for(asked) if o.lower() == body.strip().lower()), None)
         if picked:

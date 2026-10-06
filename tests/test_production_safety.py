@@ -38,3 +38,16 @@ def test_no_hardcoded_mail_credentials_in_source():
     for f in src.rglob("*.py"):
         text = f.read_text()
         assert "iapjgasrmazuzqgd" not in text and "parulmaterial@" not in text, f
+
+
+def test_production_never_fakes_a_send(production):
+    from saas import mailbox
+    from saas.repositories import create_ai_draft, create_lead
+    t = create_tenant(slug=f"p-{uuid.uuid4().hex[:6]}", name="P")
+    lead = create_lead(t.id, {"name": "Pat", "email": "pat@x.test"})
+    d = create_ai_draft(t.id, lead_id=lead["id"], subject="Hi", body="Hello")
+    assert mailbox.demo_mode(t.id) is False
+    with pytest.raises(mailbox.MailboxError, match="not connected"):
+        mailbox.send_draft(t.id, d["id"])
+    with pytest.raises(mailbox.MailboxError):
+        mailbox.simulate_reply(t.id, lead["id"], "hi")

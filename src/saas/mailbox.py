@@ -100,7 +100,8 @@ def mailbox_status(tenant_id: int) -> dict:
     s = get_settings_row(tenant_id) or {}
     from saas import google_oauth
     connected = is_connected(tenant_id)
-    return {"connected": connected, "address": s.get("smtp_user") if connected else None,
+    return {"connected": connected, "demo_mode": demo_mode(tenant_id),
+            "address": s.get("smtp_user") if connected else None,
             "from_name": s.get("from_name"), "method": (s.get("auth_type") or "password") if connected else None,
             "google_sign_in_available": google_oauth.available(),
             "last_sync_at": s.get("last_sync_at"), "last_sync_error": s.get("last_sync_error")}
@@ -122,6 +123,12 @@ def test_mailbox(tenant_id: int) -> dict:
         out["imap"] = _friendly(e)
     out["ok"] = out["smtp"] == "ok" and out["imap"] == "ok"
     return out
+
+
+def demo_mode(tenant_id: int) -> bool:
+    """Local demos only: no mailbox connected and not a production server. Emails are recorded, not sent."""
+    from saas.repositories import _demo_allowed
+    return not is_connected(tenant_id) and _demo_allowed()
 
 
 def _require(tenant_id: int) -> dict:
@@ -224,7 +231,8 @@ def send_draft(tenant_id: int, draft_id: int, *, subject: str | None = None, bod
     """Send an approved draft from the clinic mailbox to the patient. Edits may be passed in at send time."""
     from saas.repositories import get_lead
 
-    s = _require(tenant_id)
+    demo = demo_mode(tenant_id)
+    s = (get_settings_row(tenant_id) or {}) if demo else _require(tenant_id)
     with connect() as c:
         draft = row(c, "SELECT * FROM ai_drafts WHERE id = ? AND tenant_id = ?", draft_id, tenant_id)
     if not draft:
@@ -247,7 +255,7 @@ def send_draft(tenant_id: int, draft_id: int, *, subject: str | None = None, bod
         base = re.sub(r"^(re:\s*)+", "", root_subject, flags=re.I)
         subj = f"Re: {base}"
 
-    sender = s["from_email"] or s["smtp_user"]
+    sender = s.get("from_email") or s.get("smtp_user") or "frontdesk@clinic.demo"
     msg = EmailMessage()
     msg["From"] = f'{s["from_name"]} <{sender}>' if s.get("from_name") else sender
     msg["To"] = recipient
@@ -260,8 +268,9 @@ def send_draft(tenant_id: int, draft_id: int, *, subject: str | None = None, bod
     msg.set_content(text)
 
     try:
-        with _smtp(s) as conn:
-            conn.send_message(msg)
+        if not demo:
+            with _smtp(s) as conn:
+                conn.send_message(msg)
     except Exception as e:
         err = _friendly(e)
         with connect() as c:
@@ -275,14 +284,28 @@ def send_draft(tenant_id: int, draft_id: int, *, subject: str | None = None, bod
                   "updated_at = ? WHERE id = ?", (subj, text, recipient, now, now, draft_id))
     record_message(tenant_id, lead["id"], "out", msg["Message-ID"], from_addr=sender, to_addr=recipient,
                    subject=subj, body=text, sent_at=now, in_reply_to=in_reply_to, references=references,
-                   draft_id=draft_id, cadence_step=draft.get("cadence_step"))
+                   draft_id=draft_id, cadence_step=draft.get("cadence_step"), source="demo" if demo else "heyjarvis")
 
     from saas import cadence
     cadence.on_outbound(tenant_id, lead["id"], draft.get("cadence_step"))
     if lead.get("status") == "new":
         from saas.repositories import update_lead
         update_lead(lead["id"], status="contacted")
-    return {"ok": True, "message_id": msg["Message-ID"], "to": recipient, "subject": subj}
+    return {"ok": True, "message_id": msg["Message-ID"], "to": recipient, "subject": subj, "demo": demo}
+
+
+def simulate_reply(tenant_id: int, lead_id: int, text: str) -> dict:
+    """Demo only: pretend the patient replied, so the cadence rules can be shown reacting."""
+    from saas import cadence
+    from saas.repositories import get_lead
+    if not demo_mode(tenant_id):
+        raise MailboxError("Simulated replies are only available in demo mode.")
+    lead = get_lead(lead_id)
+    in_reply_to, references, root = _thread_headers(tenant_id, lead_id)
+    saved = record_message(tenant_id, lead_id, "in", make_msgid(domain="patient.demo"), from_addr=lead.get("email"),
+                           to_addr=None, subject=f"Re: {root}" if root else "Re: your appointment request",
+                           body=text.strip(), in_reply_to=in_reply_to, references=references, source="demo")
+    return cadence.on_reply(tenant_id, lead_id, saved)
 
 
 # ── Sync replies ─────────────────────────────────────────────────────────────

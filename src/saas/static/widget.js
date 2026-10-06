@@ -130,6 +130,7 @@
         }).then(function (data) {
           conversationId = data.conversation_id;
           if (data.reply) appendBubble(esc(data.reply));
+          hostedOptions(data.options);
           return data;
         });
       }
@@ -1153,6 +1154,7 @@
         if (data.reply) {
           appendBubble(esc(data.reply));
         }
+        showOptions(data.options);
         return data;
       });
     }

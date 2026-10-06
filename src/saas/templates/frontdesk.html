@@ -78,7 +78,7 @@ body{font:14px/1.5 'Inter',system-ui,-apple-system,sans-serif;background:var(--b
 .msg .text{font-size:13px;line-height:1.5}
 .msg .ts{font-size:10px;color:var(--muted);margin-top:4px;opacity:.7}
 .msg.ai-draft{border:2px dashed var(--accent);background:#f0fdfa}
-.msg.ai-draft::before{content:'🤖 AI Draft';display:block;font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px}
+.msg.ai-draft::before{content:'AI Draft';display:block;font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px}
 .reply-box{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;flex-shrink:0;background:var(--card)}
 .reply-box textarea{flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;resize:none;min-height:42px;max-height:120px;background:var(--card);color:var(--text)}
 .reply-box textarea:focus{outline:none;border-color:var(--accent)}
@@ -167,19 +167,23 @@ body{font:14px/1.5 'Inter',system-ui,-apple-system,sans-serif;background:var(--b
 </head>
 <body>
 <div class="header">
-  <div><h1>🦷 HeyJarvis Front Desk</h1><div class="sub" id="tenant-name">Loading…</div></div>
+  <div><h1>HeyJarvis Front Desk</h1><div class="sub" id="tenant-name">Loading…</div></div>
   <div class="right">
     <div class="insights" id="insights"></div>
     <div style="font-size:12px;opacity:.75" id="clock"></div>
-    <a href="/desk" style="background:rgba(255,255,255,.18);color:#fff;text-decoration:none;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px">⚛️ React 19 App</a>
-    <button class="hdr-btn" id="theme-btn" onclick="toggleTheme()" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px" title="Toggle Theme">🌙</button>
-    <button class="hdr-btn" id="sound-btn" onclick="toggleSound()" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px" title="Toggle Sound Chime">🔔</button>
+    <a href="/desk" style="background:rgba(255,255,255,.18);color:#fff;text-decoration:none;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px">React 19 App</a>
+    <button class="hdr-btn" id="theme-btn" onclick="toggleTheme()" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px" title="Toggle Theme">Dark</button>
+    <button class="hdr-btn" id="sound-btn" onclick="toggleSound()" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px" title="Toggle Sound Chime">Sound on</button>
     <span id="mail-status" style="font-size:12px;opacity:.85"></span>
     <button class="hdr-btn" onclick="syncMail()" title="Pull patient replies from the clinic mailbox now">Sync mail</button>
     <button class="hdr-btn" onclick="runCadence()" title="Create follow-up drafts that are due now">Run follow-ups</button>
+    <button class="hdr-btn demo-only" style="display:none" onclick="fastForward()" title="Demo: pretend a day has passed so the next follow-ups come due">Skip ahead 1 day</button>
     <button class="hdr-btn" onclick="openSettings()">Settings</button>
     <button class="hdr-btn" onclick="logout()">Logout</button>
   </div>
+</div>
+<div id="demo-banner" style="display:none;background:#fef3c7;color:#78350f;font-size:12px;padding:6px 24px;border-bottom:1px solid #fde68a">
+  <b>Demo mode</b>: no clinic mailbox is connected, so "Send" records the email in the thread without emailing anyone. Use <b>Simulate patient reply</b> and <b>Skip ahead 1 day</b> to walk through the follow-up flow.
 </div>
 <div class="stats" id="stats"></div>
 <div class="layout">
@@ -196,7 +200,7 @@ body{font:14px/1.5 'Inter',system-ui,-apple-system,sans-serif;background:var(--b
       <div class="sidebar-tab" data-cat="tasks" onclick="setCategory('tasks',this)">Tasks</div>
     </div>
     <div class="search-box" style="padding:8px 12px;border-bottom:1px solid var(--border)">
-      <input id="filter-search" type="text" placeholder="🔍 Search patient, phone, intent..." oninput="onFilterSearch(this.value)" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--card);color:var(--text);outline:none">
+      <input id="filter-search" type="text" placeholder="Search patient, phone, intent..." oninput="onFilterSearch(this.value)" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--card);color:var(--text);outline:none">
     </div>
     <div class="filter-bar">
       <select id="filter-status" onchange="loadLeads()"><option value="">All status</option><option value="new">New</option><option value="contacted">Contacted</option><option value="booked">Booked</option><option value="closed">Closed</option><option value="spam">Spam</option></select>
@@ -205,17 +209,17 @@ body{font:14px/1.5 'Inter',system-ui,-apple-system,sans-serif;background:var(--b
     <div class="lead-list" id="lead-list"><div class="empty-state" style="padding:40px 20px">Loading…</div></div>
   </div>
   <div class="main" id="main">
-    <div class="empty-state"><div><div style="font-size:40px;margin-bottom:12px">🦷</div><div style="font-weight:600;margin-bottom:4px">HeyJarvis AI Front Desk</div><div style="font-size:13px;max-width:300px">Select a conversation from the sidebar to view details, use AI tools, and respond to patients.</div></div></div>
+    <div class="empty-state"><div><div style="font-size:40px;margin-bottom:12px"></div><div style="font-weight:600;margin-bottom:4px">HeyJarvis AI Front Desk</div><div style="font-size:13px;max-width:300px">Select a conversation from the sidebar to view details, use AI tools, and respond to patients.</div></div></div>
   </div>
   <div class="right-panel" id="right-panel">
-    <div class="empty-state" style="height:100%"><div><div style="font-size:32px;margin-bottom:8px">✨</div><div style="font-size:13px">AI tools and patient context will appear here when you open a conversation.</div></div></div>
+    <div class="empty-state" style="height:100%"><div><div style="font-size:32px;margin-bottom:8px"></div><div style="font-size:13px">AI tools and patient context will appear here when you open a conversation.</div></div></div>
   </div>
 </div>
 
 <!-- New Note Modal -->
 <div class="modal-overlay" id="note-modal">
   <div class="modal">
-    <h3>📝 New Internal Note</h3>
+    <h3>New Internal Note</h3>
     <textarea id="note-text" placeholder="Add a note about this conversation..."></textarea>
     <div class="modal-actions">
       <button onclick="closeNoteModal()">Cancel</button>
@@ -263,7 +267,7 @@ body{font:14px/1.5 'Inter',system-ui,-apple-system,sans-serif;background:var(--b
 <!-- New Task Modal -->
 <div class="modal-overlay" id="task-modal">
   <div class="modal">
-    <h3>📋 New Task</h3>
+    <h3>New Task</h3>
     <input type="text" id="task-title" placeholder="Task description">
     <select id="task-priority" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:8px">
       <option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select>
@@ -328,7 +332,7 @@ async function api(path, opts) {
 
 function showLogin() {
   document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:14px;font-family:system-ui,sans-serif;background:#f5f6f8">' +
-    '<h2 style="color:#1f3b2e">🦷 Front Desk Login</h2>' +
+    '<h2 style="color:#1f3b2e">Front Desk Login</h2>' +
     '<div style="background:#fff;padding:28px 32px;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,.08);width:340px">' +
     '<input id="fd-slug" type="text" placeholder="Clinic ID (e.g. raleigh-dental)" style="width:100%;padding:10px 14px;margin-bottom:10px;border:1px solid #ddd;border-radius:10px;font-size:15px">' +
     '<input id="fd-email" type="email" placeholder="Email" style="width:100%;padding:10px 14px;margin-bottom:10px;border:1px solid #ddd;border-radius:10px;font-size:15px">' +
@@ -600,7 +604,7 @@ function renderMain(lead, messages, notes, tasks, drafts) {
     '<div class="badges">' + intentBadge + (lead.service ? '<span class="badge" style="background:#f3f4f6;color:#6b7280">' + lead.service + '</span>' : '') + '</div></div>' +
     '<div class="detail-actions">' +
     '<select id="status-select" onchange="updateStatus(' + lead.id + ',this.value)"><option value="">Change status…</option><option value="new">New</option><option value="contacted">Contacted</option><option value="qualified">Qualified</option><option value="booked">Booked</option><option value="closed">Closed</option><option value="spam">Spam</option></select>' +
-    '<button onclick="copyPatientSummary(' + lead.id + ')">📋 Copy</button>' +
+    '<button onclick="copyPatientSummary(' + lead.id + ')">Copy</button>' +
     '<button onclick="retryNotify(' + lead.id + ')" title="Re-send the new-lead alert to the front desk">Re-alert desk</button>' +
     '<button onclick="showNoteModal()">+ Note</button>' +
     '<button onclick="showTaskModal()">+ Task</button>' +
@@ -632,11 +636,16 @@ function renderMain(lead, messages, notes, tasks, drafts) {
   }
   if (notes.length) {
     notes.forEach(function(n) {
-      html += '<div class="msg" style="background:#fffbeb;border:1px solid #fde68a;margin-left:auto;text-align:right"><div class="who" style="color:var(--amber)">📝 Internal Note</div><div class="text">' + esc(n.note) + '</div><div class="ts">' + new Date(n.created_at).toLocaleString() + '</div></div>';
+      html += '<div class="msg" style="background:#fffbeb;border:1px solid #fde68a;margin-left:auto;text-align:right"><div class="who" style="color:var(--amber)">Internal Note</div><div class="text">' + esc(n.note) + '</div><div class="ts">' + new Date(n.created_at).toLocaleString() + '</div></div>';
     });
   }
   html += renderEmails(mail.messages || []);
   html += renderDrafts(mail.drafts || []);
+  if (window.demoMode && (mail.messages || []).some(function(m) { return m.direction === 'out'; })) {
+    html += '<div class="draft" style="border-color:#f59e0b;background:#fffbeb"><div style="font-size:11px;font-weight:600;color:#92400e;margin-bottom:6px">Demo: simulate the patient replying by email</div>' +
+      '<textarea id="sim-reply" style="min-height:60px" placeholder="e.g. Thursday morning works for me / I already booked by phone / Please stop emailing me"></textarea>' +
+      '<div class="row"><span>The reply is classified and the cadence rules run, like a real email.</span><button class="btn primary" onclick="simulateReply(' + lead.id + ')">Simulate reply</button></div></div>';
+  }
   html += '</div>';
 
   // Composer
@@ -644,19 +653,19 @@ function renderMain(lead, messages, notes, tasks, drafts) {
     '<button onclick="aiDraftFromBox()" style="background:var(--purple)" title="AI writes a draft from your instruction; you review it before sending">AI draft</button>' +
     '<button onclick="sendReply()" title="Email this text to the patient now from the clinic mailbox">Send email</button></div>';
   html += '<div id="ai-panel" style="display:none;padding:8px 18px;border-top:1px solid #ddd6fe;background:#faf5ff">' +
-    '<div style="font-size:11px;color:var(--purple);font-weight:600;margin-bottom:4px">✨ AI Assistance</div>' +
+    '<div style="font-size:11px;color:var(--purple);font-weight:600;margin-bottom:4px">AI Assistance</div>' +
     '<div style="display:flex;gap:5px;flex-wrap:wrap">' +
-    '<button class="ai-btn" onclick="aiDraft()" title="Generate full email draft">✉️ Draft Email</button>' +
-    '<button class="ai-btn" onclick="aiShortReply()" title="Quick reply suggestion">💬 Quick Reply</button>' +
-    '<button class="ai-btn" onclick="aiSummarize()" title="Summarize this conversation">📋 Summarize</button>' +
-    '<button class="ai-btn" onclick="aiNextAction()" title="AI recommended action">🎯 Next Action</button>' +
-    '<button class="ai-btn" onclick="aiFollowUp()" title="Generate follow-up">🔄 Follow Up</button>' +
-    '<button class="ai-btn" onclick="aiConfirm()" title="Appointment confirmation">✅ Confirm</button>' +
-    '<button class="ai-btn" onclick="aiShorten()" title="Make shorter">🔽 Shorten</button>' +
-    '<button class="ai-btn" onclick="aiWarmer()" title="Make warmer">🔥 Warmer</button>' +
+    '<button class="ai-btn" onclick="aiDraft()" title="Generate full email draft">Draft Email</button>' +
+    '<button class="ai-btn" onclick="aiShortReply()" title="Quick reply suggestion">Quick Reply</button>' +
+    '<button class="ai-btn" onclick="aiSummarize()" title="Summarize this conversation">Summarize</button>' +
+    '<button class="ai-btn" onclick="aiNextAction()" title="AI recommended action">Next Action</button>' +
+    '<button class="ai-btn" onclick="aiFollowUp()" title="Generate follow-up">Follow Up</button>' +
+    '<button class="ai-btn" onclick="aiConfirm()" title="Appointment confirmation">Confirm</button>' +
+    '<button class="ai-btn" onclick="aiShorten()" title="Make shorter">Shorten</button>' +
+    '<button class="ai-btn" onclick="aiWarmer()" title="Make warmer">Warmer</button>' +
     '</div>' +
     '<div id="ai-result"></div></div>';
-  html += '<div class="actions"><span style="color:var(--muted);font-size:12px">💡 Tip: Use AI buttons below the composer for smart suggestions. Type instructions like "offer 10:30 AM tomorrow" in the reply box and press Send.</span></div>';
+  html += '<div class="actions"><span style="color:var(--muted);font-size:12px">Tip: Use AI buttons below the composer for smart suggestions. Type instructions like "offer 10:30 AM tomorrow" in the reply box and press Send.</span></div>';
 
   document.getElementById('main').innerHTML = html;
   document.getElementById('reply-text')?.focus();
@@ -682,14 +691,14 @@ function renderRightPanel(lead, notes, tasks) {
 
   // AI Quick Actions
   html += '<div class="right-section"><h3>AI Actions</h3><div class="ai-quick">' +
-    '<button onclick="aiDraft()"><span class="icon">✉️</span> Draft Email</button>' +
-    '<button onclick="aiQuickReply()"><span class="icon">💬</span> Quick Reply</button>' +
-    '<button onclick="aiSummarize()"><span class="icon">📋</span> Summarize</button>' +
-    '<button onclick="aiNextAction()"><span class="icon">🎯</span> Next Action</button>' +
-    '<button onclick="aiFollowUp()"><span class="icon">🔄</span> Follow Up</button>' +
-    '<button onclick="aiConfirm()"><span class="icon">✅</span> Confirm Appt</button>' +
-    '<button onclick="aiClassify()"><span class="icon">🏷️</span> Classify</button>' +
-    '<button onclick="aiParseTime()"><span class="icon">🕐</span> Parse Time</button>' +
+    '<button onclick="aiDraft()"><span class="icon"></span> Draft Email</button>' +
+    '<button onclick="aiQuickReply()"><span class="icon"></span> Quick Reply</button>' +
+    '<button onclick="aiSummarize()"><span class="icon"></span> Summarize</button>' +
+    '<button onclick="aiNextAction()"><span class="icon"></span> Next Action</button>' +
+    '<button onclick="aiFollowUp()"><span class="icon"></span> Follow Up</button>' +
+    '<button onclick="aiConfirm()"><span class="icon"></span> Confirm Appt</button>' +
+    '<button onclick="aiClassify()"><span class="icon"></span> Classify</button>' +
+    '<button onclick="aiParseTime()"><span class="icon"></span> Parse Time</button>' +
     '</div><div id="ai-result-side"></div></div>';
 
   // Notes
@@ -735,7 +744,7 @@ async function sendReply() {
   if (!confirm('Email this to the patient now from the clinic mailbox?')) return;
   try {
     await send('/fd/leads/' + currentLeadId + '/reply', 'POST', {body: text});
-    toast('Email sent'); document.getElementById('reply-text').value = '';
+    toast(window.demoMode ? 'Demo: email recorded (not sent)' : 'Email sent'); document.getElementById('reply-text').value = '';
     loadStats(); loadLeads(); openLead(currentLeadId);
   } catch (e) {}
 }
@@ -756,7 +765,7 @@ function renderEmails(list) {
   if (!list.length) return html + '<div style="color:var(--muted);font-size:13px;padding:6px 0">No emails yet</div>';
   return html + list.map(function(m) {
     var cls = m.direction === 'in' ? 'in' : 'out';
-    var who = m.direction === 'in' ? 'Patient' : 'Clinic' + (m.source === 'mailbox' ? ' (sent from Gmail)' : '');
+    var who = (m.direction === 'in' ? 'Patient' : 'Clinic' + (m.source === 'mailbox' ? ' (sent from Gmail)' : '')) + (m.source === 'demo' ? ' (demo)' : '');
     var tag = m.classification ? ' <span class="tag">' + esc(m.classification.intent.replace(/_/g, ' ')) + '</span>' : '';
     var step = m.cadence_step ? ' <span class="tag" style="background:#ecfdf5;color:#065f46">' + esc(m.cadence_step.replace(/_/g, ' ')) + '</span>' : '';
     return '<div class="email ' + cls + '"><div class="meta"><b>' + who + '</b>' + tag + step + '<span>' + fmt(m.sent_at) + '</span><span>' + esc(m.subject || '') + '</span></div>' +
@@ -784,7 +793,7 @@ async function sendDraft(id) {
   if (!body.body.trim()) { toast('Draft is empty'); return; }
   try {
     var r = await send('/fd/drafts/' + id + '/send', 'POST', body);
-    editingDraft = false; toast('Sent to ' + r.to); loadStats(); loadLeads(); openLead(currentLeadId);
+    editingDraft = false; toast((r.demo ? 'Demo: recorded as sent to ' : 'Sent to ') + r.to); loadStats(); loadLeads(); openLead(currentLeadId);
   } catch (e) {}
 }
 
@@ -808,6 +817,24 @@ async function cadenceAction(leadId, action) {
   try { await send('/fd/leads/' + leadId + '/cadence', 'POST', {action: action}); openLead(leadId); } catch (e) {}
 }
 
+async function simulateReply(leadId) {
+  var text = (document.getElementById('sim-reply') || {}).value || '';
+  if (!text.trim()) { toast('Type what the patient replied'); return; }
+  try {
+    var r = await send('/fd/demo/leads/' + leadId + '/reply', 'POST', {body: text});
+    toast('Reply read as "' + r.intent.replace(/_/g, ' ') + '"' + (r.applied.length ? ': ' + r.applied.join(', ') : ''));
+    loadStats(); loadLeads(); openLead(leadId);
+  } catch (e) {}
+}
+
+async function fastForward() {
+  try {
+    var r = await send('/fd/demo/fast-forward', 'POST', {hours: 24});
+    toast('A day later: ' + r.drafts_created + ' follow-up draft(s) ready to approve');
+    loadStats(); loadLeads(); if (currentLeadId) openLead(currentLeadId);
+  } catch (e) {}
+}
+
 async function syncMail() {
   toast('Checking the clinic mailbox…');
   try { var r = await send('/fd/mailbox/sync'); toast(r.inbound + ' new replies, ' + r.outbound + ' sent from Gmail'); loadMailStatus(); loadLeads(); if (currentLeadId) openLead(currentLeadId); } catch (e) {}
@@ -820,7 +847,10 @@ async function runCadence() {
 async function loadMailStatus() {
   try {
     var m = await getJson('/fd/mailbox');
-    document.getElementById('mail-status').textContent = m.connected ? ('✉ ' + m.address + (m.last_sync_error ? ' · sync error' : '')) : '✉ mailbox not connected';
+    window.demoMode = !!m.demo_mode;
+    document.getElementById('mail-status').textContent = m.connected ? (m.address + (m.last_sync_error ? ' · sync error' : '')) : (m.demo_mode ? 'Demo mode' : 'Mailbox not connected');
+    document.getElementById('demo-banner').style.display = m.demo_mode ? '' : 'none';
+    document.querySelectorAll('.demo-only').forEach(function(el) { el.style.display = m.demo_mode ? '' : 'none'; });
     return m;
   } catch (e) {}
 }
@@ -905,7 +935,7 @@ function renderCadenceEditor() {
     return '<div class="rule-row"><div class="two" style="display:grid;grid-template-columns:1fr 2fr auto;gap:6px;align-items:end">' +
       '<div><label>If reply is</label><input data-r="when" data-i="' + i + '" value="' + esc(r.when.join(', ')) + '"></div>' +
       '<div><label>Then</label><input data-r="do" data-i="' + i + '" value="' + esc(r.do.join(', ')) + '"></div>' +
-      '<button class="btn danger" onclick="removeRule(' + i + ')">✕</button></div></div>';
+      '<button class="btn danger" onclick="removeRule(' + i + ')"></button></div></div>';
   }).join('');
 }
 
@@ -960,10 +990,10 @@ async function retryNotify(lid) {
 function showAiResult(text, where) {
   var el = document.getElementById(where || 'ai-result');
   if (!el) return;
-  el.innerHTML = '<div class="ai-result"><div class="label">✨ AI Generated</div>' + escapeHtml(text) + '<div class="draft-actions"><button onclick="useAiText(\'' + escapeAttr(text) + '\')">Use this text</button><button onclick="copyAiText(\'' + escapeAttr(text) + '\')">Copy</button></div></div>';
+  el.innerHTML = '<div class="ai-result"><div class="label">AI Generated</div>' + escapeHtml(text) + '<div class="draft-actions"><button onclick="useAiText(\'' + escapeAttr(text) + '\')">Use this text</button><button onclick="copyAiText(\'' + escapeAttr(text) + '\')">Copy</button></div></div>';
   // Also show in side panel
   var side = document.getElementById('ai-result-side');
-  if (side) side.innerHTML = '<div class="ai-result"><div class="label">✨ AI Result</div>' + escapeHtml(text) + '</div>';
+  if (side) side.innerHTML = '<div class="ai-result"><div class="label">AI Result</div>' + escapeHtml(text) + '</div>';
 }
 
 function escapeAttr(s) { return escapeHtml(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n'); }
@@ -1124,7 +1154,7 @@ window.soundEnabled = localStorage.getItem('fd_sound') === 'true';
 
 function updateSoundBtn() {
   var btn = document.getElementById('sound-btn');
-  if (btn) btn.textContent = window.soundEnabled ? '🔔' : '🔕';
+  if (btn) btn.textContent = window.soundEnabled ? 'Sound on' : 'Sound off';
 }
 
 function toggleSound() {
@@ -1158,7 +1188,7 @@ function toggleTheme() {
   var isDark = document.body.classList.toggle('dark-theme');
   localStorage.setItem('fd_theme', isDark ? 'dark' : 'light');
   var btn = document.getElementById('theme-btn');
-  if (btn) btn.textContent = isDark ? '☀️' : '🌙';
+  if (btn) btn.textContent = isDark ? 'Light' : 'Dark';
 }
 
 function initTheme() {
@@ -1166,7 +1196,7 @@ function initTheme() {
   if (theme === 'dark' || (!theme && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
     document.body.classList.add('dark-theme');
     var btn = document.getElementById('theme-btn');
-    if (btn) btn.textContent = '☀️';
+    if (btn) btn.textContent = 'Light';
   }
   updateSoundBtn();
 }
@@ -1185,7 +1215,7 @@ function copyPatientSummary(leadId) {
     "Message: " + (lead.message || 'N/A');
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(function() {
-      toast('📋 Patient summary copied!');
+      toast('Patient summary copied!');
     }).catch(function() {
       toast('Failed to copy');
     });

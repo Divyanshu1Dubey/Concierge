@@ -376,11 +376,11 @@ def test_chat_uses_gemini_extraction(monkeypatch):
 def test_chat_asks_what_to_schedule_first_with_choices():
     out = _chat(["Hi there"])
     assert "schedule" in out["reply"].lower()
-    assert "Cleaning & checkup" in out["options"] and "Something else" in out["options"]
+    assert "Checkup & cleaning" in out["options"] and "Something else" in out["options"]
 
 
 def test_tapping_a_choice_answers_and_moves_on():
-    out = _chat(["Hi there", "Cleaning & checkup"])
+    out = _chat(["Hi there", "Checkup & cleaning"])
     assert "options" not in out and "name" in out["reply"].lower()
     out = _chat(["Hi there", "Something else", "Sam Lee", "sam@x.test"])
     assert out["state"] == "submitted"
@@ -394,7 +394,40 @@ def test_clinic_can_set_its_own_choices():
 
 
 def test_tapped_choice_is_saved_as_the_service():
-    _chat(["Hi there", "Cleaning & checkup", "Sam Lee", "sam@x.test"])
+    _chat(["Hi there", "Checkup & cleaning", "Sam Lee", "sam@x.test"])
     with connect() as c:
         lead = rows(c, "SELECT service FROM leads ORDER BY id DESC LIMIT 1")[0]
-    assert lead["service"] == "Cleaning & checkup"
+    assert lead["service"] == "Checkup & cleaning"
+
+
+def test_greeting_offers_choices_and_one_tap_skips_to_contact_details():
+    from saas.main import app
+    t = create_tenant(slug=f"greet-{uuid.uuid4().hex[:6]}", name="G")
+    key = create_api_key(t.id, "w", "s")
+    client = TestClient(app)
+    start = client.post("/api/v1/public/conversations", params={"client_key": key.public_key}).json()
+    assert start["options"][:4] == ["Checkup & cleaning", "Implants", "Restorative (fillings, crowns)", "Emergency"]
+    r = client.post(f"/api/v1/public/conversations/{start['conversation_id']}/messages",
+                    params={"client_key": key.public_key}, json={"message": "Implants"}).json()
+    assert "name" in r["reply"].lower() and "options" not in r
+
+
+def test_demo_mode_send_reply_and_fast_forward():
+    """Local demo with no mailbox: the whole semi-automated loop works without real email."""
+    t = create_tenant(slug=f"demo-{uuid.uuid4().hex[:6]}", name="Demo")
+    lead = create_lead(t.id, {"name": "Pat Smith", "email": PATIENT, "service": "cleaning"})
+    cadence.enroll(t.id, lead["id"])
+    assert mailbox.demo_mode(t.id)
+    [did] = cadence.run_due(t.id)
+    assert mailbox.send_draft(t.id, did)["demo"] is True
+    assert cadence.fast_forward(t.id, 25)  # follow-up 1 drafted
+    result = mailbox.simulate_reply(t.id, lead["id"], "Already booked, thanks!")
+    assert result["intent"] == "booked" and cadence.get_enrollment(t.id, lead["id"])["status"] == "stopped"
+    assert [m["source"] for m in mailbox.lead_thread(t.id, lead["id"])] == ["demo", "demo"]
+
+
+def test_email_address_does_not_overwrite_chosen_service():
+    _chat(["Implants", "Avi Sanghavi", "avi@example.test"])
+    with connect() as c:
+        lead = rows(c, "SELECT service FROM leads ORDER BY id DESC LIMIT 1")[0]
+    assert lead["service"] == "Implants"

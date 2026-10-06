@@ -235,6 +235,15 @@ def run_due(tenant_id: int | None = None, now: datetime | None = None) -> list[i
     return created
 
 
+def fast_forward(tenant_id: int, hours: float) -> list[int]:
+    """Demo only: move every active cadence clock back so the next steps come due, then draft them."""
+    with connect() as c:
+        for e in rows(c, "SELECT id, anchor_at FROM cadence_enrollments WHERE tenant_id = ? AND status = 'active'", tenant_id):
+            earlier = (datetime.fromisoformat(e["anchor_at"]) - timedelta(hours=hours)).isoformat(timespec="seconds")
+            c.execute("UPDATE cadence_enrollments SET anchor_at = ? WHERE id = ?", (earlier, e["id"]))
+    return run_due(tenant_id)
+
+
 def _finish(enrollment_id: int) -> None:
     with connect() as c:
         c.execute("UPDATE cadence_enrollments SET status = 'completed', updated_at = ? WHERE id = ?",

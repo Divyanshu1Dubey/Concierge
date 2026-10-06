@@ -148,7 +148,7 @@ def test_front_desk_workflow_on_own_lead(client):
     d = client.post("/api/admin/fd/drafts", json={"lead_id": lid, "subject": "Hi", "body": "Hello"}, headers=h)
     assert d.status_code == 201
     r = client.post(f"/api/admin/fd/drafts/{d.json()['id']}/send", headers=h)
-    assert r.status_code == 409 and "not connected" in r.json()["detail"]  # no clinic mailbox yet
+    assert r.status_code == 200 and r.json()["demo"] is True  # dev server, no mailbox: recorded, not emailed
     assert client.patch(f"/api/admin/fd/leads/{lid}/status", json={"status": "contacted"}, headers=h).status_code == 200
 
 

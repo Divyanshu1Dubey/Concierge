@@ -748,6 +748,31 @@ async def fd_disconnect_mailbox(request: Request):
     return mailbox.disconnect(auth["tenant_id"])
 
 
+@frontdesk_app.post("/demo/leads/{lead_id}/reply")
+async def fd_demo_reply(request: Request, lead_id: int, body: dict[str, Any]):
+    """Demo mode: simulate the patient answering by email."""
+    auth = await _fd_auth(request)
+    _fd_lead_owned(lead_id, auth["tenant_id"])
+    text = (body.get("body") or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="body is required")
+    try:
+        return await run_in_threadpool(mailbox.simulate_reply, auth["tenant_id"], lead_id, text)
+    except mailbox.MailboxError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@frontdesk_app.post("/demo/fast-forward")
+async def fd_demo_fast_forward(request: Request, body: dict[str, Any] = Body(default_factory=dict)):
+    """Demo mode: pretend time passed so the next follow-ups come due."""
+    auth = await _fd_auth(request)
+    if not mailbox.demo_mode(auth["tenant_id"]):
+        raise HTTPException(status_code=409, detail="Only available in demo mode.")
+    hours = float((body or {}).get("hours", 24))
+    ids = await run_in_threadpool(cadence.fast_forward, auth["tenant_id"], hours)
+    return {"drafts_created": len(ids)}
+
+
 @frontdesk_app.post("/mailbox/sync")
 async def fd_sync_mailbox(request: Request):
     """Pull patient replies now (the background scheduler also does this every few minutes)."""
