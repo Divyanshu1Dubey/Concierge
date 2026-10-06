@@ -786,7 +786,7 @@ async def fd_activity(request: Request, limit: int = 50):
     with connect() as c:
         events = rows(c, "SELECT * FROM analytics_events WHERE tenant_id = ? ORDER BY id DESC LIMIT ?",
                        auth["tenant_id"], limit)
-        audits = rows(c, "SELECT * FROM audit_log WHERE tenant_id = ? ORDER BY id DESC LIMIT ?",
+        audits = rows(c, "SELECT * FROM audit_logs WHERE tenant_id = ? ORDER BY id DESC LIMIT ?",
                        auth["tenant_id"], limit)
     return {"events": events, "audits": audits}
 
@@ -1203,7 +1203,8 @@ def admin_update_email(tenant_id: int, body: dict[str, Any], cu: CurrentUser = D
     _check_tenant(cu, tenant_id)
     from saas.security import encrypt_value
     allowed = {"provider", "smtp_host", "smtp_port", "smtp_user", "smtp_password",
-               "from_name", "from_email", "reply_to"}
+               "from_name", "from_email", "reply_to", "front_desk_email", "backup_email",
+               "delivery_mode", "smtp_security"}
     fields = {k: v for k, v in body.items() if k in allowed}
     if "smtp_password" in fields and fields["smtp_password"]:
         fields["smtp_password_enc"] = encrypt_value(fields.pop("smtp_password"))
@@ -1244,39 +1245,34 @@ def admin_test_smtp(tenant_id: int, cu: CurrentUser = Depends(require_roles("own
 # ── Email Templates Admin ────────────────────────────────────────────────────
 
 @admin_app.get("/tenants/{tenant_id}/templates")
-def admin_list_templates(tenant_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+def admin_list_templates(tenant_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> list:
     _check_tenant(cu, tenant_id)
-    from saas.email_templates import DEFAULT_TEMPLATES
     with connect() as c:
-        r = rows(c, "SELECT value FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", (tenant_id,))
-    custom = {}
-    if r:
-        try:
-            custom = json.loads(r[0]["value"])
-        except Exception:
-            pass
-    merged = dict(DEFAULT_TEMPLATES)
-    merged.update(custom)
-    return merged
+        db_templates = rows(c, "SELECT name, subject, body, intent FROM email_templates WHERE tenant_id = ? ORDER BY id", (tenant_id,))
+    # Default templates if none exist in DB
+    defaults = [
+        {"name": "appointment_request", "subject": "New Appointment Request", "body": "Patient {{patient_name}} ({{phone}}) requested a {{service}} appointment on {{preferred_date}} at {{preferred_time}}.", "intent": "appointment_request"},
+        {"name": "emergency", "subject": "URGENT: Emergency Dental Request", "body": "Emergency request from {{patient_name}} ({{phone}}). Concern: {{message}}", "intent": "emergency"},
+        {"name": "general_inquiry", "subject": "New Inquiry from {{patient_name}}", "body": "{{patient_name}} ({{email}}, {{phone}}) sent an inquiry: {{message}}", "intent": "general_inquiry"},
+    ]
+    if db_templates:
+        return [dict(t) for t in db_templates]
+    return defaults
 
 
 @admin_app.put("/tenants/{tenant_id}/templates/{template_name}")
 def admin_update_template(tenant_id: int, template_name: str, body: dict[str, str],
                           cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     _check_tenant(cu, tenant_id)
+    now = now_iso()
     with connect() as c:
-        r = rows(c, "SELECT value FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", (tenant_id,))
-        existing = json.loads(r[0]["value"]) if r else {}
-    existing[template_name] = body
-    with connect() as c:
-        rid = rows(c, "SELECT id FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", (tenant_id,))
-        now = now_iso()
-        if rid:
-            c.execute("UPDATE tenant_settings SET value = ?, updated_at = ? WHERE tenant_id = ? AND key = 'email_templates'",
-                      (json.dumps(existing), now, tenant_id))
+        existing = rows(c, "SELECT id FROM email_templates WHERE tenant_id = ? AND name = ?", (tenant_id, template_name))
+        if existing:
+            c.execute("UPDATE email_templates SET subject = ?, body = ?, updated_at = ? WHERE tenant_id = ? AND name = ?",
+                      (body.get("subject", ""), body.get("body", ""), now, tenant_id, template_name))
         else:
-            c.execute("INSERT INTO tenant_settings (tenant_id, key, value, updated_at) VALUES (?, ?, ?, ?)",
-                      (tenant_id, "email_templates", json.dumps(existing), now))
+            c.execute("INSERT INTO email_templates (tenant_id, name, subject, body, intent, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                      (tenant_id, template_name, body.get("subject", ""), body.get("body", ""), template_name, now))
     return body
 
 
@@ -1963,7 +1959,12 @@ _dashboard_template = """<!doctype html>
     const type = document.getElementById('template-type').value;
     try {{
       const d = await api('GET', '/tenants/' + TENANT_ID + '/templates');
-      const t = (d.find(x => x.name === type) || d[0] || {{}});
+      let t = {{}};
+      if (Array.isArray(d)) {{
+        t = d.find(x => x.name === type) || d[0] || {{}};
+      }} else if (d && d[type]) {{
+        t = d[type];
+      }}
       document.getElementById('template-subject').value = t.subject || '';
       document.getElementById('template-body').value = t.body || '';
     }} catch(e) {{}}
@@ -2033,10 +2034,13 @@ def admin_dashboard(tenant_id: int, cu: Any = Depends(get_current)):
     tenant_name = tenant.get("name", "My Business")
     tenant_slug = tenant.get("slug", "")
     tenant_timezone = tenant.get("timezone", "UTC")
-    public_key = tenant.get("public_key", "")
+    public_key = _public_key(tenant_id)  # load actual public key
     status_class = "ok" if tenant.get("enabled") else "off"
     status_dot = "active" if tenant.get("enabled") else "inactive"
     status_text = "Active" if tenant.get("enabled") else "Disabled"
+    # Generate a fresh token for the dashboard JS to use
+    from saas.security import create_access_token
+    auth_token = create_access_token(subject=str(cu.user.id), tenant_id=tenant_id)
 
     app_url = os.environ.get("APP_URL", "http://localhost:8000").rstrip("/")
     widget_url = app_url + "/widget.js"
@@ -2049,9 +2053,9 @@ def admin_dashboard(tenant_id: int, cu: Any = Depends(get_current)):
         emails_sent_count = c.execute("SELECT COUNT(*) FROM notifications WHERE tenant_id=? AND status='sent'", (tenant_id,)).fetchone()[0]
         total_leads = leads_count or 1
         completion_rate = min(100, round(((conversations_count or 0) / max(total_leads, 1)) * 100))
-        recent = rows(c, "SELECT id, visitor_name, visitor_email, intent, status, created_at FROM conversations WHERE tenant_id=? ORDER BY id DESC LIMIT 8", (tenant_id,))
+        recent = rows(c, "SELECT id, visitor_id, page_url, status, created_at FROM conversations WHERE tenant_id=? ORDER BY id DESC LIMIT 8", (tenant_id,))
         recent_leads = rows(c, "SELECT id, name, email, intent, status, created_at FROM leads WHERE tenant_id=? ORDER BY id DESC LIMIT 5", (tenant_id,))
-        conv_rows = rows(c, "SELECT id, visitor_name, visitor_email, intent, status, created_at FROM conversations WHERE tenant_id=? ORDER BY id DESC LIMIT 50", (tenant_id,))
+        conv_rows = rows(c, "SELECT id, visitor_id, page_url, status, created_at FROM conversations WHERE tenant_id=? ORDER BY id DESC LIMIT 50", (tenant_id,))
         lead_rows = rows(c, "SELECT id, name, email, intent, status, created_at FROM leads WHERE tenant_id=? ORDER BY id DESC LIMIT 50", (tenant_id,))
         api_keys = rows(c, "SELECT id, label, public_key, created_at FROM api_keys WHERE tenant_id=?", (tenant_id,))
         members = rows(c, "SELECT id, email, role, display_name FROM users WHERE tenant_id=? AND role != 'owner'", (tenant_id,))
@@ -2061,18 +2065,18 @@ def admin_dashboard(tenant_id: int, cu: Any = Depends(get_current)):
 
     recent_html = ""
     if recent:
-        recent_html += "<table><tr><th>ID</th><th>Visitor</th><th>Email</th><th>Intent</th><th>Status</th><th>Date</th></tr>"
+        recent_html += "<table><tr><th>ID</th><th>Visitor ID</th><th>Page</th><th>Status</th><th>Date</th></tr>"
         for r in recent:
-            recent_html += f"<tr><td>{r.get('id')}</td><td>{r.get('visitor_name','')}</td><td>{r.get('visitor_email','')}</td><td>{r.get('intent','')}</td><td>{r.get('status','')}</td><td>{r.get('created_at','')}</td></tr>"
+            recent_html += f"<tr><td>{r.get('id')}</td><td>{r.get('visitor_id','')}</td><td>{r.get('page_url','')}</td><td>{r.get('status','')}</td><td>{r.get('created_at','')}</td></tr>"
         recent_html += "</table>"
     else:
         recent_html = "<p class='empty'>No conversations yet.</p>"
 
     conv_html = ""
     if conv_rows:
-        conv_html += "<table><tr><th>ID</th><th>Visitor</th><th>Email</th><th>Intent</th><th>Status</th><th>Date</th></tr>"
+        conv_html += "<table><tr><th>ID</th><th>Visitor ID</th><th>Page</th><th>Status</th><th>Date</th></tr>"
         for r in conv_rows:
-            conv_html += f"<tr><td><a href='#'>{r.get('id')}</a></td><td>{r.get('visitor_name','')}</td><td>{r.get('visitor_email','')}</td><td>{r.get('intent','')}</td><td>{r.get('status','')}</td><td>{r.get('created_at','')}</td></tr>"
+            conv_html += f"<tr><td><a href='#'>{r.get('id')}</a></td><td>{r.get('visitor_id','')}</td><td>{r.get('page_url','')}</td><td>{r.get('status','')}</td><td>{r.get('created_at','')}</td></tr>"
         conv_html += "</table>"
     else:
         conv_html = "<p class='empty'>No conversations yet.</p>"
@@ -2251,7 +2255,7 @@ def admin_dashboard(tenant_id: int, cu: Any = Depends(get_current)):
         auto_open_5s='selected' if concierge_auto_open == '5s' else '',
         auto_open_10s='selected' if concierge_auto_open == '10s' else '',
         auto_open_never='selected' if concierge_auto_open == 'never' else '',
-        auth_token=cu.token_claims.get("access_token") if hasattr(cu, "token_claims") else "",
+        auth_token=auth_token,
     )
     return HTMLResponse(content=html)
 
