@@ -614,41 +614,120 @@ def ensure_demo_data() -> Tenant:
         except Exception:
             pass
 
-    # Sample demo leads
+    # Sample patients at every stage, so the demo inbox looks like a real week at the front desk.
     with connect() as c:
-        lead_rows = rows(c, "SELECT id FROM leads WHERE tenant_id = ? LIMIT 1", tenant.id)
-    if not lead_rows:
-        now = now_iso()
-        with connect() as c:
-            c.execute(
-                """INSERT INTO leads (tenant_id, name, email, phone, intent, service, urgency, preferred_date, preferred_time, status, message, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (tenant.id, "Sarah Jenkins", "sarah.j@example.com", "(919) 555-0142", "appointment_request", "Teeth Cleaning & Exam", "normal", "Tomorrow", "10:00 AM", "new", "Hi, I would like to schedule a routine cleaning and dental checkup for this week.", now, now)
-            )
-            c.execute(
-                """INSERT INTO leads (tenant_id, name, email, phone, intent, service, urgency, preferred_date, preferred_time, status, message, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (tenant.id, "Michael Chang", "mchang@example.com", "(919) 555-0198", "emergency", "Tooth Extraction", "urgent", "Today", "ASAP", "new", "Severe molar pain started last night, need emergency appointment as soon as possible.", now, now)
-            )
-            c.execute(
-                """INSERT INTO leads (tenant_id, name, email, phone, intent, service, urgency, preferred_date, preferred_time, status, message, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (tenant.id, "Emily Rodriguez", "emily.r@example.com", "(919) 555-0177", "inquiry", "Dental Implants", "normal", "Next Week", "Afternoon", "contacted", "Interested in learning more about cosmetic veneers and consultation pricing.", now, now)
-            )
-            try:
-                c.execute(
-                    """INSERT INTO frontdesk_tasks (tenant_id, lead_id, title, priority, status, created_at, updated_at)
-                       VALUES (?, 2, ?, ?, 'open', ?, ?)""",
-                    (tenant.id, "Call Michael Chang regarding emergency dental slot", "high", now, now)
-                )
-            except Exception:
-                pass
-
-    # Sample patients join the follow-up cadence so the demo inbox has replies ready to approve.
-    from saas import cadence
-    with connect() as c:
-        sample = rows(c, "SELECT id FROM leads WHERE tenant_id = ? AND email IS NOT NULL AND status = 'new'", tenant.id)
-    for l in sample:
-        cadence.enroll(tenant.id, l["id"])
+        has_leads = rows(c, "SELECT id FROM leads WHERE tenant_id = ? LIMIT 1", tenant.id)
+    if not has_leads:
+        _seed_demo_story(tenant.id, tenant.name)
 
     return tenant
+
+
+# (name, email, phone, intent, service, status, message, created_hours_ago,
+#  emails [(direction, hours_ago, body)], follow-up (status, step_index, anchor_hours_ago, reason) or None,
+#  pending draft (cadence_step or None, source, body) or None)
+_DEMO_PATIENTS = [
+    # Needs a reply from the practice
+    ("Michael Chang", "mchang@example.com", "(919) 555-0198", "emergency", "Tooth pain", "new",
+     "Severe molar pain started last night, my cheek is a little swollen. Can someone see me today?", 0.5, [],
+     ("active", 0, 0.5, None),
+     ("first_reply", "cadence", "Hi Michael,\n\nWe're sorry you're in pain. Please call our office right away so we can see you today.\n\n"
+      "If the swelling affects your breathing or swallowing, or you develop a high fever, call 911 or go to the nearest emergency room.\n\n{clinic}")),
+    ("Sarah Jenkins", "sarah.j@example.com", "(919) 555-0142", "appointment_request", "Checkup & cleaning", "new",
+     "Hi, I'd like to schedule a cleaning. Do you have anything on Friday morning?", 1.5, [],
+     ("active", 0, 1.5, None),
+     ("first_reply", "cadence", "Hi Sarah,\n\nThanks for reaching out! We'd be happy to get your cleaning scheduled. Is Friday your only "
+      "available day, or would another morning work as well?\n\n{clinic}")),
+    ("Priya Patel", "priya.patel@example.com", "(919) 555-0177", "appointment_request", "Implants", "contacted",
+     None, 52,
+     [("out", 50, "Hi Priya,\n\nThanks for your interest in implants. Could you reply with two or three days and times that work "
+       "for a consultation?\n\n{clinic}"),
+      ("in", 2, "Tuesday after 3pm or Wednesday morning both work for me. Is the consult covered by insurance?")],
+     ("paused", 1, 50, "patient replied: wants_appointment"),
+     (None, "reply", "Hi Priya,\n\nGreat, thank you! We'll confirm a consultation on Tuesday after 3pm or Wednesday morning shortly. "
+      "Coverage for the consult depends on your plan; if you send us your insurance details we'll check before your visit.\n\n{clinic}")),
+    ("Tom Becker", "tbecker@example.com", "(919) 555-0110", "appointment_request", "Restorative (fillings, crowns)", "contacted",
+     None, 30,
+     [("out", 27, "Hi Tom,\n\nThanks for reaching out about your filling. Could you reply with a few days and times that work?\n\n{clinic}")],
+     ("active", 1, 27, None),
+     ("follow_up_1", "cadence", "Hi Tom,\n\nJust following up on your request. Reply with a few times that work and we'll take care of "
+      "the rest.\n\n{clinic}")),
+    ("Grace Kim", "grace.kim@example.com", None, "new_patient", "New patient visit", "new",
+     "First time here! Looking for a new patient exam, ideally early next week.", 3, [],
+     ("active", 0, 3, None),
+     ("first_reply", "cadence", "Hi Grace,\n\nWelcome, and thanks for choosing us! We'd love to see you for a new patient exam. "
+      "Would Monday or Tuesday morning next week work?\n\n{clinic}")),
+
+    # Waiting on the patient
+    ("Emily Rodriguez", "emily.r@example.com", "(919) 555-0177", "appointment_request", "Cosmetic (whitening, veneers)", "contacted",
+     "Interested in veneers and what a consultation costs.", 28,
+     [("out", 24, "Hi Emily,\n\nThanks for asking about veneers! A cosmetic consultation is a great first step. "
+       "Could you reply with a few times that work for you?\n\n{clinic}")],
+     ("active", 1, 20, None), None),
+    ("Marcus Johnson", "marcus.j@example.com", "(919) 555-0133", "appointment_request", "Restorative (fillings, crowns)", "contacted",
+     "Cracked a crown, not painful but want it fixed.", 100,
+     [("out", 96, "Hi Marcus,\n\nSorry to hear about your crown. Could you reply with a few times that work?\n\n{clinic}"),
+      ("out", 72, "Hi Marcus,\n\nJust following up on your request. Reply with a few times that work and we'll take care of the rest.\n\n{clinic}")],
+     ("active", 2, 60, None), None),
+    ("Linda Chen", "linda.chen@example.com", None, "appointment_request", "Checkup & cleaning", "contacted",
+     None, 5,
+     [("out", 3, "Hi Linda,\n\nThanks for reaching out! Could you reply with two or three days and times that work for your cleaning?\n\n{clinic}")],
+     ("active", 1, 3, None), None),
+
+    # Booked
+    ("David Okafor", "d.okafor@example.com", "(919) 555-0161", "appointment_request", "Checkup & cleaning", "booked",
+     None, 75,
+     [("out", 72, "Hi David,\n\nThanks for reaching out! Could you reply with a few times that work for your cleaning?\n\n{clinic}"),
+      ("in", 48, "Thursday at 10am works great."),
+      ("out", 46, "Perfect, you're all set for Thursday at 10:00 AM. See you then!\n\n{clinic}")],
+     ("stopped", 1, 46, "booked by front desk"), None),
+    ("Aisha Rahman", "aisha.r@example.com", "(919) 555-0124", "new_patient", "New patient visit", "booked",
+     None, 50,
+     [("out", 48, "Hi Aisha,\n\nWelcome! Could you reply with a few times that work for your new patient exam?\n\n{clinic}"),
+      ("in", 30, "I called this morning and booked Monday at 2pm, thanks!")],
+     ("stopped", 1, 30, "patient replied: booked"), None),
+
+    # Visited
+    ("Robert Nguyen", "rnguyen@example.com", "(919) 555-0188", "appointment_request", "Checkup & cleaning", "completed",
+     None, 240,
+     [("out", 236, "Hi Robert,\n\nThanks for reaching out! Could you reply with a few times that work?\n\n{clinic}"),
+      ("in", 230, "Wednesday morning please."),
+      ("out", 228, "You're booked for Wednesday at 9:00 AM. See you then!\n\n{clinic}")],
+     ("stopped", 1, 228, "booked by front desk"), None),
+    ("Hannah Weiss", "hannah.w@example.com", None, "appointment_request", "Restorative (fillings, crowns)", "completed",
+     None, 170,
+     [("out", 168, "Hi Hannah,\n\nCould you reply with a few times that work for your filling?\n\n{clinic}"),
+      ("in", 150, "Booked by phone for Friday, thank you!")],
+     ("stopped", 1, 150, "patient replied: booked"), None),
+]
+
+
+def _seed_demo_story(tenant_id: int, clinic: str) -> None:
+    """Demo only: realistic patients at every stage (needs reply, waiting, booked, visited)."""
+    from datetime import datetime, timedelta
+    from email.utils import make_msgid
+
+    def ago(hours: float) -> str:
+        return (datetime.now() - timedelta(hours=hours)).isoformat(timespec="seconds")
+
+    for (name, email, phone, intent, service, status, message, created, emails, follow, draft) in _DEMO_PATIENTS:
+        with connect() as c:
+            lid = insert(c, "leads", tenant_id=tenant_id, name=name, email=email, phone=phone, intent=intent,
+                         service=service, status=status, message=message, source="website_widget",
+                         created_at=ago(created), updated_at=ago(min([h for _, h, _ in emails] or [created])),
+                         metadata="{}")
+            for direction, hours, body in emails:
+                insert(c, "email_messages", tenant_id=tenant_id, lead_id=lid, direction=direction,
+                       message_id=make_msgid(domain="demo.heyjarvis"), subject="Your appointment request",
+                       body=body.format(clinic=clinic), from_addr=email if direction == "in" else None,
+                       to_addr=None if direction == "in" else email, source="demo",
+                       sent_at=ago(hours), created_at=ago(hours))
+            if follow:
+                f_status, step, anchor, reason = follow
+                insert(c, "cadence_enrollments", tenant_id=tenant_id, lead_id=lid, status=f_status, step_index=step,
+                       skipped="[]", anchor_at=ago(anchor), reason=reason, created_at=ago(created), updated_at=ago(anchor))
+            if draft:
+                step_id, source, body = draft
+                insert(c, "ai_drafts", tenant_id=tenant_id, lead_id=lid, subject="Your appointment request",
+                       body=body.format(clinic=clinic), status="pending", cadence_step=step_id, to_email=email,
+                       source=source, created_at=ago(min(created, 1)), updated_at=ago(min(created, 1)))

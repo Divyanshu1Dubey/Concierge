@@ -748,6 +748,31 @@ async def fd_disconnect_mailbox(request: Request):
     return mailbox.disconnect(auth["tenant_id"])
 
 
+@frontdesk_app.get("/inbox")
+async def fd_inbox(request: Request):
+    """Every open patient request with what the front desk needs to sort it:
+    pending reply draft, last email direction/time, and follow-up status."""
+    auth = await _fd_auth(request)
+    tid = auth["tenant_id"]
+    with connect() as c:
+        leads = rows(c, """
+            SELECT l.*,
+              (SELECT direction FROM email_messages e WHERE e.tenant_id = l.tenant_id AND e.lead_id = l.id
+                 ORDER BY e.sent_at DESC, e.id DESC LIMIT 1) AS last_direction,
+              (SELECT sent_at FROM email_messages e WHERE e.tenant_id = l.tenant_id AND e.lead_id = l.id
+                 ORDER BY e.sent_at DESC, e.id DESC LIMIT 1) AS last_email_at,
+              (SELECT status FROM cadence_enrollments ce WHERE ce.lead_id = l.id) AS followup_status
+            FROM leads l WHERE l.tenant_id = ? AND l.status NOT IN ('spam', 'archived', 'closed')
+            ORDER BY l.created_at DESC LIMIT 300""", tid)
+        drafts = rows(c, "SELECT * FROM ai_drafts WHERE tenant_id = ? AND status = 'pending' ORDER BY id DESC", tid)
+    first = {}
+    for d in drafts:
+        first.setdefault(d["lead_id"], d)
+    for l in leads:
+        l["draft"] = first.get(l["id"])
+    return leads
+
+
 @frontdesk_app.post("/demo/leads/{lead_id}/reply")
 async def fd_demo_reply(request: Request, lead_id: int, body: dict[str, Any]):
     """Demo mode: simulate the patient answering by email."""

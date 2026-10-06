@@ -18,7 +18,9 @@ header a{color:var(--muted);text-decoration:none}
 header a:hover{color:var(--text)}
 .body{flex:1;display:flex;min-height:0}
 aside{width:min(340px,30vw);flex-shrink:0;border-right:1px solid var(--line);overflow-y:auto;padding:18px 14px}
-aside h2{font-size:13px;font-weight:500;color:var(--muted);margin:0 12px 10px}
+aside h2{font-size:12px;font-weight:600;color:var(--muted);margin:18px 12px 6px;text-transform:uppercase;letter-spacing:.04em}
+aside h2:first-child{margin-top:0}
+.pill{display:inline-block;font-size:12px;padding:3px 10px;border-radius:999px;background:var(--soft);color:var(--muted)}
 .item{padding:12px 14px;border-radius:10px;cursor:pointer;margin-bottom:4px}
 .item:hover{background:var(--soft)}
 .item.sel{background:var(--sel)}
@@ -68,7 +70,7 @@ details[open] summary::before{content:"\25BE  "}
     <div class="right"><span id="mode"></span><a href="/frontdesk/full">Settings</a><a href="#" onclick="logout();return false">Log out</a></div>
   </header>
   <div class="body" id="root">
-    <aside><h2 id="count">Ready for review</h2><div id="list"></div></aside>
+    <aside id="list"></aside>
     <main id="detail"><div class="empty">Loading…</div></main>
   </div>
 </div>
@@ -97,29 +99,57 @@ async function api(path, opts) {
   return data;
 }
 
-// ── Inbox: every open request that has a reply waiting for approval ─────────
+// ── Inbox: grouped by what the front desk needs to do ──────────────────────
+var GROUPS = [['reply', 'Needs your reply'], ['waiting', 'Waiting on patient'], ['booked', 'Booked'], ['visited', 'Visited']];
+function groupOf(l) {
+  if (l.status === 'completed') return 'visited';
+  if (l.status === 'booked' || l.status === 'scheduled') return 'booked';
+  if (l.draft || l.last_direction === 'in' || !l.last_direction) return 'reply';
+  return 'waiting';
+}
+function ago(ts) {
+  if (!ts) return '';
+  var h = (Date.now() - new Date(ts).getTime()) / 36e5;
+  if (h < 1) return 'just now';
+  if (h < 24) return Math.round(h) + 'h ago';
+  var d = Math.round(h / 24); return d + (d === 1 ? ' day ago' : ' days ago');
+}
+function statusLine(l) {
+  var g = groupOf(l);
+  if (g === 'reply') {
+    if (l.intent === 'emergency') return ['Emergency', true];
+    if (l.last_direction === 'in') return ['Patient replied ' + ago(l.last_email_at), false];
+    if (l.draft && l.draft.cadence_step && l.draft.cadence_step !== 'first_reply') return ['Follow-up due', false];
+    return ['New request', false];
+  }
+  if (g === 'waiting') return ['You emailed ' + ago(l.last_email_at), false];
+  if (g === 'booked') return [l.service || 'Booked', false];
+  return ['Visited · ' + (l.service || ''), false];
+}
+
 async function load() {
   await api('/fd/cadence/run', {method: 'POST'}).catch(function () {});
-  var drafts = list(await api('/fd/drafts?status=pending'), 'drafts');
-  var all = list(await api('/fd/leads?limit=200'), 'leads');
-  var byLead = {};
-  drafts.forEach(function (d) { if (d.lead_id && !byLead[d.lead_id]) byLead[d.lead_id] = d; });
-  leads = all.filter(function (l) { return byLead[l.id] && ['closed', 'booked', 'completed', 'archived', 'spam'].indexOf(l.status) < 0; })
-    .map(function (l) { l._draft = byLead[l.id]; return l; })
-    .sort(function (a, b) { return (b.intent === 'emergency') - (a.intent === 'emergency') || (a.created_at < b.created_at ? 1 : -1); });
+  leads = list(await api('/fd/inbox'), 'leads');
+  var rank = {reply: 0, waiting: 1, booked: 2, visited: 3};
+  leads.sort(function (a, b) {
+    return rank[groupOf(a)] - rank[groupOf(b)] || (b.intent === 'emergency') - (a.intent === 'emergency') ||
+      ((a.last_email_at || a.created_at) < (b.last_email_at || b.created_at) ? 1 : -1);
+  });
   renderList();
   if (current && !leads.some(function (l) { return l.id === current; })) current = null;
   if (!current && leads.length) openLead(leads[0].id);
-  if (!leads.length) document.getElementById('detail').innerHTML = '<div class="empty">You\'re all caught up.<br>New requests from the website will appear here.</div>';
+  if (!leads.length) document.getElementById('detail').innerHTML = '<div class="empty">No patient requests yet.<br>New requests from the website will appear here.</div>';
 }
 
 function renderList() {
-  document.getElementById('count').textContent = 'Ready for review · ' + leads.length;
-  document.getElementById('list').innerHTML = leads.map(function (l) {
-    var urgent = l.intent === 'emergency';
-    var status = urgent ? 'Emergency' : (l._draft.source === 'reply' ? 'Patient replied' : (l._draft.cadence_step && l._draft.cadence_step !== 'first_reply' ? 'Follow-up due' : 'Ready for review'));
-    return '<div class="item' + (l.id === current ? ' sel' : '') + '" onclick="openLead(' + l.id + ')"><div class="n">' + esc(l.name || l.email || 'New patient') +
-      '</div><div class="s' + (urgent ? ' urgent' : '') + '">' + status + '</div></div>';
+  document.getElementById('list').innerHTML = GROUPS.map(function (g) {
+    var items = leads.filter(function (l) { return groupOf(l) === g[0]; });
+    if (!items.length) return '';
+    return '<h2>' + g[1] + ' · ' + items.length + '</h2>' + items.map(function (l) {
+      var st = statusLine(l);
+      return '<div class="item' + (l.id === current ? ' sel' : '') + '" onclick="openLead(' + l.id + ')"><div class="n">' +
+        esc(l.name || l.email || 'New patient') + '</div><div class="s' + (st[1] ? ' urgent' : '') + '">' + esc(st[0]) + '</div></div>';
+    }).join('');
   }).join('');
 }
 
@@ -142,7 +172,7 @@ async function openLead(id) {
   var detail = await api('/fd/leads/' + id); lead = Object.assign({}, lead, detail.lead || detail);
   var mail = await api('/fd/leads/' + id + '/emails');
   var chat = lead.conversation_id ? list(await api('/fd/conversations/' + lead.conversation_id + '/messages'), 'messages') : [];
-  var draft = (mail.drafts || [])[0] || lead._draft;
+  var draft = (mail.drafts || [])[0] || lead.draft;
   var ask = patientAsk(lead, chat, mail.messages || []);
   var c = mail.cadence;
   var waitingOnThis = c && c.next_step && draft && draft.cadence_step === c.next_step.id;
@@ -158,14 +188,49 @@ async function openLead(id) {
   var demoTools = demo ? '<div class="demo">Demo: pretend the patient replied<input id="sim" placeholder="e.g. Thursday morning works / I already booked">' +
     '<button class="btn" onclick="simulate(' + id + ')">Simulate reply</button> <button class="btn" onclick="skipDay()">Skip ahead 1 day</button></div>' : '';
 
+  var g = groupOf(lead);
+  var action;
+  if (g === 'reply' && draft) {
+    action = '<div class="label strong">Ready to send</div><textarea id="reply">' + esc(draft.body) + '</textarea>' +
+      '<div class="send"><span class="hint">' + (demo ? 'Demo: recorded, not emailed' : 'Sent by email after your approval') + '</span>' +
+      '<button class="btn primary" id="go" onclick="approve(' + draft.id + ')">Approve &amp; send</button></div>';
+  } else if (g === 'reply' || g === 'waiting') {
+    action = '<div class="label strong">' + (g === 'waiting' ? 'Waiting on ' + esc((lead.name || 'patient').split(' ')[0]) + ' · you emailed ' + ago(lead.last_email_at) : 'Write a reply') + '</div>' +
+      (g === 'waiting' ? '<div class="next" style="margin:-4px 0 12px">' + next + '</div>' : '') +
+      '<textarea id="reply" style="min-height:' + (g === 'waiting' ? '110px' : '200px') + '" placeholder="' + (g === 'waiting' ? 'Send another message (optional)' : 'Write your reply') + '"></textarea>' +
+      '<div class="send"><span class="hint">' + (demo ? 'Demo: recorded, not emailed' : 'Sent by email') + '</span>' +
+      '<button class="btn primary" id="go" onclick="sendNew(' + id + ')">Send</button></div>';
+  } else if (g === 'booked') {
+    action = '<div class="label strong">Appointment booked</div><div class="send" style="margin-top:0"><span class="hint">' + esc(lead.service || '') +
+      '</span><button class="btn primary" onclick="setStatus(' + id + ', \'completed\', \'Marked as visited\')">Mark visited</button></div>';
+  } else {
+    action = '<div class="label strong">Visited</div><div class="hint" style="color:var(--muted)">' + esc(lead.service || '') + ' · nothing to do.</div>';
+  }
+  var resolveBtn = (g === 'reply' || g === 'waiting') ? '<button class="btn" onclick="resolve(' + id + ')">Mark resolved</button>' :
+    (g === 'booked' ? '' : '');
+  var openHist = (g !== 'reply' || !draft) ? ' open' : '';
+
   document.getElementById('detail').innerHTML =
     '<div class="top"><div><h3>' + esc(lead.name || 'New patient') + '</h3><div class="e">' + esc(lead.email || '') + (lead.phone ? ' · ' + esc(lead.phone) : '') + '</div></div>' +
-      '<button class="btn" onclick="resolve(' + id + ')">Mark resolved</button></div>' +
+      resolveBtn + '</div>' +
     '<div class="label">' + ask.src + ' · ' + when(ask.at) + '</div><div class="ask">' + esc(ask.text || '(no message)') + '</div>' +
-    '<div class="label strong">Ready to send</div><textarea id="reply">' + esc(draft ? draft.body : '') + '</textarea>' +
-    '<div class="send"><span class="hint">' + (demo ? 'Demo: recorded, not emailed' : 'Sent by email after your approval') + '</span>' +
-      '<button class="btn primary" id="go" onclick="approve(' + (draft ? draft.id : 'null') + ')">Approve &amp; send</button></div>' +
-    '<details><summary>Follow-up &amp; history</summary><div class="next">' + next + '</div><div class="hist">' + hist + '</div>' + demoTools + '</details>';
+    action +
+    '<details' + openHist + '><summary>Follow-up &amp; history</summary><div class="next">' + next + '</div><div class="hist">' + hist + '</div>' + (g === 'reply' || g === 'waiting' ? demoTools : '') + '</details>';
+}
+
+async function sendNew(id) {
+  var body = document.getElementById('reply').value.trim();
+  if (!body) { toast('Write a message first'); return; }
+  var b = document.getElementById('go'); b.disabled = true; b.textContent = 'Sending…';
+  try {
+    await api('/fd/leads/' + id + '/reply', {method: 'POST', body: {body: body}});
+    toast(demo ? 'Recorded (demo)' : 'Sent'); await load(); openLead(id);
+  } catch (e) { b.disabled = false; b.textContent = 'Send'; }
+}
+
+async function setStatus(id, status, msg) {
+  await api('/fd/leads/' + id + '/status', {method: 'PATCH', body: {status: status}});
+  toast(msg); await load(); openLead(id);
 }
 
 async function approve(draftId) {

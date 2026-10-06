@@ -64,3 +64,15 @@ def test_demo_login_works_locally():
     from saas.main import app
     r = TestClient(app).post("/api/admin/auth/demo")
     assert r.status_code == 200 and r.json()["access_token"]
+
+
+def test_demo_inbox_has_every_stage():
+    from saas.main import app
+    from saas.repositories import ensure_demo_data
+    ensure_demo_data()
+    c = TestClient(app)
+    tok = c.post("/api/admin/auth/demo").json()["access_token"]
+    inbox = c.get("/api/admin/fd/inbox", headers={"Authorization": f"Bearer {tok}"}).json()
+    statuses = {l["status"] for l in inbox}
+    assert {"new", "contacted", "booked", "completed"} <= statuses
+    assert any(l["draft"] for l in inbox) and any(l["last_direction"] == "out" and not l["draft"] for l in inbox)
