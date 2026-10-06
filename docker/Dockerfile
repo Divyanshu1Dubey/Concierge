@@ -23,6 +23,7 @@ COPY --from=builder /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
 COPY src/ src/
+COPY config/ config/
 COPY scripts/ scripts/
 COPY docs/ docs/
 COPY wordpress-plugin/ wordpress-plugin/

@@ -19,6 +19,8 @@ RUN uv sync --frozen --no-dev
 
 # Copy application
 COPY src/ ./src/
+COPY config/ ./config/
+COPY scripts/ ./scripts/
 
 # Expose port
 EXPOSE 8000
