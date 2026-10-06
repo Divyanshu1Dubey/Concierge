@@ -123,8 +123,4 @@ class ConversationEngine:
             required = configured
         else:
             required = ["name", "email"]
-            if not fields.get("intent"):
-                required.append("service")
-        missing = [f for f in required if not fields.get(f)]
-        print(f"[DEBUG] _missing_required: fields={fields}, required={required}, missing={missing}")
-        return missing
+        return [f for f in required if not fields.get(f)]

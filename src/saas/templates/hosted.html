@@ -13,22 +13,26 @@
 <meta name="twitter:title" content="{tenant_name} Concierge">
 <meta name="twitter:description" content="Chat with our AI front desk assistant">
 <title>{tenant_name} — Concierge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --primary: #1f3b2e;
-    --accent: #3a7d6e;
-    --bg: #f6f7f8;
+    --accent: #2d6a4f;
+    --accent-light: #52b788;
+    --bg: #f3f4f6;
     --surface: #ffffff;
     --border: #e5e7eb;
-    --text: #1a1a1a;
+    --text: #111827;
     --muted: #6b7280;
-    --user-bubble: linear-gradient(135deg, #1a3c2a, #2d6a4f);
-    --bot-bubble: #f2f6f4;
+    --user-bubble: linear-gradient(135deg, #1b4332 0%, #2d6a4f 100%);
+    --bot-bubble: #f0fdf4;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     height: 100%;
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font: 14px/1.5 'Inter', system-ui, -apple-system, sans-serif;
     background: var(--bg);
     color: var(--text);
     -webkit-text-size-adjust: 100%;
@@ -244,8 +248,14 @@
     <div class="body" id="body">
       <div class="empty-state" id="empty">
         <div class="icon">&#128172;</div>
-        <div><strong>Welcome to {tenant_name}</strong></div>
-        <div>Start a conversation below.</div>
+        <div><strong style="font-size:16px">Welcome to {tenant_name}</strong></div>
+        <div style="color:var(--muted);font-size:13px;margin-bottom:12px">How can our front desk team assist you today?</div>
+        <div class="options" style="justify-content:center;margin-top:6px">
+          <button class="chip" type="button" onclick="quickSend('I would like to book an appointment')">📅 Book an appointment</button>
+          <button class="chip" type="button" onclick="quickSend('I have urgent tooth pain')">🚨 Emergency pain</button>
+          <button class="chip" type="button" onclick="quickSend('Do you accept dental insurance?')">💳 Insurance & pricing</button>
+          <button class="chip" type="button" onclick="quickSend('I need to reschedule an existing appointment')">🔄 Reschedule visit</button>
+        </div>
       </div>
     </div>
 
@@ -259,6 +269,14 @@
     window.__HJ_CONFIG = window.__HJ_CONFIG || {};
     window.__HJ_CONFIG.clientKey = '{client_key}';
     window.__HJ_CONFIG.hosted = true;
+    function quickSend(txt) {
+      var m = document.getElementById('msg');
+      var s = document.getElementById('send');
+      if (m && s) {
+        m.value = txt;
+        s.click();
+      }
+    }
   </script>
   <script src="/static/widget.js" defer></script>
 </body>

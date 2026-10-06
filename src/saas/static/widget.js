@@ -24,8 +24,19 @@
     var clientKey = (script.getAttribute('data-heyjarvis-client') || cfg.clientKey || '').trim();
     if (!clientKey) return;
 
-    var scriptSrc = (script.getAttribute('src') || '').replace(/\/widget\.js\/?$/, '');
-    var apiBase = (scriptSrc || window.__HJ_API_BASE__ || '').replace(/\/+$/, '');
+    var scriptSrc = (script.getAttribute('src') || '');
+    var apiBase = (window.__HJ_API_BASE__ || '').replace(/\/+$/, '');
+    if (!apiBase) {
+      if (scriptSrc.startsWith('http://') || scriptSrc.startsWith('https://')) {
+        try {
+          apiBase = new URL(scriptSrc).origin;
+        } catch (_) {
+          apiBase = scriptSrc.replace(/\/widget\.js\/?$/, '').replace(/\/static\/?$/, '');
+        }
+      } else if (typeof window !== 'undefined' && window.location && window.location.origin) {
+        apiBase = window.location.origin;
+      }
+    }
     if (!apiBase) return;
 
     var formMode = (script.getAttribute('data-heyjarvis-form') || '').toLowerCase() === 'true';
@@ -38,11 +49,11 @@
 
     // ── Hosted mode ───────────────────────────────────────────────────────────
     function initHosted(clientKey, apiBase, formMode) {
-      var bodyEl = document.getElementById('hj-body');
-      var msgEl = document.getElementById('msg');
-      var sendEl = document.getElementById('send');
-      var resetEl = document.getElementById('resetBtn');
-      var titleEl = document.getElementById('title');
+      var bodyEl = document.getElementById('hj-body') || document.getElementById('body');
+      var msgEl = document.getElementById('hj-msg') || document.getElementById('msg');
+      var sendEl = document.getElementById('hj-send') || document.getElementById('send');
+      var resetEl = document.getElementById('hj-reset') || document.getElementById('resetBtn');
+      var titleEl = document.getElementById('hj-title') || document.getElementById('title');
       if (!bodyEl || !msgEl || !sendEl) return;
 
       var conversationId = null;

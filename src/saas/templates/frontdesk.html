@@ -2,16 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HeyJarvis — Front Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#f0f2f5;--card:#fff;--border:#e2e5ea;--primary:#0f2b1f;--accent:#2d8a6e;--accent2:#1f6b54;--text:#1a1a1a;--muted:#6b7280;--red:#dc2626;--green:#16a34a;--amber:#d97706;--blue:#2563eb;--purple:#7c3aed;--pink:#db2777;--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.04);--shadow-lg:0 4px 20px rgba(0,0,0,.08)}
+:root{--bg:#f8fafc;--card:#ffffff;--border:#e2e8f0;--primary:#064e3b;--accent:#059669;--accent2:#047857;--text:#0f172a;--muted:#64748b;--red:#ef4444;--green:#10b981;--amber:#f59e0b;--blue:#3b82f6;--purple:#8b5cf6;--pink:#ec4899;--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.05),0 4px 12px rgba(0,0,0,.03);--shadow-lg:0 10px 25px -5px rgba(0,0,0,.08)}
+[data-theme="dark"]{--bg:#0b1320;--card:#131f33;--border:rgba(255,255,255,.09);--primary:#10b981;--accent:#10b981;--accent2:#059669;--text:#f1f5f9;--muted:#94a3b8;--shadow:0 4px 20px rgba(0,0,0,.35)}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh}
+body{font:14px/1.5 'Inter',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;transition:background .2s,color .2s}
 .header{background:linear-gradient(135deg,#0a1f15,#1d4a36);color:#fff;padding:14px 24px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
 .header h1{font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
 .header .sub{font-size:12px;opacity:.75;margin-top:2px}
-.header .right{display:flex;align-items:center;gap:16px}
+.header .right{display:flex;align-items:center;gap:12px}
 .insights{display:flex;gap:8px;flex-wrap:wrap}
 .insight-chip{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:5px 12px;font-size:12px;white-space:nowrap}
 .insight-chip.urgent{background:rgba(220,38,38,.2);border-color:rgba(220,38,38,.3);color:#fca5a5}
@@ -27,7 +31,7 @@ body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background
 .sidebar-tab:hover{color:var(--text)}
 .sidebar-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
 .filter-bar{padding:8px 12px;border-bottom:1px solid var(--border);display:flex;gap:6px;flex-shrink:0}
-.filter-bar select{flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:#fff}
+.filter-bar select{flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--card);color:var(--text)}
 .lead-list{flex:1;overflow-y:auto}
 .lead-item{padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s;position:relative}
 .lead-item:hover{background:#f9fafb}
@@ -55,7 +59,7 @@ body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background
 .detail-header .meta{font-size:12px;color:var(--muted);margin-top:3px}
 .detail-header .badges{display:flex;gap:4px;margin-top:6px}
 .detail-actions{display:flex;gap:6px;flex-wrap:wrap}
-.detail-actions button{padding:5px 12px;border:1px solid var(--border);border-radius:7px;font-size:12px;cursor:pointer;background:#fff;font-weight:500}
+.detail-actions button{padding:5px 12px;border:1px solid var(--border);border-radius:7px;font-size:12px;cursor:pointer;background:var(--card);color:var(--text);font-weight:500}
 .detail-actions button:hover{background:#f3f4f6}
 .detail-actions button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
 .detail-actions button.primary:hover{background:var(--accent2)}
@@ -66,24 +70,24 @@ body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background
 .field .fv{font-size:13px;font-weight:500}
 .field .fv a{color:var(--accent);text-decoration:none}
 .field .fv a:hover{text-decoration:underline}
-.messages{flex:1;overflow-y:auto;padding:18px 22px;background:#fafbfc}
+.messages{flex:1;overflow-y:auto;padding:18px 22px;background:var(--bg)}
 .msg{padding:10px 14px;border-radius:12px;margin-bottom:10px;max-width:85%;position:relative}
-.msg-visitor{background:#fff;border:1px solid var(--border);margin-right:auto}
+.msg-visitor{background:var(--card);border:1px solid var(--border);margin-right:auto}
 .msg-system{background:#f0fdf4;border:1px solid #bbf7d0;margin-left:auto;text-align:right}
 .msg .who{font-size:11px;color:var(--muted);margin-bottom:3px;font-weight:600}
 .msg .text{font-size:13px;line-height:1.5}
 .msg .ts{font-size:10px;color:var(--muted);margin-top:4px;opacity:.7}
 .msg.ai-draft{border:2px dashed var(--accent);background:#f0fdfa}
 .msg.ai-draft::before{content:'🤖 AI Draft';display:block;font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px}
-.reply-box{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;flex-shrink:0;background:#fff}
-.reply-box textarea{flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;resize:none;min-height:42px;max-height:120px}
+.reply-box{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;flex-shrink:0;background:var(--card)}
+.reply-box textarea{flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;resize:none;min-height:42px;max-height:120px;background:var(--card);color:var(--text)}
 .reply-box textarea:focus{outline:none;border-color:var(--accent)}
 .reply-box button{padding:10px 18px;background:var(--accent);color:#fff;border:0;border-radius:10px;font-weight:600;cursor:pointer;font-size:13px;white-space:nowrap}
 .reply-box button:hover{background:var(--accent2)}
 .reply-box button:disabled{opacity:.5;cursor:not-allowed}
-.actions{padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0;background:#fafbfc}
-.actions select{padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:#fff}
-.actions button{padding:5px 12px;border:1px solid var(--border);border-radius:7px;font-size:12px;cursor:pointer;background:#fff;font-weight:500}
+.actions{padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0;background:var(--bg)}
+.actions select{padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--card);color:var(--text)}
+.actions button{padding:5px 12px;border:1px solid var(--border);border-radius:7px;font-size:12px;cursor:pointer;background:var(--card);color:var(--text);font-weight:500}
 .actions button:hover{background:#f3f4f6}
 .actions button.ai-btn{background:#f5f3ff;color:#7c3aed;border-color:#ddd6fe}
 .actions button.ai-btn:hover{background:#ede9fe}
@@ -102,13 +106,13 @@ body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background
 .ai-loading{display:inline-flex;align-items:center;gap:6px;color:var(--purple);font-size:12px}
 .ai-loading::after{content:'';width:14px;height:14px;border:2px solid var(--purple);border-right-color:transparent;border-radius:50%;animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.ai-input{padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:100%;font-family:inherit;margin-bottom:6px;background:#fff}
+.ai-input{padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:100%;font-family:inherit;margin-bottom:6px;background:var(--card);color:var(--text)}
 .ai-input:focus{outline:none;border-color:var(--purple)}
 .notes-section{padding:14px 16px;overflow-y:auto;flex:1}
-.note{padding:8px 10px;background:#f9fafb;border-radius:8px;margin-bottom:6px;font-size:12px;border:1px solid var(--border)}
+.note{padding:8px 10px;background:var(--bg);border-radius:8px;margin-bottom:6px;font-size:12px;border:1px solid var(--border)}
 .note .note-meta{color:var(--muted);font-size:10px;margin-bottom:2px}
 .tasks-section{padding:14px 16px;overflow-y:auto;max-height:250px;border-top:1px solid var(--border)}
-.task{padding:8px 10px;background:#f9fafb;border-radius:8px;margin-bottom:6px;font-size:12px;border:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;cursor:pointer}
+.task{padding:8px 10px;background:var(--bg);border-radius:8px;margin-bottom:6px;font-size:12px;border:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;cursor:pointer}
 .task:hover{background:#f3f4f6}
 .task .task-title{flex:1;font-weight:500}
 .task .task-priority{font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600}
@@ -117,12 +121,12 @@ body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background
 .task .task-priority.low{background:#f3f4f6;color:#6b7280}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;justify-content:center;align-items:center}
 .modal-overlay.active{display:flex}
-.modal{background:#fff;border-radius:14px;padding:24px;width:520px;max-width:92vw;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal{background:var(--card);color:var(--text);border-radius:14px;padding:24px;width:520px;max-width:92vw;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
 .modal h3{font-size:16px;margin-bottom:14px}
-.modal textarea{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;min-height:100px}
-.modal input[type="text"],.modal input[type="date"],.modal input[type="time"]{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:8px}
+.modal textarea{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;min-height:100px;background:var(--card);color:var(--text)}
+.modal input[type="text"],.modal input[type="date"],.modal input[type="time"]{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:8px;background:var(--card);color:var(--text)}
 .modal-actions{display:flex;gap:8px;margin-top:14px;justify-content:flex-end}
-.modal-actions button{padding:8px 16px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:13px;font-weight:500}
+.modal-actions button{padding:8px 16px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:13px;font-weight:500;background:var(--card);color:var(--text)}
 .modal-actions .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
 .toast{position:fixed;bottom:20px;right:20px;background:#1f3b2e;color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;z-index:2000;box-shadow:var(--shadow-lg);animation:slideIn .3s}
 @keyframes slideIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
@@ -139,6 +143,8 @@ body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background
   <div class="right">
     <div class="insights" id="insights"></div>
     <div style="font-size:12px;opacity:.75" id="clock"></div>
+    <button id="theme-btn" onclick="toggleTheme()" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px" title="Toggle Theme">🌙</button>
+    <button id="sound-btn" onclick="toggleSound()" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px" title="Toggle Sound Chime">🔔</button>
     <button onclick="logout()" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:5px 12px;cursor:pointer;font-size:12px">Logout</button>
   </div>
 </div>
@@ -154,6 +160,9 @@ body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background
       <div class="sidebar-tab" data-cat="urgent" onclick="setCategory('urgent',this)">Urgent</div>
       <div class="sidebar-tab" data-cat="notes" onclick="setCategory('notes',this)">Notes</div>
       <div class="sidebar-tab" data-cat="tasks" onclick="setCategory('tasks',this)">Tasks</div>
+    </div>
+    <div class="search-box" style="padding:8px 12px;border-bottom:1px solid var(--border)">
+      <input id="filter-search" type="text" placeholder="🔍 Search patient, phone, intent..." oninput="onFilterSearch(this.value)" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--card);color:var(--text);outline:none">
     </div>
     <div class="filter-bar">
       <select id="filter-status" onchange="loadLeads()"><option value="">All status</option><option value="new">New</option><option value="contacted">Contacted</option><option value="booked">Booked</option><option value="closed">Closed</option><option value="spam">Spam</option></select>
@@ -197,7 +206,7 @@ body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background
 </div>
 
 <script>
-var API = 'http://localhost:8001/api/admin';
+var API = (window.location.origin || 'http://localhost:8000') + '/api/admin';
 var currentLeadId = null;
 var currentCategory = 'all';
 var pollTimer = null;
@@ -286,6 +295,11 @@ async function loadStats() {
         return '<div class="insight-chip ' + cls + '">' + i + '</div>';
       }).join('');
     }
+
+    if (window._lastNewLeads !== undefined && d.new_leads > window._lastNewLeads && window.soundEnabled) {
+      playChime();
+    }
+    window._lastNewLeads = d.new_leads || 0;
   } catch(e) {}
 }
 
@@ -332,30 +346,57 @@ async function loadLeads() {
     }
 
     var leads = data.leads || [];
-    if (!leads.length) { list.innerHTML = '<div class="empty-state" style="padding:40px 20px">No items</div>'; return; }
-
-    list.innerHTML = leads.map(function(l) {
-      var badgeClass = 'badge-new';
-      if (l.status === 'contacted') badgeClass = 'badge-contacted';
-      if (l.status === 'booked') badgeClass = 'badge-booked';
-      if (l.status === 'closed') badgeClass = 'badge-closed';
-      if (l.status === 'spam') badgeClass = 'badge-spam';
-
-      var badges = '<span class="badge ' + badgeClass + '">' + (l.status || 'new') + '</span>';
-      if (l.urgency === 'urgent' || l.urgency === 'high') badges += '<span class="badge badge-urgent">' + (l.urgency || '') + '</span>';
-      if (l.intent) badges += '<span class="badge" style="background:#f3f4f6;color:#6b7280">' + l.intent.replace(/_/g,' ') + '</span>';
-
-      var when = new Date(l.created_at).toLocaleString();
-      var sub = l.service || l.intent || 'Request';
-      var preview = l.message ? l.message.substring(0,60) : '';
-
-      return '<div class="lead-item' + (l.id === currentLeadId ? ' active' : '') + '" data-id="' + l.id + '" onclick="openLead(' + l.id + ')">' +
-        '<div class="name"><span>' + (l.name || 'Anonymous') + '</span><span style="font-size:11px;color:var(--muted);font-weight:400">' + sub + '</span></div>' +
-        '<div class="svc">' + (l.email || '') + ' ' + preview + '</div>' +
-        '<div class="time">' + when + '</div>' +
-        '<div class="badges">' + badges + '</div></div>';
-    }).join('');
+    window._allLeads = leads;
+    renderLeadItems(filterLeadsBySearch(leads));
   } catch(e) {}
+}
+
+function filterLeadsBySearch(leads) {
+  var q = (document.getElementById('filter-search')?.value || '').trim().toLowerCase();
+  if (!q) return leads;
+  return leads.filter(function(l) {
+    return (l.name && l.name.toLowerCase().includes(q)) ||
+           (l.email && l.email.toLowerCase().includes(q)) ||
+           (l.phone && l.phone.toLowerCase().includes(q)) ||
+           (l.service && l.service.toLowerCase().includes(q)) ||
+           (l.intent && l.intent.toLowerCase().includes(q)) ||
+           (l.message && l.message.toLowerCase().includes(q));
+  });
+}
+
+function onFilterSearch(q) {
+  if (window._allLeads) {
+    renderLeadItems(filterLeadsBySearch(window._allLeads));
+  }
+}
+
+function renderLeadItems(leads) {
+  var list = document.getElementById('lead-list');
+  if (!leads || !leads.length) {
+    list.innerHTML = '<div class="empty-state" style="padding:40px 20px">No items</div>';
+    return;
+  }
+  list.innerHTML = leads.map(function(l) {
+    var badgeClass = 'badge-new';
+    if (l.status === 'contacted') badgeClass = 'badge-contacted';
+    if (l.status === 'booked') badgeClass = 'badge-booked';
+    if (l.status === 'closed') badgeClass = 'badge-closed';
+    if (l.status === 'spam') badgeClass = 'badge-spam';
+
+    var badges = '<span class="badge ' + badgeClass + '">' + (l.status || 'new') + '</span>';
+    if (l.urgency === 'urgent' || l.urgency === 'high') badges += '<span class="badge badge-urgent">' + (l.urgency || '') + '</span>';
+    if (l.intent) badges += '<span class="badge" style="background:var(--tag-bg);color:var(--muted)">' + l.intent.replace(/_/g,' ') + '</span>';
+
+    var when = new Date(l.created_at).toLocaleString();
+    var sub = l.service || l.intent || 'Request';
+    var preview = l.message ? l.message.substring(0,60) : '';
+
+    return '<div class="lead-item' + (l.id === currentLeadId ? ' active' : '') + '" data-id="' + l.id + '" onclick="openLead(' + l.id + ')">' +
+      '<div class="name"><span>' + (l.name || 'Anonymous') + '</span><span style="font-size:11px;color:var(--muted);font-weight:400">' + sub + '</span></div>' +
+      '<div class="svc">' + (l.email || '') + ' ' + preview + '</div>' +
+      '<div class="time">' + when + '</div>' +
+      '<div class="badges">' + badges + '</div></div>';
+  }).join('');
 }
 
 async function loadSidebarItems() {
@@ -449,6 +490,7 @@ function renderMain(lead, messages, notes, tasks, drafts) {
     '<div class="badges">' + intentBadge + (lead.service ? '<span class="badge" style="background:#f3f4f6;color:#6b7280">' + lead.service + '</span>' : '') + '</div></div>' +
     '<div class="detail-actions">' +
     '<select id="status-select" onchange="updateStatus(' + lead.id + ',this.value)"><option value="">Change status…</option><option value="new">New</option><option value="contacted">Contacted</option><option value="qualified">Qualified</option><option value="booked">Booked</option><option value="closed">Closed</option><option value="spam">Spam</option></select>' +
+    '<button onclick="copyPatientSummary(' + lead.id + ')">📋 Copy</button>' +
     '<button onclick="resendEmail(' + lead.id + ')">Resend Email</button>' +
     '<button onclick="retryNotify(' + lead.id + ')">Retry Notify</button>' +
     '<button onclick="showNoteModal()">+ Note</button>' +
@@ -767,9 +809,86 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// ── Theme & Sound & Clipboard ────────────────────────────────────────────────
+
+window.soundEnabled = localStorage.getItem('fd_sound') === 'true';
+
+function updateSoundBtn() {
+  var btn = document.getElementById('sound-btn');
+  if (btn) btn.textContent = window.soundEnabled ? '🔔' : '🔕';
+}
+
+function toggleSound() {
+  window.soundEnabled = !window.soundEnabled;
+  localStorage.setItem('fd_sound', window.soundEnabled ? 'true' : 'false');
+  updateSoundBtn();
+  toast(window.soundEnabled ? 'Sound chime enabled' : 'Sound muted');
+  if (window.soundEnabled) playChime();
+}
+
+function playChime() {
+  try {
+    var AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    var ctx = new AudioCtx();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.3);
+  } catch(e) {}
+}
+
+function toggleTheme() {
+  var isDark = document.body.classList.toggle('dark-theme');
+  localStorage.setItem('fd_theme', isDark ? 'dark' : 'light');
+  var btn = document.getElementById('theme-btn');
+  if (btn) btn.textContent = isDark ? '☀️' : '🌙';
+}
+
+function initTheme() {
+  var theme = localStorage.getItem('fd_theme');
+  if (theme === 'dark' || (!theme && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.body.classList.add('dark-theme');
+    var btn = document.getElementById('theme-btn');
+    if (btn) btn.textContent = '☀️';
+  }
+  updateSoundBtn();
+}
+
+function copyPatientSummary(leadId) {
+  var lead = (window._allLeads || []).find(function(l) { return l.id === leadId; });
+  if (!lead) return;
+  var text = "Patient Lead #" + lead.id + "\n" +
+    "Name: " + (lead.name || 'Anonymous') + "\n" +
+    "Email: " + (lead.email || 'N/A') + "\n" +
+    "Phone: " + (lead.phone || 'N/A') + "\n" +
+    "Service: " + (lead.service || 'N/A') + "\n" +
+    "Intent: " + (lead.intent || 'N/A') + "\n" +
+    "Status: " + (lead.status || 'new') + "\n" +
+    "Created: " + new Date(lead.created_at).toLocaleString() + "\n" +
+    "Message: " + (lead.message || 'N/A');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function() {
+      toast('📋 Patient summary copied!');
+    }).catch(function() {
+      toast('Failed to copy');
+    });
+  } else {
+    toast('Clipboard not available');
+  }
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 async function init() {
+  initTheme();
   var token = localStorage.getItem('fd_jwt');
   if (!token) { showLogin(); return; }
   await loadStats();

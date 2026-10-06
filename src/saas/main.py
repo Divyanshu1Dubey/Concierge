@@ -61,6 +61,13 @@ def frontdesk_page() -> HTMLResponse:
     return HTMLResponse(path.read_text(encoding="utf-8"))
 
 
+@app.get("/admin")
+@app.get("/admin.html")
+def admin_page() -> HTMLResponse:
+    path = ROOT / "src" / "saas" / "templates" / "admin.html"
+    return HTMLResponse(path.read_text(encoding="utf-8"))
+
+
 @app.get("/install")
 def install_guide() -> HTMLResponse:
     path = ROOT / "docs" / "installation.md"

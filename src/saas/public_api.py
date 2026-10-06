@@ -165,6 +165,7 @@ def public_health() -> dict:
 
 
 @public_app.get("/v1/public/config")
+@public_app.get("/api/v1/public/config")
 def public_config(client_key: str, request: Request) -> dict:
     key = get_api_key_by_public(client_key)
     if not key or key.revoked_at:
@@ -191,6 +192,7 @@ def public_config(client_key: str, request: Request) -> dict:
 
 
 @public_app.post("/v1/public/conversations")
+@public_app.post("/api/v1/public/conversations")
 def public_conversation_start(client_key: str, request: Request) -> dict:
     key = get_api_key_by_public(client_key)
     if not key or key.revoked_at:
@@ -212,6 +214,7 @@ def public_conversation_start(client_key: str, request: Request) -> dict:
 
 
 @public_app.post("/v1/public/conversations/{conversation_id}/messages")
+@public_app.post("/api/v1/public/conversations/{conversation_id}/messages")
 def public_conversation_message(conversation_id: int, body: dict[str, Any], client_key: str) -> dict:
     key = get_api_key_by_public(client_key)
     if not key or key.revoked_at:
@@ -253,6 +256,7 @@ def public_conversation_message(conversation_id: int, body: dict[str, Any], clie
 
 
 @public_app.get("/v1/public/leads")
+@public_app.get("/api/v1/public/leads")
 def public_lead_status(client_key: str, lead_id: int) -> dict:
     key = get_api_key_by_public(client_key)
     if not key or key.revoked_at:
@@ -264,6 +268,7 @@ def public_lead_status(client_key: str, lead_id: int) -> dict:
 
 
 @public_app.post("/v1/public/leads")
+@public_app.post("/api/v1/public/leads")
 def public_lead_create(body: dict[str, Any], client_key: str) -> dict:
     key = get_api_key_by_public(client_key)
     if not key or key.revoked_at:
@@ -299,6 +304,7 @@ def public_lead_create(body: dict[str, Any], client_key: str) -> dict:
 
 
 @public_app.get("/widget.js")
+@public_app.get("/api/widget.js")
 def public_widget() -> FileResponse:
     return FileResponse(STATIC / "widget.js", media_type="application/javascript")
 
@@ -1899,6 +1905,7 @@ _dashboard_template = """<!doctype html>
 
 
 @admin_app.get("/dashboard/{tenant_id}")
+@admin_app.get("/admin/dashboard/{tenant_id}")
 def admin_dashboard(tenant_id: int, cu: Any = Depends(get_current)):
     if cu.user.tenant_id != tenant_id:
         raise HTTPException(403)

@@ -11,7 +11,7 @@ from pathlib import Path
 from saas.config import get_settings
 from saas.result import Result
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 
 def _get_settings():
     return get_settings()

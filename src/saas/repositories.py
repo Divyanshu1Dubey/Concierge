@@ -440,6 +440,7 @@ def get_frontdesk_dashboard(tenant_id: int) -> dict:
         booked = row(c, "SELECT COUNT(*) AS n FROM leads WHERE tenant_id = ? AND status = 'booked'", (tenant_id,))["n"]
         pending_drafts = row(c, "SELECT COUNT(*) AS n FROM ai_drafts WHERE tenant_id = ? AND status = 'pending'", (tenant_id,))["n"]
         open_tasks = row(c, "SELECT COUNT(*) AS n FROM frontdesk_tasks WHERE tenant_id = ? AND status = 'open'", (tenant_id,))["n"]
+        completed_tasks = row(c, "SELECT COUNT(*) AS n FROM frontdesk_tasks WHERE tenant_id = ? AND status = 'completed'", (tenant_id,))["n"]
         overdue_tasks = row(c,
             "SELECT COUNT(*) AS n FROM frontdesk_tasks WHERE tenant_id = ? AND status = 'open' AND due_at IS NOT NULL AND due_at < ?",
             tenant_id, now_iso())
@@ -466,6 +467,7 @@ def get_frontdesk_dashboard(tenant_id: int) -> dict:
         "booked_leads": booked,
         "pending_drafts": pending_drafts,
         "open_tasks": open_tasks,
+        "completed_tasks": completed_tasks,
         "overdue_tasks": int(overdue_tasks["n"]),
         "total_notes": total_notes,
         "top_intents": top_intents,
