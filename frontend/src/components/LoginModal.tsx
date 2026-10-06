@@ -8,7 +8,7 @@ interface LoginModalProps {
 export const LoginModal: React.FC<LoginModalProps> = ({ onSuccess }) => {
   const [tenantSlug, setTenantSlug] = useState('raleigh-dental-demo');
   const [email, setEmail] = useState('admin@raleighdentistry.com');
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState('password');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -155,6 +155,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onSuccess }) => {
           >
             {isLoading ? 'Signing In...' : 'Sign In to Front Desk'}
           </button>
+          <p style={{ fontSize: '12px', color: '#64748b', textAlign: 'center', margin: '4px 0 0 0' }}>
+            Demo credentials: <b>admin@raleighdentistry.com</b> / <b>password</b>
+          </p>
         </form>
       </div>
     </div>

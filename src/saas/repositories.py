@@ -30,6 +30,8 @@ def get_tenant(tid: int) -> Tenant | None:
 def get_tenant_by_slug(slug: str) -> Tenant | None:
     with connect() as c:
         r = row(c, "SELECT * FROM tenants WHERE slug = ?", (slug,))
+    if not r and slug in ("raleigh-dental-demo", "demo"):
+        return ensure_demo_data()
     return _tenant_from(r) if r else None
 
 
@@ -529,3 +531,83 @@ def _loads(raw: str) -> dict[str, Any]:
         return json.loads(raw or "{}")
     except Exception:
         return {}
+
+
+def ensure_demo_data() -> Tenant:
+    """Ensure the default demo tenant, admin credentials, and sample leads exist."""
+    with connect() as c:
+        r = row(c, "SELECT * FROM tenants WHERE slug = 'raleigh-dental-demo'", ())
+    if not r:
+        with connect() as c:
+            c.execute(
+                "INSERT OR IGNORE INTO tenants (slug, name, created_at, updated_at, metadata) VALUES (?, ?, ?, ?, ?)",
+                ("raleigh-dental-demo", "Raleigh Dental Demo", now_iso(), now_iso(), "{}"),
+            )
+        with connect() as c:
+            r = row(c, "SELECT * FROM tenants WHERE slug = 'raleigh-dental-demo'", ())
+
+    tenant = _tenant_from(r) if r else create_tenant("raleigh-dental-demo", "Raleigh Dental Demo")
+
+    # Ensure demo users exist with standard password 'password'
+    with connect() as c:
+        user_rows = rows(c, "SELECT email FROM users WHERE tenant_id = ?", tenant.id)
+    existing_emails = {u["email"] for u in user_rows}
+
+    if "admin@raleighdentistry.com" not in existing_emails:
+        create_user(tenant.id, "admin@raleighdentistry.com", password="password", display_name="Front Desk Admin", role="admin")
+    if "owner@example.com" not in existing_emails:
+        create_user(tenant.id, "owner@example.com", password="password", display_name="Dr. Raleigh (Owner)", role="owner")
+    if "admin@example.com" not in existing_emails:
+        create_user(tenant.id, "admin@example.com", password="password", display_name="Admin User", role="admin")
+
+    # Ensure domain allowances
+    with connect() as c:
+        dom_rows = rows(c, "SELECT domain FROM domains WHERE tenant_id = ?", tenant.id)
+    existing_domains = {d["domain"] for d in dom_rows}
+    for d in ["localhost", "127.0.0.1", "*"]:
+        if d not in existing_domains:
+            try:
+                add_domain(tenant.id, d)
+            except Exception:
+                pass
+
+    # Ensure API key
+    with connect() as c:
+        key_rows = rows(c, "SELECT id FROM api_keys WHERE tenant_id = ?", tenant.id)
+    if not key_rows:
+        try:
+            create_api_key(tenant.id, "demo-site", "super-secret-demo-key")
+        except Exception:
+            pass
+
+    # Sample demo leads
+    with connect() as c:
+        lead_rows = rows(c, "SELECT id FROM leads WHERE tenant_id = ? LIMIT 1", tenant.id)
+    if not lead_rows:
+        now = now_iso()
+        with connect() as c:
+            c.execute(
+                """INSERT INTO leads (tenant_id, name, email, phone, intent, service, urgency, preferred_date, preferred_time, status, message, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (tenant.id, "Sarah Jenkins", "sarah.j@example.com", "(919) 555-0142", "appointment_request", "Teeth Cleaning & Exam", "normal", "Tomorrow", "10:00 AM", "new", "Hi, I would like to schedule a routine cleaning and dental checkup for this week.", now, now)
+            )
+            c.execute(
+                """INSERT INTO leads (tenant_id, name, email, phone, intent, service, urgency, preferred_date, preferred_time, status, message, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (tenant.id, "Michael Chang", "mchang@example.com", "(919) 555-0198", "emergency", "Tooth Extraction", "urgent", "Today", "ASAP", "new", "Severe molar pain started last night, need emergency appointment as soon as possible.", now, now)
+            )
+            c.execute(
+                """INSERT INTO leads (tenant_id, name, email, phone, intent, service, urgency, preferred_date, preferred_time, status, message, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (tenant.id, "Emily Rodriguez", "emily.r@example.com", "(919) 555-0177", "inquiry", "Dental Implants", "normal", "Next Week", "Afternoon", "contacted", "Interested in learning more about cosmetic veneers and consultation pricing.", now, now)
+            )
+            try:
+                c.execute(
+                    """INSERT INTO frontdesk_tasks (tenant_id, lead_id, title, priority, status, created_at, updated_at)
+                       VALUES (?, 2, ?, ?, 'open', ?, ?)""",
+                    (tenant.id, "Call Michael Chang regarding emergency dental slot", "high", now, now)
+                )
+            except Exception:
+                pass
+
+    return tenant

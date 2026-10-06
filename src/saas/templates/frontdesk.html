@@ -249,10 +249,10 @@ function showLogin() {
     '<h2 style="color:#1f3b2e">🦷 Front Desk Login</h2>' +
     '<div style="background:#fff;padding:28px 32px;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,.08);width:340px">' +
     '<input id="fd-email" type="email" placeholder="Email" value="admin@raleighdentistry.com" style="width:100%;padding:10px 14px;margin-bottom:10px;border:1px solid #ddd;border-radius:10px;font-size:15px">' +
-    '<input id="fd-pw" type="password" placeholder="Password" style="width:100%;padding:10px 14px;margin-bottom:8px;border:1px solid #ddd;border-radius:10px;font-size:15px">' +
+    '<input id="fd-pw" type="password" placeholder="Password" value="password" style="width:100%;padding:10px 14px;margin-bottom:8px;border:1px solid #ddd;border-radius:10px;font-size:15px">' +
     '<p id="fd-err" style="color:#dc2626;font-size:13px;margin:0"></p>' +
     '<button onclick="doLogin()" style="width:100%;padding:12px;background:#1f3b2e;color:#fff;border:0;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;margin-top:10px">Login to Front Desk</button>' +
-    '<p style="color:#6b7280;font-size:12px;text-align:center;margin-top:10px">Your admin can set up your login</p>' +
+    '<p style="color:#6b7280;font-size:12px;text-align:center;margin-top:10px">Demo login: <b>admin@raleighdentistry.com</b> / <b>password</b></p>' +
     '</div></div>';
 }
 
@@ -267,6 +267,14 @@ async function doLogin() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({tenant_slug: 'raleigh-dental-demo', email: email, password: pw})
     });
+    if (!r.ok) {
+      var form = new URLSearchParams({grant_type: 'password', username: email, password: pw, tenant_slug: 'raleigh-dental-demo'});
+      r = await fetch((window.location.origin || '') + '/api/raleigh-dental-demo/auth/token', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: form
+      });
+    }
     var data = await r.json();
     if (!r.ok) { if (errEl) errEl.textContent = data.detail || 'Login failed'; return; }
     localStorage.setItem('fd_jwt', data.access_token);

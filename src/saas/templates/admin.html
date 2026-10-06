@@ -293,15 +293,15 @@
     <p>Sign in to manage your concierge</p>
     <form id="login-form">
       <label>Tenant Slug</label>
-      <input type="text" id="login-tenant" placeholder="e.g. myclinic" required>
+      <input type="text" id="login-tenant" placeholder="e.g. raleigh-dental-demo" value="raleigh-dental-demo" required>
       <label>Email</label>
-      <input type="email" id="login-email" placeholder="admin@example.com" required>
+      <input type="email" id="login-email" placeholder="admin@raleighdentistry.com" value="admin@raleighdentistry.com" required>
       <label>Password</label>
-      <input type="password" id="login-password" placeholder="••••••••" required>
+      <input type="password" id="login-password" placeholder="••••••••" value="password" required>
       <button type="submit" id="login-btn">Sign In</button>
     </form>
     <div class="auth-error" id="auth-error"></div>
-    <div class="auth-hint">Uses JWT authentication. Token stored in localStorage.</div>
+    <div class="auth-hint">Demo login: <b>raleigh-dental-demo</b> &bull; <b>admin@raleighdentistry.com</b> / <b>password</b></div>
   </div>
 </div>
 
@@ -870,18 +870,29 @@ async function api(path, opts = {}) {
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const btn = document.getElementById('login-btn');
-  const err = document.getElementById('auth-error');
-  btn.textContent = 'Signing in...'; btn.disabled = true; err.textContent = '';
+  const errEl = document.getElementById('auth-error');
+  btn.textContent = 'Signing in...'; btn.disabled = true; if (errEl) errEl.textContent = '';
 
-  const tenantSlug = document.getElementById('login-tenant').value.trim();
+  const tenantSlug = document.getElementById('login-tenant').value.trim() || 'raleigh-dental-demo';
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
 
   try {
-    const form = new URLSearchParams({ grant_type: 'password', username: email, password });
-    const res = await fetch(`${API_BASE}/api/${tenantSlug}/auth/token`, {
-      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form,
+    let res = await fetch(`${API_BASE}/api/admin/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenant_slug: tenantSlug, email: email, password: password })
     });
+
+    if (!res.ok) {
+      const form = new URLSearchParams({ grant_type: 'password', username: email, password: password, tenant_slug: tenantSlug });
+      res = await fetch(`${API_BASE}/api/${tenantSlug}/auth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form,
+      });
+    }
+
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Login failed');
 
@@ -898,7 +909,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     document.getElementById('auth-overlay').classList.add('hidden');
     initDashboard();
   } catch (err) {
-    err.textContent = err.message;
+    if (errEl) errEl.textContent = err.message || 'Login failed';
   } finally {
     btn.textContent = 'Sign In'; btn.disabled = false;
   }

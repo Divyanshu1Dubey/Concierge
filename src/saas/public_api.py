@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import zipfile
+from urllib.parse import parse_qs
 from pathlib import Path
 from typing import Any, Optional
 
@@ -73,21 +74,65 @@ public_app.add_middleware(
 
 # ── Public Auth ──────────────────────────────────────────────────────────────
 
+async def _extract_auth_payload(request: Request) -> dict[str, Any]:
+    content_type = request.headers.get("content-type", "").lower()
+    if "application/x-www-form-urlencoded" in content_type:
+        raw = await request.body()
+        return {k: v[0] for k, v in parse_qs(raw.decode("utf-8", errors="ignore")).items()}
+    if "multipart/form-data" in content_type:
+        try:
+            form = await request.form()
+            return dict(form)
+        except Exception:
+            raw = await request.body()
+            return {k: v[0] for k, v in parse_qs(raw.decode("utf-8", errors="ignore")).items()}
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            return body
+    except Exception:
+        pass
+    try:
+        raw = await request.body()
+        return {k: v[0] for k, v in parse_qs(raw.decode("utf-8", errors="ignore")).items()}
+    except Exception:
+        return {}
+
+
 class LoginBody(BaseModel):
-    tenant_slug: str
-    email: str
-    password: str
+    tenant_slug: str = "raleigh-dental-demo"
+    email: str | None = None
+    username: str | None = None
+    password: str = ""
 
 
 @public_app.post("/{tenant_slug}/auth/token")
-def public_tenant_login(
-    tenant_slug: str,
-    username: str = Body(...),
-    password: str = Body(...),
+@public_app.post("/auth/token")
+@public_app.post("/auth/login")
+async def public_tenant_login(
+    request: Request,
+    tenant_slug: str | None = None,
 ) -> TokenOut:
-    tenant = get_tenant_by_slug(tenant_slug)
+    data = await _extract_auth_payload(request)
+    slug = str(tenant_slug or data.get("tenant_slug") or "raleigh-dental-demo").strip()
+    username = str(data.get("username") or data.get("email") or "").strip()
+    password = str(data.get("password") or "")
+
+    if not username or not password:
+        raise HTTPException(status_code=422, detail="Username/email and password are required")
+
+    tenant = get_tenant_by_slug(slug)
     if not tenant:
-        raise HTTPException(status_code=404, detail="tenant not found")
+        from saas.repositories import ensure_demo_data, list_tenants
+        if slug in ("raleigh-dental-demo", "demo"):
+            tenant = ensure_demo_data()
+        else:
+            all_t = list_tenants(limit=2)
+            if len(all_t) == 1:
+                tenant = all_t[0]
+            else:
+                raise HTTPException(status_code=404, detail="tenant not found")
+
     return login_for_token(tenant.id, OAuth2PasswordRequestForm(username=username, password=password))
 
 
@@ -758,11 +803,29 @@ admin_app = FastAPI(title="HeyJarvis Admin", version="1.0.0")
 
 
 @admin_app.post("/auth/login")
-def admin_login(body: LoginBody) -> TokenOut:
-    tenant = get_tenant_by_slug(body.tenant_slug)
+@admin_app.post("/auth/token")
+async def admin_login(request: Request) -> TokenOut:
+    data = await _extract_auth_payload(request)
+    slug = str(data.get("tenant_slug") or "raleigh-dental-demo").strip()
+    email = str(data.get("email") or data.get("username") or "").strip()
+    password = str(data.get("password") or "")
+
+    if not email or not password:
+        raise HTTPException(status_code=422, detail="Email/username and password are required")
+
+    tenant = get_tenant_by_slug(slug)
     if not tenant:
-        raise HTTPException(status_code=404, detail="tenant not found")
-    return login_for_token(tenant.id, OAuth2PasswordRequestForm(username=body.email, password=body.password))
+        from saas.repositories import ensure_demo_data, list_tenants
+        if slug in ("raleigh-dental-demo", "demo"):
+            tenant = ensure_demo_data()
+        else:
+            all_t = list_tenants(limit=2)
+            if len(all_t) == 1:
+                tenant = all_t[0]
+            else:
+                raise HTTPException(status_code=404, detail="tenant not found")
+
+    return login_for_token(tenant.id, OAuth2PasswordRequestForm(username=email, password=password))
 
 
 @admin_app.get("/tenants")

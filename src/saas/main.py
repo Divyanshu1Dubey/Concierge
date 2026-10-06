@@ -11,8 +11,8 @@ from fastapi.staticfiles import StaticFiles
 
 from saas.config import get_settings
 from saas.database import connect, rows
-from saas.public_api import admin_app, frontdesk_app, public_app, _tenant_config
-from saas.repositories import get_tenant_by_slug
+from saas.public_api import admin_app, frontdesk_app, public_app, _tenant_config, admin_login, public_tenant_login
+from saas.repositories import get_tenant_by_slug, ensure_demo_data
 
 settings = get_settings()
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,10 +29,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.on_event("startup")
+def startup_event() -> None:
+    try:
+        ensure_demo_data()
+    except Exception as e:
+        import logging
+        logging.getLogger("saas").warning(f"Startup demo seed notice: {e}")
+
+
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="saas-static")
 app.mount("/api/admin", admin_app)
 admin_app.mount("/fd", frontdesk_app)
 app.mount("/api", public_app)
+
+
+@app.post("/api/auth/login")
+@app.post("/auth/login")
+async def app_login_alias(request: Request):
+    return await admin_login(request)
+
+
+@app.post("/api/auth/token")
+@app.post("/auth/token")
+async def app_token_alias(request: Request):
+    return await public_tenant_login(request)
 
 
 @app.get("/health")
