@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HeyJarvis AI Concierge & Front Desk Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%200%20100%20100%22><text y=%22.9em%22 font-size=%2290%22>🦷</text></svg>">
+<style>
+  :root {
+    --bg-dark: #0a1410;
+    --brand-green: #1f3b2e;
+    --brand-accent: #10b981;
+    --brand-accent-glow: rgba(16, 185, 129, 0.25);
+    --surface: #11221b;
+    --surface-light: #183327;
+    --border: rgba(255, 255, 255, 0.12);
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-dark);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    background: rgba(10, 20, 16, 0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+    color: #fff;
+  }
+  .brand-icon {
+    font-size: 26px;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 14px var(--brand-accent-glow);
+  }
+  .brand-text h1 {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .badge-live {
+    font-size: 11px;
+    font-weight: 600;
+    color: #34d399;
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(52, 211, 153, 0.3);
+    padding: 2px 8px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .badge-live::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #34d399;
+    box-shadow: 0 0 8px #34d399;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .nav-tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 4px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .tab-btn {
+    background: transparent;
+    border: 0;
+    color: var(--text-secondary);
+    padding: 8px 14px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .tab-btn:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .tab-btn.active {
+    color: #fff;
+    background: #10b981;
+    box-shadow: 0 2px 10px rgba(16, 185, 129, 0.4);
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .btn-open {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+  }
+  .btn-open:hover {
+    background: rgba(255, 255, 255, 0.18);
+  }
+
+  /* ── Credential Banner ── */
+  .creds-bar {
+    background: linear-gradient(90deg, rgba(16,185,129,0.12) 0%, rgba(5,150,105,0.08) 100%);
+    border-bottom: 1px solid rgba(16,185,129,0.25);
+    padding: 8px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #e2e8f0;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .creds-items {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .cred-tag {
+    background: rgba(0, 0, 0, 0.35);
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: #a7f3d0;
+  }
+  .copy-btn {
+    background: rgba(16,185,129,0.2);
+    color: #34d399;
+    border: 1px solid rgba(52,211,153,0.3);
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .copy-btn:hover { background: rgba(16,185,129,0.3); }
+
+  /* ── Main Frame ── */
+  .main-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 105px);
+    position: relative;
+  }
+  iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    flex: 1;
+    background: #fff;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a href="/" class="brand">
+    <div class="brand-icon">🦷</div>
+    <div class="brand-text">
+      <h1>HeyJarvis Concierge <span class="badge-live">Live</span></h1>
+      <div style="font-size:12px;color:var(--text-secondary)">Hospital & Dental AI Receptionist</div>
+    </div>
+  </a>
+
+  <nav class="nav-tabs">
+    <button class="tab-btn active" onclick="switchView('/desk', this)">
+      <span>🏥</span> AI Front Desk
+    </button>
+    <button class="tab-btn" onclick="switchView('/concierge/raleigh-dental-demo', this)">
+      <span>💬</span> Patient AI Chat
+    </button>
+    <button class="tab-btn" onclick="switchView('/admin', this)">
+      <span>⚙️</span> Admin Console
+    </button>
+    <button class="tab-btn" onclick="switchView('/frontdesk', this)">
+      <span>📋</span> Classic Frontdesk
+    </button>
+    <button class="tab-btn" onclick="switchView('/install', this)">
+      <span>🚀</span> Widget Snippet
+    </button>
+    <button class="tab-btn" onclick="switchView('/docs', this)">
+      <span>📚</span> API Docs
+    </button>
+  </nav>
+
+  <div class="header-actions">
+    <a id="external-link" href="/desk" target="_blank" class="btn-open" title="Open selected interface in new tab">
+      <span>Open in New Tab</span> ↗
+    </a>
+  </div>
+</header>
+
+<div class="creds-bar">
+  <div class="creds-items">
+    <span>🔑 <b>Pre-configured Demo Login:</b></span>
+    <span>Clinic: <span class="cred-tag" id="cred-slug">raleigh-dental-demo</span></span>
+    <span>Email: <span class="cred-tag" id="cred-email">admin@raleighdentistry.com</span></span>
+    <span>Password: <span class="cred-tag" id="cred-pw">password</span></span>
+  </div>
+  <button class="copy-btn" onclick="copyCreds()">📋 Copy Credentials</button>
+</div>
+
+<main class="main-container">
+  <iframe id="view-frame" src="/desk" title="HeyJarvis Application View"></iframe>
+</main>
+
+<script>
+function switchView(url, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const frame = document.getElementById('view-frame');
+  frame.src = url;
+  document.getElementById('external-link').href = url;
+}
+
+function copyCreds() {
+  const text = "Clinic: raleigh-dental-demo\nEmail: admin@raleighdentistry.com\nPassword: password";
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = '✅ Copied!';
+    setTimeout(() => { btn.textContent = '📋 Copy Credentials'; }, 2000);
+  });
+}
+</script>
+
+</body>
+</html>

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from saas.config import get_settings
@@ -63,8 +63,30 @@ def health() -> dict:
 
 
 @app.get("/")
-def index() -> dict:
-    return {"app": "heyjarvis-platform", "docs": "/docs"}
+def index(request: Request) -> Response:
+    accept = request.headers.get("accept", "").lower()
+    format_param = request.query_params.get("format", "").lower()
+    if format_param == "json" or ("application/json" in accept and "text/html" not in accept):
+        return JSONResponse({"app": "heyjarvis-platform", "docs": "/docs", "portal": "/", "desk": "/desk", "concierge": "/concierge/raleigh-dental-demo", "admin": "/admin"})
+    portal_file = ROOT / "src" / "saas" / "templates" / "portal.html"
+    if portal_file.exists():
+        return HTMLResponse(portal_file.read_text(encoding="utf-8"))
+    return JSONResponse({"app": "heyjarvis-platform", "docs": "/docs"})
+
+
+@app.get("/portal")
+@app.get("/portal.html")
+def portal_page() -> HTMLResponse:
+    portal_file = ROOT / "src" / "saas" / "templates" / "portal.html"
+    return HTMLResponse(portal_file.read_text(encoding="utf-8"))
+
+
+@app.get("/concierge")
+@app.get("/concierge/")
+@app.get("/chat")
+@app.get("/chat/")
+def concierge_default_redirect() -> RedirectResponse:
+    return RedirectResponse(url="/concierge/raleigh-dental-demo", status_code=307)
 
 
 @app.get("/concierge/{tenant_slug}")

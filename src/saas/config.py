@@ -26,12 +26,15 @@ class Settings(BaseModel):
     database_url: str = Field(default=os.getenv("DATABASE_URL", str(ROOT / "data" / "saas.db")), alias="DATABASE_URL")
     cors_origins: str = Field(default=os.getenv("CORS_ORIGINS", "*"), alias="CORS_ORIGINS")
     rate_limit_per_minute: int = Field(default=int(os.getenv("RATE_LIMIT_PER_MINUTE", "60")), alias="RATE_LIMIT_PER_MINUTE")
-    default_smtp_host: str | None = Field(default=os.getenv("DEFAULT_SMTP_HOST"), alias="DEFAULT_SMTP_HOST")
-    default_smtp_port: int | None = Field(default=int(os.getenv("DEFAULT_SMTP_PORT", "0")) or None, alias="DEFAULT_SMTP_PORT")
-    default_smtp_user: str | None = Field(default=os.getenv("DEFAULT_SMTP_USER"), alias="DEFAULT_SMTP_USER")
-    default_smtp_password: SecretStr | None = Field(default=SecretStr(os.getenv("DEFAULT_SMTP_PASSWORD", "")) if os.getenv("DEFAULT_SMTP_PASSWORD") else None, alias="DEFAULT_SMTP_PASSWORD")
-    default_smtp_from: str | None = Field(default=os.getenv("DEFAULT_SMTP_FROM"), alias="DEFAULT_SMTP_FROM")
-    default_smtp_reply_to: str | None = Field(default=os.getenv("DEFAULT_SMTP_REPLY_TO"), alias="DEFAULT_SMTP_REPLY_TO")
+    default_smtp_host: str | None = Field(default=os.getenv("DEFAULT_SMTP_HOST") or os.getenv("SMTP_HOST") or "smtp.gmail.com", alias="DEFAULT_SMTP_HOST")
+    default_smtp_port: int | None = Field(default=int(os.getenv("DEFAULT_SMTP_PORT") or os.getenv("SMTP_PORT") or "465"), alias="DEFAULT_SMTP_PORT")
+    default_smtp_user: str | None = Field(default=os.getenv("DEFAULT_SMTP_USER") or os.getenv("SMTP_USER") or os.getenv("FRONT_DESK_EMAIL"), alias="DEFAULT_SMTP_USER")
+    default_smtp_password: SecretStr | None = Field(
+        default=SecretStr(os.getenv("DEFAULT_SMTP_PASSWORD") or os.getenv("SMTP_PASSWORD") or "") if (os.getenv("DEFAULT_SMTP_PASSWORD") or os.getenv("SMTP_PASSWORD")) else None,
+        alias="DEFAULT_SMTP_PASSWORD"
+    )
+    default_smtp_from: str | None = Field(default=os.getenv("DEFAULT_SMTP_FROM") or os.getenv("FRONT_DESK_EMAIL") or os.getenv("SMTP_USER"), alias="DEFAULT_SMTP_FROM")
+    default_smtp_reply_to: str | None = Field(default=os.getenv("DEFAULT_SMTP_REPLY_TO") or os.getenv("FRONT_DESK_EMAIL") or os.getenv("SMTP_USER"), alias="DEFAULT_SMTP_REPLY_TO")
 
     model_config = {
         "populate_by_name": True,
