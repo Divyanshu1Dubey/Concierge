@@ -371,3 +371,30 @@ def test_chat_uses_gemini_extraction(monkeypatch):
     with connect() as c:
         lead = rows(c, "SELECT * FROM leads ORDER BY id DESC LIMIT 1")[0]
     assert lead["preferred_time"] == "after 3pm" and lead["phone"] == "919-555-0100"
+
+
+def test_chat_asks_what_to_schedule_first_with_choices():
+    out = _chat(["Hi there"])
+    assert "schedule" in out["reply"].lower()
+    assert "Cleaning & checkup" in out["options"] and "Something else" in out["options"]
+
+
+def test_tapping_a_choice_answers_and_moves_on():
+    out = _chat(["Hi there", "Cleaning & checkup"])
+    assert "options" not in out and "name" in out["reply"].lower()
+    out = _chat(["Hi there", "Something else", "Sam Lee", "sam@x.test"])
+    assert out["state"] == "submitted"
+
+
+def test_clinic_can_set_its_own_choices():
+    from saas.conversation import ConversationEngine
+    eng = ConversationEngine({"service_options": ["Botox", "Fillers"]})
+    assert eng.options_for("service") == ["Botox", "Fillers"]
+    assert eng.options_for("email") == []
+
+
+def test_tapped_choice_is_saved_as_the_service():
+    _chat(["Hi there", "Cleaning & checkup", "Sam Lee", "sam@x.test"])
+    with connect() as c:
+        lead = rows(c, "SELECT service FROM leads ORDER BY id DESC LIMIT 1")[0]
+    assert lead["service"] == "Cleaning & checkup"

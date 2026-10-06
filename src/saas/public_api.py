@@ -1521,7 +1521,7 @@ def admin_update_settings(tenant_id: int, body: dict[str, Any], cu: CurrentUser 
         "email_enabled", "widget_enabled", "auto_open", "auto_open_delay",
         "mode", "max_turns", "conciergeEnabled", "aiEnabled",
         "emailEnabled", "leadCollectionEnabled", "widgetEnabled",
-        "autoOpenEnabled", "humanHandoffEnabled",
+        "autoOpenEnabled", "humanHandoffEnabled", "service_options",
     }
     flags = {k: v for k, v in body.items() if k in allowed_flags}
     ai_instructions = body.get("ai_instructions")

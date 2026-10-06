@@ -16,6 +16,9 @@
  */
 (function () {
   'use strict';
+  var CHAT_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+  var CHECK_SVG = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2d6a4f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>';
+  var ALERT_SVG = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#b42318" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>';
   try {
     var script = document.currentScript;
     if (!script) return;
@@ -112,9 +115,7 @@
           .then(function (c) {
             config = c;
             if (titleEl && c.tenant_name) titleEl.textContent = c.tenant_name + ' — Concierge';
-            if (c.greeting) {
-              appendBubble(esc(c.greeting));
-            }
+            // The greeting arrives with the new conversation (startConversation); don't show it twice.
             if (c.form_mode === true || c.form_mode === 'true') {
               switchToForm();
             }
@@ -160,7 +161,7 @@
       }
 
       function resetChat() {
-        bodyEl.innerHTML = '<div class="empty-state" id="empty"><div class="icon">&#128172;</div><div><strong>Chat Reset</strong></div><div>Starting a new conversation...</div></div>';
+        bodyEl.innerHTML = '';
         submitted = false;
         conversationId = null;
         fields = {};
@@ -168,9 +169,28 @@
         initSession();
       }
 
-      sendEl.addEventListener('click', function () {
-        var text = msgEl.value.trim();
+      function hostedOptions(options) {
+        var old = bodyEl.querySelectorAll('.options.reply-options');
+        for (var i = 0; i < old.length; i++) old[i].remove();
+        if (!options || !options.length) return;
+        var wrap = document.createElement('div');
+        wrap.className = 'options reply-options';
+        options.forEach(function (label) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'chip';
+          b.textContent = label;
+          b.addEventListener('click', function () { sendText(label); });
+          wrap.appendChild(b);
+        });
+        bodyEl.appendChild(wrap);
+        bodyEl.scrollTop = bodyEl.scrollHeight;
+      }
+
+      function sendText(text) {
+        text = (text || '').trim();
         if (!text || submitted) return;
+        hostedOptions(null);
         appendBubble(esc(text), true);
         msgEl.value = '';
         showTyping();
@@ -178,6 +198,7 @@
           hideTyping();
           if (!data) return;
           if (data.reply) appendBubble(esc(data.reply));
+          hostedOptions(data.options);
           if (data.state === 'submitted' || data.state === 'complete') {
             markSubmitted(data);
           }
@@ -185,7 +206,10 @@
           hideTyping();
           appendBubble('Connection issue. Please try again or call us directly.');
         });
-      });
+      }
+      window.__hjHostedSend = sendText;
+
+      sendEl.addEventListener('click', function () { sendText(msgEl.value); });
 
       msgEl.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -204,12 +228,16 @@
         var tenant = config && config.tenant_name ? config.tenant_name : 'us';
         setTimeout(function () {
           clearEmpty();
-          bodyEl.innerHTML =
-            '<div class="empty-state">' +
-              '<div class="icon">&#9989;</div>' +
-              '<div><strong>Message Sent!</strong></div>' +
-              '<div>Thank you for reaching out to ' + esc(tenant) + '. We\'ll get back to you shortly.</div>' +
-            '</div>';
+          var el = document.createElement('div');
+          el.className = 'empty-state sent-state';
+          el.innerHTML =
+            '<div class="icon">' + CHECK_SVG + '</div>' +
+            '<div><strong>Request sent</strong></div>' +
+            '<div>Thank you for reaching out to ' + esc(tenant) + '. Our front desk will email you shortly.</div>' +
+            '<button type="button" class="chip" style="margin-top:10px">Start a new request</button>';
+          el.querySelector('button').addEventListener('click', resetChat);
+          bodyEl.appendChild(el);
+          bodyEl.scrollTop = bodyEl.scrollHeight;
         }, 400);
       }
 
@@ -250,7 +278,7 @@
       '}',
       '.hj-launcher-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 28px rgba(0,0,0,.28); }',
       '.hj-launcher-btn:active { transform: translateY(0); }',
-      '.hj-launcher-icon { font-size: 20px; line-height: 1; }',
+      '.hj-launcher-icon { display: inline-flex; line-height: 1; }',
       '.hj-launcher-label { display: none; }',
       '@media (min-width: 400px) { .hj-launcher-label { display: inline; } }',
       '.hj-badge {',
@@ -371,6 +399,10 @@
       '.hj-new-request { margin-top: 12px; border: 1px solid #1a3c2a; background: #fff; color: #1a3c2a; border-radius: 999px;',
       '  padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }',
       '.hj-new-request:hover { background: #1a3c2a; color: #fff; }',
+      '.hj-options { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }',
+      '.hj-option { border: 1px solid #2d6a4f; background: #fff; color: #1a3c2a; border-radius: 999px;',
+      '  padding: 7px 12px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; text-align: left; }',
+      '.hj-option:hover, .hj-option:focus-visible { background: #1a3c2a; color: #fff; outline: none; }',
       '/* ── Emergency banner ── */',
       '.hj-emergency {',
       '  background: #fff5f5; border: 2px solid #e74c3c; border-radius: 14px;',
@@ -503,7 +535,7 @@
       '</div>' +
       '<div class="hj-launcher">' +
         '<button class="hj-launcher-btn" id="hj-open" aria-label="Open chat">' +
-          '<span class="hj-launcher-icon">&#128172;</span>' +
+          '<span class="hj-launcher-icon">' + CHAT_SVG + '</span>' +
           '<span class="hj-launcher-label" id="hj-label">Chat with us</span>' +
           '<span class="hj-badge" id="hj-badge" style="display:none">1</span>' +
         '</button>' +
@@ -820,16 +852,39 @@
       var el = document.createElement('div');
       el.className = 'hj-emergency';
       el.innerHTML =
-        '<div class="hj-emergency-icon">&#128680;</div>' +
+        '<div class="hj-emergency-icon">' + ALERT_SVG + '</div>' +
         '<div class="hj-emergency-title">Emergency Detected</div>' +
         '<div class="hj-emergency-body">We\'ve noted this as urgent. For immediate assistance, please call us directly at the number on our website. We\'ll prioritize your request.</div>';
       appendRaw(el);
+    }
+
+    // Tap-to-answer choices under a question (e.g. "What are you looking to schedule?").
+    function showOptions(options) {
+      clearOptions();
+      if (!options || !options.length) return;
+      var wrap = document.createElement('div');
+      wrap.className = 'hj-options';
+      options.forEach(function (label) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'hj-option';
+        b.textContent = label;
+        b.addEventListener('click', function () { onConversationMessage(label); });
+        wrap.appendChild(b);
+      });
+      appendRaw(wrap);
+    }
+
+    function clearOptions() {
+      var old = body.querySelectorAll('.hj-options');
+      for (var i = 0; i < old.length; i++) old[i].remove();
     }
 
     function onConversationMessage(text) {
       if (submitted) return;
       if (!text || !text.trim()) return;
 
+      clearOptions();
       hideTyping();
       appendBubble(esc(text), true);
 
@@ -857,6 +912,7 @@
         if (data.reply) {
           appendBubble(esc(data.reply));
         }
+        showOptions(data.options);
         if (data.state === 'submitted' || data.state === 'complete') {
           markSubmitted();
         }
@@ -891,7 +947,7 @@
         el.className = 'hj-success';
         var tenant = config && config.tenant_name ? config.tenant_name : 'us';
         el.innerHTML =
-          '<div class="hj-success-icon">&#9989;</div>' +
+          '<div class="hj-success-icon">' + CHECK_SVG + '</div>' +
           '<div class="hj-success-title">Request sent</div>' +
           '<div class="hj-success-body">Thank you for reaching out to ' + esc(tenant) + '. ' +
           'Our front desk will email you shortly.</div>' +
@@ -921,7 +977,7 @@
       formBody.innerHTML = '';
       if (submitted) {
         formBody.innerHTML =
-          '<div class="hj-success"><div class="hj-success-icon">&#9989;</div>' +
+          '<div class="hj-success"><div class="hj-success-icon">' + CHECK_SVG + '</div>' +
           '<div class="hj-success-title">Message Sent!</div>' +
           '<div class="hj-success-body">Thank you! We\'ll be in touch shortly.</div></div>';
         return;

@@ -235,7 +235,7 @@
 <body>
   <div class="app">
     <header class="header">
-      <div class="header-brand" aria-hidden="true">&#128172;</div>
+      <div class="header-brand" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
       <div class="header-text">
         <div class="header-title" id="title">{tenant_name} Concierge</div>
         <div class="header-sub">Front Desk Assistant</div>
@@ -247,14 +247,14 @@
 
     <div class="body" id="hj-body">
       <div class="empty-state" id="empty">
-        <div class="icon">&#128172;</div>
+        <div class="icon"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
         <div><strong style="font-size:16px">Welcome to {tenant_name}</strong></div>
         <div style="color:var(--muted);font-size:13px;margin-bottom:12px">How can our front desk team assist you today?</div>
         <div class="options" style="justify-content:center;margin-top:6px">
-          <button class="chip" type="button" onclick="quickSend('I would like to book an appointment')">📅 Book an appointment</button>
-          <button class="chip" type="button" onclick="quickSend('I have urgent tooth pain')">🚨 Emergency pain</button>
-          <button class="chip" type="button" onclick="quickSend('Do you accept dental insurance?')">💳 Insurance & pricing</button>
-          <button class="chip" type="button" onclick="quickSend('I need to reschedule an existing appointment')">🔄 Reschedule visit</button>
+          <button class="chip" type="button" onclick="quickSend('I would like to book an appointment')">Book an appointment</button>
+          <button class="chip" type="button" onclick="quickSend('I have urgent tooth pain')">Emergency pain</button>
+          <button class="chip" type="button" onclick="quickSend('Do you accept dental insurance?')">Insurance & pricing</button>
+          <button class="chip" type="button" onclick="quickSend('I need to reschedule an existing appointment')">Reschedule visit</button>
         </div>
       </div>
     </div>
@@ -270,14 +270,12 @@
     window.__HJ_CONFIG.clientKey = '{client_key}';
     window.__HJ_CONFIG.hosted = true;
     function quickSend(txt) {
+      if (window.__hjHostedSend) { window.__hjHostedSend(txt); return; }
       var m = document.getElementById('msg');
       var s = document.getElementById('send');
-      if (m && s) {
-        m.value = txt;
-        s.click();
-      }
+      if (m && s) { m.value = txt; s.click(); }
     }
   </script>
-  <script src="/widget.js" defer></script>
+  <script src="/widget.js?v=20261006" defer></script>
 </body>
 </html>

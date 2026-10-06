@@ -45,6 +45,8 @@ class ConversationContext(BaseModel):
 
 
 DEFAULT_GREETING = "Hi! How can we help today?"
+DEFAULT_SERVICE_OPTIONS = ["Cleaning & checkup", "New patient visit", "Tooth pain or emergency",
+                           "Cosmetic (whitening, veneers)", "Crowns, fillings or implants", "Something else"]
 WELCOME_BY_INTENT = {
     "appointment_request": "Sure, I can help with that. What's your name?",
     "emergency": "I'm sorry you're in pain. Let's get you help fast. What's your name?",
@@ -116,8 +118,12 @@ class ConversationEngine:
         append_message(context.conversation_id, "assistant", reply)
         if context.state in (State.SUBMITTED, State.HANDOFF):
             complete_conversation(context.conversation_id, context.fields.get("_summary"))
-        return {"conversation_id": context.conversation_id, "state": context.state.value, "reply": reply,
+        out = {"conversation_id": context.conversation_id, "state": context.state.value, "reply": reply,
                 "fields": context.fields, "turn_count": context.turn_count}
+        options = self.options_for(context.fields.get("_asked")) if context.state not in (State.SUBMITTED, State.HANDOFF) else []
+        if options:
+            out["options"] = options
+        return out
 
     def _reply_for(self, context: ConversationContext, body: str) -> str:
         fields = self._extract_fields(body, context.fields)
@@ -132,6 +138,15 @@ class ConversationEngine:
         next_field = missing[0]
         context.fields["_asked"] = next_field
         return self._ask_for(next_field)
+
+    def options_for(self, field: str | None) -> list[str]:
+        """Tap-to-answer choices shown under a question. Clinics can override via the 'service_options' setting."""
+        if field != "service":
+            return []
+        custom = self.config.get("service_options")
+        if isinstance(custom, list) and custom:
+            return [str(o)[:60] for o in custom][:8]
+        return list(DEFAULT_SERVICE_OPTIONS)
 
     def _ask_for(self, field: str) -> str:
         prompts = {
@@ -157,6 +172,10 @@ class ConversationEngine:
                 logger.exception("AI intake extraction failed; using rules")
         for key, value in _rule_fields(body, asked).items():
             out.setdefault(key, value)
+        # A tapped choice is the patient's exact answer: store the label they picked.
+        picked = next((o for o in self.options_for(asked) if o.lower() == body.strip().lower()), None)
+        if picked:
+            out["service"] = picked
         if out.get("email") and not _EMAIL.fullmatch(out["email"]):
             out.pop("email")
         return out
@@ -167,8 +186,7 @@ class ConversationEngine:
         if configured:
             required = configured
         else:
-            required = ["name", "email"]
-            if not fields.get("intent"):
-                required.append("service")
+            # Ask what they need first (shown with tap-to-answer choices), then contact details.
+            required = ([] if fields.get("intent") or fields.get("service") else ["service"]) + ["name", "email"]
         missing = [f for f in required if not fields.get(f)]
         return missing
