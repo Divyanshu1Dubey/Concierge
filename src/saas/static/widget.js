@@ -368,6 +368,9 @@
       '.hj-success-icon { font-size: 36px; margin-bottom: 6px; }',
       '.hj-success-title { font-weight: 700; font-size: 16px; color: #1a3c2a; margin-bottom: 4px; }',
       '.hj-success-body { font-size: 13px; color: #555; line-height: 1.5; }',
+      '.hj-new-request { margin-top: 12px; border: 1px solid #1a3c2a; background: #fff; color: #1a3c2a; border-radius: 999px;',
+      '  padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }',
+      '.hj-new-request:hover { background: #1a3c2a; color: #fff; }',
       '/* ── Emergency banner ── */',
       '.hj-emergency {',
       '  background: #fff5f5; border: 2px solid #e74c3c; border-radius: 14px;',
@@ -881,21 +884,36 @@
     function markSubmitted() {
       submitted = true;
       setDisabled(true);
-      // Show success confirmation
       hideTyping();
+      // Keep the conversation visible; confirm below it and let the visitor start over.
       setTimeout(function () {
-        body.innerHTML = '';
         var el = document.createElement('div');
         el.className = 'hj-success';
         var tenant = config && config.tenant_name ? config.tenant_name : 'us';
         el.innerHTML =
           '<div class="hj-success-icon">&#9989;</div>' +
-          '<div class="hj-success-title">Message Sent!</div>' +
+          '<div class="hj-success-title">Request sent</div>' +
           '<div class="hj-success-body">Thank you for reaching out to ' + esc(tenant) + '. ' +
-          'We\'ll get back to you shortly. Have a great day!</div>';
-        body.appendChild(el);
+          'Our front desk will email you shortly.</div>' +
+          '<button type="button" class="hj-new-request">Start a new request</button>';
+        el.querySelector('.hj-new-request').addEventListener('click', startNewRequest);
+        appendRaw(el);
         launcherLabel.textContent = 'Sent';
-      }, 600);
+      }, 400);
+    }
+
+    function startNewRequest() {
+      submitted = false;
+      conversationId = null;
+      fields = {};
+      errorCount = 0;
+      emergencyDetected = false;
+      body.innerHTML = '';
+      setDisabled(false);
+      launcherLabel.textContent = 'Chat with us';
+      started = true;
+      initSession();
+      msgInput.focus();
     }
 
     // ── Form Mode ────────────────────────────────────────────────────────────
