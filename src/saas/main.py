@@ -33,6 +33,8 @@ app.add_middleware(
 @app.on_event("startup")
 def startup_event() -> None:
     try:
+        from saas.database import migrate
+        migrate()
         ensure_demo_data()
     except Exception as e:
         import logging

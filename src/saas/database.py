@@ -328,7 +328,7 @@ def reset_database() -> None:
 
 
 def migrate() -> None:
-    """Additive migration: add new columns to existing tables if missing."""
+    """Additive migration: add new columns and tables to existing database if missing."""
     with connect() as c:
         # email_settings: new columns
         for col in ["smtp_security", "front_desk_email", "backup_email", "delivery_mode"]:
@@ -336,6 +336,12 @@ def migrate() -> None:
                 c.execute(f"ALTER TABLE email_settings ADD COLUMN {col} TEXT")
             except sqlite3.OperationalError:
                 pass  # column already exists
+        # leads: columns
+        for col in ["source", "page_url", "conversation_summary", "metadata"]:
+            try:
+                c.execute(f"ALTER TABLE leads ADD COLUMN {col} TEXT")
+            except sqlite3.OperationalError:
+                pass
         # integration_settings table
         try:
             c.execute("""CREATE TABLE IF NOT EXISTS integration_settings (
@@ -362,6 +368,64 @@ def migrate() -> None:
                 window_start TEXT NOT NULL,
                 count INTEGER NOT NULL DEFAULT 1,
                 UNIQUE(key, window_start)
+            )""")
+        except sqlite3.OperationalError:
+            pass
+        # frontdesk_notes
+        try:
+            c.execute("""CREATE TABLE IF NOT EXISTS frontdesk_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id INTEGER NOT NULL,
+                lead_id INTEGER,
+                conversation_id INTEGER,
+                note TEXT NOT NULL,
+                created_by INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+                FOREIGN KEY (lead_id) REFERENCES leads(id),
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+            )""")
+        except sqlite3.OperationalError:
+            pass
+        # frontdesk_tasks
+        try:
+            c.execute("""CREATE TABLE IF NOT EXISTS frontdesk_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id INTEGER NOT NULL,
+                lead_id INTEGER,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority TEXT NOT NULL DEFAULT 'medium',
+                status TEXT NOT NULL DEFAULT 'open',
+                due_at TEXT,
+                completed_at TEXT,
+                created_by INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+                FOREIGN KEY (lead_id) REFERENCES leads(id)
+            )""")
+        except sqlite3.OperationalError:
+            pass
+        # ai_drafts
+        try:
+            c.execute("""CREATE TABLE IF NOT EXISTS ai_drafts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id INTEGER NOT NULL,
+                lead_id INTEGER,
+                conversation_id INTEGER,
+                subject TEXT,
+                body TEXT NOT NULL,
+                html_body TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                sent_at TEXT,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+                FOREIGN KEY (lead_id) REFERENCES leads(id),
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id)
             )""")
         except sqlite3.OperationalError:
             pass

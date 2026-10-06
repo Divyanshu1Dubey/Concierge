@@ -598,22 +598,23 @@ async def fd_send_draft(request: Request, draft_id: int):
     auth = await _fd_auth(request)
     with connect() as c:
         draft = row(c, "SELECT * FROM ai_drafts WHERE id = ? AND tenant_id = ?", draft_id, auth["tenant_id"])
-    if not draft:
-        raise HTTPException(status_code=404, detail="draft not found")
-    with connect() as c:
+        if not draft:
+            raise HTTPException(status_code=404, detail="draft not found")
         c.execute("UPDATE ai_drafts SET status = 'sent', updated_at = ? WHERE id = ?", (now_iso(), draft_id))
-    updated = row(connect(), "SELECT * FROM ai_drafts WHERE id = ?", draft_id)
+        updated = row(c, "SELECT * FROM ai_drafts WHERE id = ?", draft_id)
     return updated or {"ok": True}
 
 
 # ── AI Endpoints ──────────────────────────────────────────────────────────────
 
-def _lead_context(lead_id: int | None = None) -> dict[str, Any]:
+def _lead_context(lead_id: int | None = None, tenant_id: int | None = None) -> dict[str, Any]:
     if not lead_id:
         return {}
     lead = get_lead(lead_id)
     if not lead:
         return {}
+    if tenant_id is not None and lead.get("tenant_id") != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
     conv_text = ""
     cid = lead.get("conversation_id")
     if cid:
@@ -636,7 +637,7 @@ async def fd_ai_draft(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     lead_id = body.get("lead_id")
     instruction = body.get("instruction", "")
-    ctx = _lead_context(lead_id)
+    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
     lead = ctx.get("lead") or {}
     result = _ai_engine.draft_reply(ctx.get("conv_text", ""), lead, instruction)
     subject = result.get("subject", "Re: " + (lead.get("service") or "Your inquiry"))
@@ -650,7 +651,7 @@ async def fd_ai_draft(request: Request, body: dict[str, Any]):
 async def fd_ai_summarize(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     lead_id = body.get("lead_id")
-    ctx = _lead_context(lead_id)
+    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
     result = _ai_engine.summarize_conversation(ctx.get("conv_text", ""))
     return result
 
@@ -660,7 +661,7 @@ async def fd_ai_next_action(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     lead_id = body.get("lead_id")
     conversation_state = body.get("conversation_state", "open")
-    ctx = _lead_context(lead_id)
+    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
     result = _ai_engine.next_best_action(ctx.get("conv_text", ""), ctx.get("lead") or {}, conversation_state)
     return result
 
@@ -670,7 +671,7 @@ async def fd_ai_followup(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     lead_id = body.get("lead_id")
     hours = body.get("hours", 24)
-    ctx = _lead_context(lead_id)
+    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
     result = _ai_engine.generate_follow_up(ctx.get("lead") or {}, hours_passed=hours)
     subject = result.get("subject", "Following up on your inquiry")
     draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
@@ -684,7 +685,7 @@ async def fd_ai_confirm(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     lead_id = body.get("lead_id")
     appointment_time = body.get("appointment_time", "")
-    ctx = _lead_context(lead_id)
+    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
     result = _ai_engine.generate_confirmation(ctx.get("lead") or {}, appointment_time)
     subject = result.get("subject", "Appointment Confirmation")
     draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
@@ -699,7 +700,7 @@ async def fd_ai_reschedule(request: Request, body: dict[str, Any]):
     lead_id = body.get("lead_id")
     new_time = body.get("new_time", "")
     reason = body.get("reason", "")
-    ctx = _lead_context(lead_id)
+    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
     result = _ai_engine.generate_reschedule(ctx.get("lead") or {}, new_time, reason=reason)
     subject = result.get("subject", "Rescheduling Your Appointment")
     draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
@@ -734,7 +735,7 @@ async def fd_ai_warmer(request: Request, body: dict[str, Any]):
 async def fd_ai_classify(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     lead_id = body.get("lead_id")
-    ctx = _lead_context(lead_id)
+    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
     lead = ctx.get("lead") or {}
     message = lead.get("message", "")
     result = _ai_engine.classify_message(message, existing_fields={
@@ -828,22 +829,33 @@ async def admin_login(request: Request) -> TokenOut:
     return login_for_token(tenant.id, OAuth2PasswordRequestForm(username=email, password=password))
 
 
+def _check_tenant(cu: CurrentUser, tenant_id: int) -> None:
+    if cu.user.tenant_id != tenant_id:
+        with connect() as c:
+            m = row(c, "SELECT 1 FROM memberships WHERE user_id = ? AND tenant_id = ?", cu.user.id, tenant_id)
+        if not m:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+
+
 @admin_app.get("/tenants")
-def admin_list_tenants(_: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict[str, Any]]:
-    return [t.model_dump() for t in list_tenants()]
+def admin_list_tenants(cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict[str, Any]]:
+    with connect() as c:
+        m_tids = [r["tenant_id"] for r in rows(c, "SELECT tenant_id FROM memberships WHERE user_id = ?", (cu.user.id,))]
+    allowed_tids = set(m_tids) | {cu.user.tenant_id}
+    all_tenants = list_tenants()
+    matching = [t.model_dump() for t in all_tenants if t.id in allowed_tids]
+    return matching if matching else [t.model_dump() for t in all_tenants]
 
 
 @admin_app.get("/tenants/{tenant_id}")
-def admin_get_tenant(tenant_id: int, cu: Any = Depends(get_current)) -> dict:
-    if cu.user.tenant_id != tenant_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="wrong tenant")
+def admin_get_tenant(tenant_id: int, cu: CurrentUser = Depends(get_current)) -> dict:
+    _check_tenant(cu, tenant_id)
     return _load_tenant(tenant_id)
 
 
 @admin_app.patch("/tenants/{tenant_id}")
-def admin_update_tenant(tenant_id: int, body: dict[str, Any], cu: Any = Depends(get_current)) -> dict:
-    if cu.user.tenant_id != tenant_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="wrong tenant")
+def admin_update_tenant(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(get_current)) -> dict:
+    _check_tenant(cu, tenant_id)
     from saas.repositories import update_tenant
     allowed = {"name", "enabled", "plan"}
     fields = {k: v for k, v in body.items() if k in allowed}
@@ -854,25 +866,37 @@ def admin_update_tenant(tenant_id: int, body: dict[str, Any], cu: Any = Depends(
 
 
 @admin_app.post("/tenants/{tenant_id}/domains")
-def admin_add_domain(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+def admin_add_domain(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
+    _check_tenant(cu, tenant_id)
     dom = repo_add_domain(tenant_id, body.get("domain", ""))
     return dom.model_dump()
 
 
 @admin_app.post("/domains/{domain_id}/verify")
-def admin_verify_domain(domain_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+def admin_verify_domain(domain_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
+    from saas.repositories import get_domain
+    dom = get_domain(domain_id)
+    if not dom:
+        raise HTTPException(status_code=404, detail="domain not found")
+    _check_tenant(cu, dom.tenant_id)
     repo_verify_domain(domain_id)
     return {"ok": True}
 
 
 @admin_app.delete("/domains/{domain_id}")
-def admin_remove_domain(domain_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+def admin_remove_domain(domain_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
+    from saas.repositories import get_domain
+    dom = get_domain(domain_id)
+    if not dom:
+        raise HTTPException(status_code=404, detail="domain not found")
+    _check_tenant(cu, dom.tenant_id)
     repo_remove_domain(domain_id)
     return {"ok": True}
 
 
 @admin_app.get("/tenants/{tenant_id}/domains")
-def admin_list_domains(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict[str, Any]]:
+def admin_list_domains(tenant_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict[str, Any]]:
+    _check_tenant(cu, tenant_id)
     return [d.model_dump() for d in repo_list_domains(tenant_id)]
 
 
@@ -981,21 +1005,27 @@ def admin_test_integration(tenant_id: int, cu: Any = Depends(get_current)) -> di
 
 @admin_app.get("/tenants/{tenant_id}/leads")
 def admin_list_leads(tenant_id: int, status: str | None = None, limit: int = 100, offset: int = 0,
-                     _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+                     cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+    _check_tenant(cu, tenant_id)
     from saas.repositories import list_leads
     return list_leads(tenant_id, status=status, limit=limit, offset=offset)
 
 
 @admin_app.get("/leads/{lead_id}")
-def admin_get_lead(lead_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+def admin_get_lead(lead_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
     lead = get_lead(lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="lead not found")
+    _check_tenant(cu, lead["tenant_id"])
     return lead
 
 
 @admin_app.patch("/leads/{lead_id}")
-def admin_update_lead(lead_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin", "member"))) -> dict:
+def admin_update_lead(lead_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin", "member"))) -> dict:
+    lead = get_lead(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="lead not found")
+    _check_tenant(cu, lead["tenant_id"])
     allowed = {"status", "name", "email", "phone", "intent", "service", "urgency",
                "preferred_date", "preferred_time", "insurance", "financing", "message"}
     fields = {k: v for k, v in body.items() if k in allowed}
@@ -1003,8 +1033,6 @@ def admin_update_lead(lead_id: int, body: dict[str, Any], _: Any = Depends(requi
         raise HTTPException(status_code=400, detail="no valid fields")
     repo_update_lead(lead_id, **fields)
     lead = get_lead(lead_id)
-    if not lead:
-        raise HTTPException(status_code=404, detail="lead not found")
     return lead
 
 
@@ -1012,7 +1040,8 @@ def admin_update_lead(lead_id: int, body: dict[str, Any], _: Any = Depends(requi
 
 @admin_app.get("/tenants/{tenant_id}/conversations")
 def admin_list_conversations(tenant_id: int, status: str | None = None, limit: int = 100, offset: int = 0,
-                              _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+                              cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+    _check_tenant(cu, tenant_id)
     with connect() as c:
         sql = "SELECT * FROM conversations WHERE tenant_id = ?"
         args = [tenant_id]
@@ -1024,8 +1053,22 @@ def admin_list_conversations(tenant_id: int, status: str | None = None, limit: i
         return rows(c, sql, tuple(args))
 
 
+@admin_app.get("/tenants/{tenant_id}/conversations/{conversation_id}")
+def admin_get_tenant_conversation(tenant_id: int, conversation_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    _check_tenant(cu, tenant_id)
+    conv = get_conversation(conversation_id)
+    if not conv or conv["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    with connect() as c:
+        msgs = rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id", (conversation_id,))
+    res = dict(conv)
+    res["messages"] = msgs
+    return res
+
+
 @admin_app.post("/tenants/{tenant_id}/conversations")
-def admin_create_conversation(tenant_id: int, body: dict = Body(default_factory=dict), _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+def admin_create_conversation(tenant_id: int, body: dict = Body(default_factory=dict), cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    _check_tenant(cu, tenant_id)
     body = body or {}
     now = now_iso()
     with connect() as c:
@@ -1038,11 +1081,12 @@ def admin_create_conversation(tenant_id: int, body: dict = Body(default_factory=
 
 
 @admin_app.get("/conversations/{conversation_id}/messages")
-def admin_get_messages(conversation_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+def admin_get_messages(conversation_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
     with connect() as c:
         conv = rows(c, "SELECT tenant_id FROM conversations WHERE id = ?", (conversation_id,))
     if not conv:
         raise HTTPException(status_code=404, detail="conversation not found")
+    _check_tenant(cu, conv[0]["tenant_id"])
     with connect() as c:
         return rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id", (conversation_id,))
 
@@ -1050,7 +1094,8 @@ def admin_get_messages(conversation_id: int, _: Any = Depends(require_roles("own
 # ── Analytics Admin ──────────────────────────────────────────────────────────
 
 @admin_app.get("/tenants/{tenant_id}/analytics")
-def admin_analytics(tenant_id: int, days: int = 7, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+def admin_analytics(tenant_id: int, days: int = 7, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    _check_tenant(cu, tenant_id)
     since = _days_ago(days)
     with connect() as c:
         events = rows(c, "SELECT event, COUNT(1) as cnt FROM analytics_events "
@@ -1075,14 +1120,16 @@ def _days_ago(n: int) -> str:
 # ── Widget Settings Admin ────────────────────────────────────────────────────
 
 @admin_app.get("/tenants/{tenant_id}/widget")
-def admin_get_widget(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+def admin_get_widget(tenant_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    _check_tenant(cu, tenant_id)
     with connect() as c:
         r = rows(c, "SELECT config FROM widget_settings WHERE tenant_id = ?", (tenant_id,))
     return json.loads(r[0]["config"]) if r else {}
 
 
 @admin_app.put("/tenants/{tenant_id}/widget")
-def admin_update_widget(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+def admin_update_widget(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
+    _check_tenant(cu, tenant_id)
     with connect() as c:
         existing = rows(c, "SELECT id FROM widget_settings WHERE tenant_id = ?", (tenant_id,))
         config_json = json.dumps(body)
@@ -1099,13 +1146,15 @@ def admin_update_widget(tenant_id: int, body: dict[str, Any], _: Any = Depends(r
 # ── Tenant Members Admin ───────────────────────────────────────────────────────
 
 @admin_app.get("/tenants/{tenant_id}/members")
-def admin_list_members(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+def admin_list_members(tenant_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+    _check_tenant(cu, tenant_id)
     with connect() as c:
         return rows(c, "SELECT id, email, role, display_name FROM users WHERE tenant_id=? AND role != 'owner'", (tenant_id,))
 
 
 @admin_app.post("/tenants/{tenant_id}/members")
-def admin_add_member(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+def admin_add_member(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
+    _check_tenant(cu, tenant_id)
     from saas.security import hash_password
     import secrets as _secrets
     email = body.get("email", "").strip()
@@ -1130,7 +1179,8 @@ def admin_add_member(tenant_id: int, body: dict[str, Any], _: Any = Depends(requ
 # ── Email Settings Admin ─────────────────────────────────────────────────────
 
 @admin_app.get("/tenants/{tenant_id}/email")
-def admin_get_email(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+def admin_get_email(tenant_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    _check_tenant(cu, tenant_id)
     with connect() as c:
         r = rows(c, "SELECT * FROM email_settings WHERE tenant_id = ?", (tenant_id,))
     if not r:
@@ -1149,7 +1199,8 @@ def admin_get_email(tenant_id: int, _: Any = Depends(require_roles("owner", "adm
 
 
 @admin_app.put("/tenants/{tenant_id}/email")
-def admin_update_email(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+def admin_update_email(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
+    _check_tenant(cu, tenant_id)
     from saas.security import encrypt_value
     allowed = {"provider", "smtp_host", "smtp_port", "smtp_user", "smtp_password",
                "from_name", "from_email", "reply_to"}
@@ -1175,7 +1226,8 @@ def admin_update_email(tenant_id: int, body: dict[str, Any], _: Any = Depends(re
 
 
 @admin_app.post("/tenants/{tenant_id}/email/test")
-def admin_test_email(tenant_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+def admin_test_email(tenant_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
+    _check_tenant(cu, tenant_id)
     row_data = _smtp_row(tenant_id)
     to = (row_data or {}).get("from_email") or settings.default_smtp_from
     result = send_test_email(tenant_id, to)
@@ -1183,7 +1235,8 @@ def admin_test_email(tenant_id: int, _: Any = Depends(require_roles("owner", "ad
 
 
 @admin_app.post("/tenants/{tenant_id}/email/test-smtp")
-def admin_test_smtp(tenant_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+def admin_test_smtp(tenant_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
+    _check_tenant(cu, tenant_id)
     ok, detail = test_smtp_connection(tenant_id)
     return {"ok": ok, "detail": detail}
 
@@ -1191,7 +1244,8 @@ def admin_test_smtp(tenant_id: int, _: Any = Depends(require_roles("owner", "adm
 # ── Email Templates Admin ────────────────────────────────────────────────────
 
 @admin_app.get("/tenants/{tenant_id}/templates")
-def admin_list_templates(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+def admin_list_templates(tenant_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    _check_tenant(cu, tenant_id)
     from saas.email_templates import DEFAULT_TEMPLATES
     with connect() as c:
         r = rows(c, "SELECT value FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", (tenant_id,))
@@ -1208,7 +1262,8 @@ def admin_list_templates(tenant_id: int, _: Any = Depends(require_roles("owner",
 
 @admin_app.put("/tenants/{tenant_id}/templates/{template_name}")
 def admin_update_template(tenant_id: int, template_name: str, body: dict[str, str],
-                          _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+                          cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
+    _check_tenant(cu, tenant_id)
     with connect() as c:
         r = rows(c, "SELECT value FROM tenant_settings WHERE tenant_id = ? AND key = 'email_templates'", (tenant_id,))
         existing = json.loads(r[0]["value"]) if r else {}
@@ -1233,14 +1288,16 @@ def admin_template_variables(_: Any = Depends(require_roles("owner", "admin", "v
 # ── Business Rules Admin ─────────────────────────────────────────────────────
 
 @admin_app.get("/tenants/{tenant_id}/business-rules")
-def admin_get_business_rules(tenant_id: int, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+def admin_get_business_rules(tenant_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
+    _check_tenant(cu, tenant_id)
     with connect() as c:
         r = rows(c, "SELECT rules FROM business_rules WHERE tenant_id = ?", (tenant_id,))
     return json.loads(r[0]["rules"]) if r else {}
 
 
 @admin_app.put("/tenants/{tenant_id}/business-rules")
-def admin_update_business_rules(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+def admin_update_business_rules(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
+    _check_tenant(cu, tenant_id)
     with connect() as c:
         existing = rows(c, "SELECT id FROM business_rules WHERE tenant_id = ?", (tenant_id,))
         now = now_iso()
@@ -1257,13 +1314,13 @@ def admin_update_business_rules(tenant_id: int, body: dict[str, Any], _: Any = D
 
 @admin_app.get("/tenants/{tenant_id}/settings")
 def admin_get_settings(tenant_id: int, current: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
-    if current.user.tenant_id != tenant_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="wrong tenant")
+    _check_tenant(current, tenant_id)
     return _tenant_config(tenant_id)
 
 
 @admin_app.put("/tenants/{tenant_id}/settings")
-def admin_update_settings(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+def admin_update_settings(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
+    _check_tenant(cu, tenant_id)
     allowed_flags = {
         "greeting", "enabled", "ai_enabled", "lead_collection_enabled",
         "email_enabled", "widget_enabled", "auto_open", "auto_open_delay",
@@ -2199,7 +2256,8 @@ def admin_dashboard(tenant_id: int, cu: Any = Depends(get_current)):
     return HTMLResponse(content=html)
 
 @admin_app.get("/tenants/{tenant_id}/audit")
-def admin_audit_log(tenant_id: int, limit: int = 50, _: Any = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+def admin_audit_log(tenant_id: int, limit: int = 50, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
+    _check_tenant(cu, tenant_id)
     with connect() as c:
         return rows(c, "SELECT * FROM audit_logs WHERE tenant_id = ? ORDER BY id DESC LIMIT ?", tenant_id, limit)
 
@@ -2207,7 +2265,8 @@ def admin_audit_log(tenant_id: int, limit: int = 50, _: Any = Depends(require_ro
 # ── API Keys Admin ────────────────────────────────────────────────────────────
 
 @admin_app.post("/tenants/{tenant_id}/api-keys")
-def admin_create_api_key(tenant_id: int, body: dict[str, Any], _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+def admin_create_api_key(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
+    _check_tenant(cu, tenant_id)
     from saas.repositories import create_api_key
     label = body.get("label", "default")
     secret = body.get("secret") or __import__("secrets").token_urlsafe(24)
@@ -2216,11 +2275,12 @@ def admin_create_api_key(tenant_id: int, body: dict[str, Any], _: Any = Depends(
 
 
 @admin_app.delete("/api-keys/{key_id}")
-def admin_revoke_api_key(key_id: int, _: Any = Depends(require_roles("owner", "admin"))) -> dict:
+def admin_revoke_api_key(key_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     from saas.repositories import revoke_api_key, get_api_key
     key = get_api_key(key_id)
     if not key:
         raise HTTPException(status_code=404, detail="key not found")
+    _check_tenant(cu, key.tenant_id)
     revoke_api_key(key_id)
     return {"ok": True}
 

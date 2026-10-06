@@ -154,6 +154,51 @@ class TestTenantIsolation:
         r2 = api_client.get(f"/api/admin/tenants/{ta.id}/settings", headers=headers_b)
         assert r2.status_code in (403, 404), "Tenant B should not see tenant A's settings"
 
+    def test_tenant_a_cannot_access_tenant_b_leads_or_messages(self, api_client):
+        ta = _make_tenant("iso_lead_a", "Iso A")
+        tb = _make_tenant("iso_lead_b", "Iso B")
+        _make_owner(ta.id, "a@iso.com")
+        _make_owner(tb.id, "b@iso.com")
+
+        headers_a = _auth_headers(api_client, "a@iso.com", "testpass", "iso_lead_a")
+        headers_b = _auth_headers(api_client, "b@iso.com", "testpass", "iso_lead_b")
+
+        from saas.repositories import create_lead
+        lead = create_lead(ta.id, {"name": "Patient A", "email": "pa@test.com", "message": "hello"})
+
+        # Tenant B cannot list Tenant A's leads
+        r_list = api_client.get(f"/api/admin/tenants/{ta.id}/leads", headers=headers_b)
+        assert r_list.status_code == 403
+
+        # Tenant B cannot view Tenant A's specific lead
+        r_detail = api_client.get(f"/api/admin/leads/{lead['id']}", headers=headers_b)
+        assert r_detail.status_code == 403
+
+        # Tenant B cannot update Tenant A's lead
+        r_patch = api_client.patch(f"/api/admin/leads/{lead['id']}", json={"status": "contacted"}, headers=headers_b)
+        assert r_patch.status_code == 403
+
+    def test_tenant_a_cannot_access_tenant_b_email_or_keys(self, api_client):
+        ta = _make_tenant("iso_cfg_a", "Iso Config A")
+        tb = _make_tenant("iso_cfg_b", "Iso Config B")
+        _make_owner(ta.id, "a@cfg.com")
+        _make_owner(tb.id, "b@cfg.com")
+
+        headers_a = _auth_headers(api_client, "a@cfg.com", "testpass", "iso_cfg_a")
+        headers_b = _auth_headers(api_client, "b@cfg.com", "testpass", "iso_cfg_b")
+
+        # Tenant B cannot read or write Tenant A's email settings
+        r_email = api_client.get(f"/api/admin/tenants/{ta.id}/email", headers=headers_b)
+        assert r_email.status_code == 403
+        r_email_put = api_client.put(f"/api/admin/tenants/{ta.id}/email", json={"from_name": "Hacked"}, headers=headers_b)
+        assert r_email_put.status_code == 403
+
+        # Tenant B cannot read or write Tenant A's business rules
+        r_rules = api_client.get(f"/api/admin/tenants/{ta.id}/business-rules", headers=headers_b)
+        assert r_rules.status_code == 403
+        r_rules_put = api_client.put(f"/api/admin/tenants/{ta.id}/business-rules", json={"fee": 999}, headers=headers_b)
+        assert r_rules_put.status_code == 403
+
 
 # ── Authentication ───────────────────────────────────────────────────────────
 
