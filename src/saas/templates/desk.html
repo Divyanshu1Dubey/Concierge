@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Patient requests</title>
 <style>
-:root{--bg:#121816;--panel:#1a211e;--line:#2c3631;--soft:#232c28;--sel:#2e3b35;--text:#eef2ef;--muted:#9aa8a1;--accent:#c6e2cf;--accent-ink:#13261b;--danger:#f1a9a0}
+:root{--bg:#ffffff;--panel:#ffffff;--line:#e6e8eb;--soft:#f5f6f7;--sel:#eef0f2;--text:#111418;--muted:#6b7280;--accent:#111418;--accent-ink:#ffffff;--danger:#c0392b}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
-body{background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;display:flex;justify-content:center;padding:24px}
-.app{width:100%;max-width:1100px;height:calc(100vh - 48px);background:var(--panel);border:1px solid var(--line);border-radius:18px;display:flex;flex-direction:column;overflow:hidden}
+body{background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif}
+.app{width:100%;height:100vh;background:var(--panel);display:flex;flex-direction:column;overflow:hidden}
 header{display:flex;justify-content:space-between;align-items:flex-end;padding:22px 28px;border-bottom:1px solid var(--line)}
 header .brand{font-size:14px;color:var(--muted)}
 header h1{margin:2px 0 0;font-size:22px;font-weight:600}
@@ -17,7 +17,7 @@ header .right{font-size:13px;color:var(--muted);display:flex;gap:14px;align-item
 header a{color:var(--muted);text-decoration:none}
 header a:hover{color:var(--text)}
 .body{flex:1;display:flex;min-height:0}
-aside{width:300px;border-right:1px solid var(--line);overflow-y:auto;padding:18px 14px}
+aside{width:min(340px,30vw);flex-shrink:0;border-right:1px solid var(--line);overflow-y:auto;padding:18px 14px}
 aside h2{font-size:13px;font-weight:500;color:var(--muted);margin:0 12px 10px}
 .item{padding:12px 14px;border-radius:10px;cursor:pointer;margin-bottom:4px}
 .item:hover{background:var(--soft)}
@@ -25,18 +25,20 @@ aside h2{font-size:13px;font-weight:500;color:var(--muted);margin:0 12px 10px}
 .item .n{font-weight:500}
 .item .s{font-size:13px;color:var(--muted)}
 .item .s.urgent{color:var(--danger)}
-main{flex:1;overflow-y:auto;padding:26px 30px}
+main{flex:1;overflow-y:auto;padding:28px clamp(24px,4vw,56px)}
+#detail>*{max-width:900px}
 .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
 .top h3{margin:0;font-size:22px;font-weight:600}
 .top .e{color:var(--muted);font-size:14px}
 .btn{border:1px solid var(--line);background:transparent;color:var(--text);border-radius:10px;padding:9px 16px;font:inherit;font-size:14px;cursor:pointer}
 .btn:hover{border-color:var(--muted)}
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600;padding:11px 22px}
+.btn.primary:hover{opacity:.88}
 .btn.primary:disabled{opacity:.6;cursor:default}
 .label{font-size:13px;color:var(--muted);margin:24px 0 8px}
 .label.strong{color:var(--text);font-weight:500}
 .ask{background:var(--soft);border-radius:10px;padding:14px 16px;white-space:pre-wrap}
-textarea{width:100%;min-height:190px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font:inherit;line-height:1.6;resize:vertical}
+textarea{width:100%;min-height:clamp(200px,32vh,420px);background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font:inherit;line-height:1.6;resize:vertical}
 textarea:focus{outline:none;border-color:var(--muted)}
 .send{display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:12px}
 .send .hint{font-size:13px;color:var(--muted)}
@@ -56,7 +58,7 @@ details[open] summary::before{content:"\25BE  "}
 .login{max-width:340px;margin:12vh auto;display:flex;flex-direction:column;gap:10px}
 .login input{background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:11px 14px;font:inherit}
 .login .err{color:var(--danger);font-size:13px;min-height:18px}
-@media (max-width:760px){body{padding:0}.app{height:100vh;border-radius:0}.body{flex-direction:column}aside{width:auto;max-height:34vh;border-right:0;border-bottom:1px solid var(--line)}main{padding:20px}}
+@media (max-width:760px){.body{flex-direction:column}aside{width:auto;max-height:34vh;border-right:0;border-bottom:1px solid var(--line)}main{padding:20px}}
 </style>
 </head>
 <body>
