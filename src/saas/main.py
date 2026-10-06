@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from saas.config import get_settings
 from saas.database import connect, rows
@@ -15,11 +20,70 @@ from saas.public_api import admin_app, frontdesk_app, public_app, _tenant_config
 from saas.repositories import get_tenant_by_slug, ensure_demo_data
 
 settings = get_settings()
+
+
+def _check_production_secrets() -> None:
+    """Refuse to boot in production with placeholder secrets (forgeable logins, readable SMTP passwords)."""
+    if not settings.is_production:
+        return
+    weak = []
+    if settings.jwt_secret.startswith("change-me") or len(settings.jwt_secret) < 32:
+        weak.append("JWT_SECRET")
+    enc = settings.encryption_key.get_secret_value()
+    if enc.startswith("change-me") or len(enc) < 32:
+        weak.append("ENCRYPTION_KEY")
+    if weak:
+        raise RuntimeError(f"APP_ENV=production but {', '.join(weak)} unset or too weak (need 32+ random chars)")
+
+
+_check_production_secrets()
 ROOT = Path(__file__).resolve().parents[2]
 STATIC = ROOT / "src" / "saas" / "static"
 STATIC.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="HeyJarvis Concierge Platform", version="1.0.0")
+log = logging.getLogger("heyjarvis.scheduler")
+SCHEDULER_INTERVAL_S = int(os.environ.get("CONCIERGE_SCHEDULER_INTERVAL", "120"))
+
+
+def scheduler_tick() -> None:
+    """Pull patient replies from every connected clinic mailbox, then draft any follow-ups that are due."""
+    from saas import cadence, mailbox
+    for tenant_id in mailbox.connected_tenants():
+        try:
+            mailbox.sync_mailbox(tenant_id)
+        except Exception as e:  # one clinic's bad password must not stop the others
+            log.warning("mailbox sync failed for tenant %s: %s", tenant_id, e)
+    try:
+        cadence.run_due()
+    except Exception:
+        log.exception("cadence run failed")
+
+
+async def _scheduler_loop() -> None:
+    while True:
+        await asyncio.sleep(SCHEDULER_INTERVAL_S)
+        await run_in_threadpool(scheduler_tick)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Single-process scheduler: run one web worker (the Procfile does), or set CONCIERGE_SCHEDULER=0
+    # on extra workers so mailboxes aren't polled twice.
+    try:
+        from saas.database import migrate
+        migrate()
+        # Demo clinic with known logins: local/dev only, never in production.
+        if not settings.is_production or os.environ.get("CONCIERGE_DEMO") == "1":
+            ensure_demo_data()
+    except Exception as e:
+        log.warning("startup migration/demo seed: %s", e)
+    task = asyncio.create_task(_scheduler_loop()) if os.environ.get("CONCIERGE_SCHEDULER", "1") != "0" else None
+    yield
+    if task:
+        task.cancel()
+
+
+app = FastAPI(title="HeyJarvis Concierge Platform", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,17 +92,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def startup_event() -> None:
-    try:
-        from saas.database import migrate
-        migrate()
-        ensure_demo_data()
-    except Exception as e:
-        import logging
-        logging.getLogger("saas").warning(f"Startup demo seed notice: {e}")
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="saas-static")
@@ -57,6 +110,42 @@ async def app_login_alias(request: Request):
 @app.post("/auth/token")
 async def app_token_alias(request: Request):
     return await public_tenant_login(request)
+
+
+@app.get("/widget.js")
+def widget_js() -> FileResponse:
+    # The install snippet loads {APP_URL}/widget.js and the widget derives its API base from that URL.
+    return FileResponse(STATIC / "widget.js", media_type="application/javascript",
+                        headers={"Cache-Control": "public, max-age=300"})
+
+
+@app.get("/oauth/google/callback")
+def google_callback(code: str | None = None, state: str | None = None, error: str | None = None) -> RedirectResponse:
+    """Google sends the clinic back here after the consent screen."""
+    from urllib.parse import quote
+
+    from saas import google_oauth, mailbox
+    from saas.repositories import audit, get_user
+
+    def back(msg: str | None) -> RedirectResponse:
+        return RedirectResponse("/frontdesk" + (f"?mailbox_error={quote(msg)}" if msg else "?mailbox=connected"),
+                                status_code=303)
+
+    if error or not code or not state:
+        return back("Google sign-in was cancelled." if error == "access_denied" else "Google sign-in did not finish.")
+    try:
+        claims = google_oauth.read_state(state)
+        user = get_user(int(claims["uid"]))
+        if not user or user.tenant_id != int(claims["tid"]) or user.role not in ("owner", "admin"):
+            return back("Only a clinic owner or admin can connect the mailbox.")
+        tok = google_oauth.exchange_code(code)
+    except google_oauth.OAuthError as e:
+        return back(str(e))
+    tenant_id = int(claims["tid"])
+    mailbox.connect_gmail_oauth(tenant_id, tok["email"], tok["refresh_token"], from_name=claims.get("fn") or None)
+    google_oauth.remember(tenant_id, tok["access_token"], tok["expires_in"])
+    audit(tenant_id, user.id, "mailbox_connected", {"address": tok["email"], "method": "google_oauth"})
+    return back(None)
 
 
 @app.get("/health")

@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from saas.main import app as _main_app
 
 from saas.auth import create_access_token
 from saas.database import connect, now_iso
@@ -98,7 +99,7 @@ class TestSendLeadNotification:
     def test_creates_notification_record(self):
         """send_lead_notification records a notification event via track_event."""
         tenant, pub_key = _make_tenant()
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": pub_key})
         assert r.status_code == 200
         conv_id = r.json()["conversation_id"]
@@ -106,7 +107,7 @@ class TestSendLeadNotification:
         r = client.post(
             f"/api/v1/public/conversations/{conv_id}/messages",
             params={"client_key": pub_key},
-            json={"message": "My name is Alice, email is alice@test.com, phone is 555-0100"},
+            json={"message": "My name is Alice, I need a cleaning appointment, email is alice@test.com, phone is 555-0100"},
         )
         assert r.status_code == 200
         result = r.json()

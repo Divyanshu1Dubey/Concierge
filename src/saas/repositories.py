@@ -30,7 +30,7 @@ def get_tenant(tid: int) -> Tenant | None:
 def get_tenant_by_slug(slug: str) -> Tenant | None:
     with connect() as c:
         r = row(c, "SELECT * FROM tenants WHERE slug = ?", (slug,))
-    if not r and slug in ("raleigh-dental-demo", "demo"):
+    if not r and slug in ("raleigh-dental-demo", "demo") and _demo_allowed():
         return ensure_demo_data()
     return _tenant_from(r) if r else None
 
@@ -190,9 +190,11 @@ def create_lead(tenant_id: int, lead: dict[str, Any] | None = None, **kwargs) ->
     with connect() as c:
         lid = insert(c, "leads", tenant_id=tenant_id, conversation_id=data.get("conversation_id"), name=data.get("name"),
                      email=data.get("email"), phone=data.get("phone"), intent=data.get("intent"), service=data.get("service"),
-                     urgency=data.get("urgency"), preferred_date=data.get("preferredDate"), preferred_time=data.get("preferredTime"),
+                     urgency=data.get("urgency"), preferred_date=data.get("preferredDate") or data.get("preferred_date"),
+                     preferred_time=data.get("preferredTime") or data.get("preferred_time"),
                      insurance=data.get("insurance"), financing=data.get("financing"), message=data.get("message"),
-                     conversation_summary=data.get("conversationSummary"), source=data.get("source"), page_url=data.get("pageUrl"),
+                     conversation_summary=data.get("conversationSummary") or data.get("_summary"), source=data.get("source"),
+                     page_url=data.get("pageUrl") or data.get("page_url"),
                      status=data.get("status", "new"), created_at=now_iso(), updated_at=now_iso(), metadata=_json(data.get("metadata")))
     return Result({"id": lid, "tenant_id": tenant_id})
 
@@ -533,8 +535,17 @@ def _loads(raw: str) -> dict[str, Any]:
         return {}
 
 
+def _demo_allowed() -> bool:
+    """The demo clinic has well-known logins; it must never exist on a production server."""
+    import os
+    from saas.config import get_settings
+    return not get_settings().is_production or os.environ.get("CONCIERGE_DEMO") == "1"
+
+
 def ensure_demo_data() -> Tenant:
-    """Ensure the default demo tenant, admin credentials, and sample leads exist."""
+    """Ensure the default demo tenant, admin credentials, and sample leads exist (dev/demo only)."""
+    if not _demo_allowed():
+        raise RuntimeError("demo data is disabled in production")
     with connect() as c:
         r = row(c, "SELECT * FROM tenants WHERE slug = 'raleigh-dental-demo'", ())
     if not r:
@@ -567,29 +578,27 @@ def ensure_demo_data() -> Tenant:
         if ea not in existing_emails:
             create_user(tenant.id, ea, password="password", display_name="Clinic Staff", role="admin")
 
-    # Configure SMTP from environment variables
-    smtp_host = os.getenv("SMTP_HOST") or os.getenv("DEFAULT_SMTP_HOST") or "smtp.gmail.com"
-    smtp_port = int(os.getenv("SMTP_PORT") or os.getenv("DEFAULT_SMTP_PORT") or 465)
-    smtp_user = os.getenv("SMTP_USER") or os.getenv("DEFAULT_SMTP_USER") or "parulmaterial@gmail.com"
-    smtp_pass = os.getenv("SMTP_PASSWORD") or "iapjgasrmazuzqgd"
-    front_desk = os.getenv("FRONT_DESK_EMAIL") or smtp_user
-    from saas.security import encrypt_value
-    enc = encrypt_value(smtp_pass)
-
-    with connect() as c:
-        existing_es = rows(c, "SELECT id FROM email_settings WHERE tenant_id = ?", (tenant.id,))
-        if not existing_es:
-            c.execute(
-                """INSERT INTO email_settings (tenant_id, provider, smtp_host, smtp_port, smtp_user, smtp_password_enc, from_name, from_email, reply_to, updated_at)
-                   VALUES (?, 'smtp', ?, ?, ?, ?, 'Raleigh Dental Clinic', ?, ?, ?)""",
-                (tenant.id, smtp_host, smtp_port, smtp_user, enc, front_desk, front_desk, now_iso())
-            )
+    # Demo clinic mailbox: only from environment variables, never hardcoded credentials.
+    smtp_user = os.getenv("SMTP_USER") or os.getenv("DEFAULT_SMTP_USER")
+    smtp_pass = os.getenv("SMTP_PASSWORD") or os.getenv("DEFAULT_SMTP_PASSWORD")
+    if smtp_user and smtp_pass:
+        smtp_host = os.getenv("SMTP_HOST") or os.getenv("DEFAULT_SMTP_HOST") or "smtp.gmail.com"
+        smtp_port = int(os.getenv("SMTP_PORT") or os.getenv("DEFAULT_SMTP_PORT") or 465)
+        front_desk = os.getenv("FRONT_DESK_EMAIL") or smtp_user
+        from saas.security import encrypt_value
+        with connect() as c:
+            if not rows(c, "SELECT id FROM email_settings WHERE tenant_id = ?", (tenant.id,)):
+                c.execute(
+                    """INSERT INTO email_settings (tenant_id, provider, smtp_host, smtp_port, smtp_user, smtp_password_enc, from_name, from_email, reply_to, updated_at)
+                       VALUES (?, 'smtp', ?, ?, ?, ?, 'Raleigh Dental Clinic', ?, ?, ?)""",
+                    (tenant.id, smtp_host, smtp_port, smtp_user, encrypt_value(smtp_pass), front_desk, front_desk, now_iso())
+                )
 
     # Ensure domain allowances
     with connect() as c:
         dom_rows = rows(c, "SELECT domain FROM domains WHERE tenant_id = ?", tenant.id)
     existing_domains = {d["domain"] for d in dom_rows}
-    for d in ["localhost", "127.0.0.1", "*"]:
+    for d in ["localhost", "127.0.0.1"]:
         if d not in existing_domains:
             try:
                 add_domain(tenant.id, d)

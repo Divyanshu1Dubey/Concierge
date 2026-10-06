@@ -259,8 +259,7 @@ def _uid() -> str:
 
 
 def row(conn, sql: str, *args):
-    # Unwrap accidental single-tuple wrapping
-    if len(args) == 1 and isinstance(args[0], tuple):
-        args = args[0]
+    if len(args) == 1 and isinstance(args[0], (tuple, list)):
+        args = tuple(args[0])
     rows = conn.execute(sql, args).fetchall()
     return dict(rows[0]) if rows else None

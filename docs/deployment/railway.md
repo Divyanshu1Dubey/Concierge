@@ -44,8 +44,7 @@ APP_URL=https://your-app.railway.app
 API_URL=https://your-app.railway.app
 WIDGET_URL=https://your-app.railway.app
 CORS_ORIGINS=https://your-app.railway.app,https://your-customer-site.com
-AI_PROVIDER=openai
-AI_API_KEY=<your-openai-key>
+GEMINI_API_KEY=<your-gemini-key>
 AI_MODEL=gpt-4o-mini
 ```
 
@@ -119,7 +118,7 @@ open https://your-app.railway.app/docs
 - [ ] JWT_SECRET set (random, 64+ chars)
 - [ ] ENCRYPTION_KEY set (random, 32+ chars)
 - [ ] CORS_ORIGINS set to actual domains
-- [ ] AI_API_KEY set
+- [ ] GEMINI_API_KEY set
 - [ ] Health check passing
 - [ ] SSL/HTTPS enabled (Railway provides automatically)
 - [ ] Custom domain configured

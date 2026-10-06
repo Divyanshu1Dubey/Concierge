@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from enum import StrEnum
 from typing import Any
 
@@ -51,6 +52,52 @@ WELCOME_BY_INTENT = {
 }
 
 
+_INTAKE_KEYS = {"name", "email", "phone", "service", "intent", "preferred_date", "preferred_time", "insurance"}
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
+_PHONE = re.compile(r"(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}")
+_NAME_INTRO = re.compile(r"\b(?:my name is|name's|i am|i'm|im|this is)\s+([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+)?)", re.I)
+# Words that follow "I'm" / "I am" but are not names ("I'm in pain", "I am looking for ...").
+_NOT_NAMES = {"in", "having", "looking", "a", "an", "not", "so", "very", "interested", "calling", "wondering", "new",
+              "here", "trying", "just", "the", "sorry", "good", "fine", "ok", "okay", "still", "available", "free",
+              "hoping", "needing", "experiencing", "currently", "also", "really", "on", "at", "with", "from",
+              "scared", "worried", "nervous", "due", "going", "getting", "feeling", "bleeding", "swollen"}
+
+
+_SERVICES = ["cleaning", "checkup", "check-up", "exam", "whitening", "crown", "filling", "implant", "root canal",
+             "extraction", "veneers", "invisalign", "consult"]
+
+
+def _rule_fields(body: str, asked: str | None) -> dict[str, Any]:
+    text = body.strip()
+    lowered = text.lower()
+    out: dict[str, Any] = {}
+    m = _EMAIL.search(text)
+    if m:
+        out["email"] = m.group(0)
+    m = _PHONE.search(text)
+    if m:
+        out["phone"] = m.group(0).strip()
+    m = _NAME_INTRO.search(text)
+    if m and m.group(1).split()[0].lower() not in _NOT_NAMES:
+        words = [w for w in m.group(1).split() if w.lower() not in _NOT_NAMES]
+        out["name"] = " ".join(w[:1].upper() + w[1:] for w in words)
+    elif asked == "name" and re.fullmatch(r"[A-Za-z][A-Za-z'\-]*(\s+[A-Za-z][A-Za-z'\-]*){0,2}", text):
+        out["name"] = " ".join(w[:1].upper() + w[1:] for w in text.split())
+    if any(k in lowered for k in ["emergency", "pain", "swelling", "urgent", "broken tooth", "bleeding"]):
+        out["intent"] = "emergency"
+    elif any(k in lowered for k in ["new patient", "first time", "never been"]):
+        out["intent"] = "new_patient"
+    elif any(k in lowered for k in ["cleaning", "checkup", "check-up", "exam", "appointment", "whitening", "crown",
+                                    "filling", "implant", "consult"]):
+        out["intent"] = "appointment_request"
+    service = next((k for k in _SERVICES if k in lowered), None)
+    if service:
+        out["service"] = service
+    if asked == "service" and "intent" not in out and not out.get("email"):
+        out["service"] = text[:120]
+    return out
+
+
 class ConversationEngine:
     def __init__(self, tenant_config: dict[str, Any]) -> None:
         self.config = tenant_config
@@ -83,6 +130,7 @@ class ConversationEngine:
             context.state = State.HANDOFF
             return "Let me connect you with our front desk."
         next_field = missing[0]
+        context.fields["_asked"] = next_field
         return self._ask_for(next_field)
 
     def _ask_for(self, field: str) -> str:
@@ -98,29 +146,29 @@ class ConversationEngine:
         return prompts.get(field, f"Could you share your {field}?")
 
     def _extract_fields(self, body: str, existing: dict[str, Any]) -> dict[str, Any]:
-        lowered = body.lower()
+        """Gemini reads the message first; the rules below fill anything it missed (or all of it when AI is off)."""
+        asked = existing.get("_asked")
         out: dict[str, Any] = {}
-        if "my name is" in lowered:
-            out["name"] = body.strip()
-        elif lowered.startswith("i'm ") or lowered.startswith("i am "):
-            out["name"] = body.strip()
-        if "@" in body and "." in body.split("@")[-1] and "email" not in existing:
-            import re
-            m = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", body)
-            if m:
-                out["email"] = m.group(0)
-        if any(k in lowered for k in ["emergency", "pain", "swelling", "urgent"]):
-            out["intent"] = "emergency"
-        elif any(k in lowered for k in ["new patient", "first time", "never been"]):
-            out["intent"] = "new_patient"
-        elif any(k in lowered for k in ["cleaning", "checkup", "exam", "appointment"]):
-            out["intent"] = "appointment_request"
+        if self.config.get("ai_enabled", True):
+            try:
+                from saas.ai_engine import extract_intake
+                out = {k: v for k, v in extract_intake(body, existing, asked).items() if k in _INTAKE_KEYS}
+            except Exception:
+                logger.exception("AI intake extraction failed; using rules")
+        for key, value in _rule_fields(body, asked).items():
+            out.setdefault(key, value)
+        if out.get("email") and not _EMAIL.fullmatch(out["email"]):
+            out.pop("email")
         return out
 
     def _missing_required(self, fields: dict[str, Any]) -> list[str]:
-        configured = [f.key for f in (self.config.get("fields") or []) if f.required]
+        configured = [f["key"] if isinstance(f, dict) else f.key for f in (self.config.get("fields") or [])
+                      if (f.get("required") if isinstance(f, dict) else f.required)]
         if configured:
             required = configured
         else:
             required = ["name", "email"]
-        return [f for f in required if not fields.get(f)]
+            if not fields.get("intent"):
+                required.append("service")
+        missing = [f for f in required if not fields.get(f)]
+        return missing

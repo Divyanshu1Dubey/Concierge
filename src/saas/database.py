@@ -254,6 +254,60 @@ CREATE TABLE IF NOT EXISTS ai_drafts (
     FOREIGN KEY (lead_id) REFERENCES leads(id),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id)
 );
+CREATE TABLE IF NOT EXISTS email_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL,
+    lead_id INTEGER NOT NULL,
+    direction TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    in_reply_to TEXT,
+    references_hdr TEXT,
+    from_addr TEXT,
+    to_addr TEXT,
+    subject TEXT,
+    body TEXT,
+    draft_id INTEGER,
+    cadence_step TEXT,
+    source TEXT NOT NULL DEFAULT 'heyjarvis',
+    classification TEXT,
+    sent_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    UNIQUE(tenant_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_email_messages_lead ON email_messages(tenant_id, lead_id, sent_at);
+CREATE TABLE IF NOT EXISTS login_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    code_hash TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    used_at TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS cadences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL UNIQUE,
+    config TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+CREATE TABLE IF NOT EXISTS cadence_enrollments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL,
+    lead_id INTEGER NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'active',
+    step_index INTEGER NOT NULL DEFAULT 0,
+    skipped TEXT NOT NULL DEFAULT '[]',
+    anchor_at TEXT NOT NULL,
+    reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+    FOREIGN KEY (lead_id) REFERENCES leads(id)
+);
 CREATE TABLE IF NOT EXISTS integration_settings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER NOT NULL UNIQUE,
@@ -299,23 +353,44 @@ def reset_schema_cache() -> None:
 def connect():
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with _lock:
-        conn = sqlite3.connect(path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=30000")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA cache_size=-64000")
-        conn.execute("PRAGMA temp_store=MEMORY")
-        conn.execute("PRAGMA foreign_keys=ON")
-        try:
-            if str(path) not in _ready:
-                conn.executescript(SCHEMA)
-                _ready.add(str(path))
-            yield conn
-        finally:
-            conn.commit()
-            conn.close()
+    # The lock only guards one-time schema creation. Holding it for the whole
+    # connection serialized every request and deadlocked nested connect() calls.
+    conn = sqlite3.connect(path, timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=-64000")
+    conn.execute("PRAGMA temp_store=MEMORY")
+    conn.execute("PRAGMA foreign_keys=ON")
+    try:
+        if str(path) not in _ready:
+            with _lock:
+                if str(path) not in _ready:
+                    conn.executescript(SCHEMA)
+                    _ensure_columns(conn)
+                    _ready.add(str(path))
+        yield conn
+    finally:
+        conn.commit()
+        conn.close()
+
+
+# Columns added after the first release. SQLite has no ADD COLUMN IF NOT EXISTS.
+_ADDED_COLUMNS = {
+    "email_settings": ["imap_host TEXT", "imap_port INTEGER", "imap_user TEXT", "imap_password_enc TEXT",
+                       "imap_state TEXT", "sent_folder TEXT", "last_sync_at TEXT", "last_sync_error TEXT",
+                       "auth_type TEXT", "oauth_refresh_enc TEXT"],
+    "ai_drafts": ["cadence_step TEXT", "to_email TEXT", "source TEXT"],
+}
+
+
+def _ensure_columns(conn) -> None:
+    for table, cols in _ADDED_COLUMNS.items():
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for col in cols:
+            if col.split()[0] not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col}")
 
 
 def reset_database() -> None:
@@ -446,16 +521,17 @@ def update(conn, table: str, row_id: int, **cols) -> None:
     conn.execute(f"UPDATE {table} SET {sets} WHERE id = ?", [*cols.values(), row_id])
 
 
+def _params(args: tuple) -> tuple:
+    # Callers use both rows(c, sql, (a, b)) and rows(c, sql, a, b); accept either.
+    if len(args) == 1 and isinstance(args[0], (tuple, list)):
+        return tuple(args[0])
+    return args
+
+
 def rows(conn, sql: str, *args) -> list[Result]:
-    # Support both: rows(c, sql, val) and rows(c, sql, (val,)) and rows(c, sql, val1, val2)
-    if len(args) == 1 and isinstance(args[0], tuple):
-        args = args[0]
-    return [Result(r) for r in conn.execute(sql, args)]
+    return [Result(r) for r in conn.execute(sql, _params(args))]
 
 
 def row(conn, sql: str, *args) -> Result | None:
-    # Support both: row(c, sql, val) and row(c, sql, (val,)) and row(c, sql, val1, val2)
-    if len(args) == 1 and isinstance(args[0], tuple):
-        args = args[0]
     found = rows(conn, sql, *args)
     return found[0] if found else None
