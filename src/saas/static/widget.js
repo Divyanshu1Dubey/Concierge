@@ -16,8 +16,11 @@
  */
 (function () {
   'use strict';
+  var LEAF_SVG = '<svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20c-1-8 3-14 13-16 1 9-4 15-13 16z" fill="#7c8c3e"/><path d="M6 20c2-5 5-9 9-12" stroke="#f3ead8" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>';
+  var SEND_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+  var CLOSE_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   var CHAT_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
-  var CHECK_SVG = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2d6a4f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>';
+  var CHECK_SVG = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7c8c6e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>';
   var ALERT_SVG = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#b42318" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>';
   try {
     var script = document.currentScript;
@@ -479,6 +482,40 @@
       '/* ── Scrollbar ── */',
       '.hj-body::-webkit-scrollbar, .hj-form-panel::-webkit-scrollbar { width: 5px; }',
       '.hj-body::-webkit-scrollbar-thumb, .hj-form-panel::-webkit-scrollbar-thumb { background: #d0d0d0; border-radius: 3px; }',
+      /* ── Warm concierge theme ── */
+      '.hj-root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif; color: #2a211d; }',
+      '.hj-frame { background: #fbf8f3; border: 1px solid #ece4d9; border-radius: 22px; box-shadow: 0 18px 50px rgba(80,55,35,.18); width: 400px; max-width: calc(100vw - 32px); height: 620px; max-height: calc(100vh - 110px); overflow: hidden; }',
+      '.hj-head { background: transparent; color: #2a211d; padding: 22px 22px 8px; display: flex; align-items: center; gap: 14px; border: 0; }',
+      '.hj-avatar { width: 50px; height: 50px; border-radius: 50%; background: #efe6d2; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }',
+      '.hj-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }',
+      '.hj-head-title { font-size: 17px; font-weight: 600; color: #2a211d; }',
+      '.hj-head-sub { font-size: 14px; font-weight: 400; color: #8a7f77; }',
+      '.hj-mode-toggle { display: none !important; }',
+      '.hj-head-close { background: none; border: 0; color: #2a211d; cursor: pointer; padding: 6px; border-radius: 8px; display: flex; }',
+      '.hj-head-close:hover { background: #f1ebe3; }',
+      '.hj-body { background: transparent; padding: 14px 22px; gap: 10px; }',
+      '.hj-welcome { margin: 10px 0 6px; }',
+      '.hj-hello { font-size: 15px; color: #5b524c; }',
+      '.hj-big { font-size: 30px; font-weight: 500; letter-spacing: -.01em; margin: 6px 0 6px; color: #1f1915; line-height: 1.15; }',
+      '.hj-subtle { font-size: 15px; color: #7d726b; }',
+      '.hj-options { gap: 8px; margin: 6px 0 4px; }',
+      '.hj-option { border: 0; background: #efebe6; color: #2a211d; border-radius: 999px; padding: 10px 16px; font-size: 15px; font-weight: 400; }',
+      '.hj-option:hover, .hj-option:focus-visible { background: #e4ddd4; color: #2a211d; }',
+      '.hj-bubble { background: #f0ebe5; color: #2a211d; border-radius: 16px 16px 16px 4px; box-shadow: none; border: 0; font-size: 15px; }',
+      '.hj-user-bubble { background: #3a2a24; color: #fff; border-radius: 16px 16px 4px 16px; box-shadow: none; font-size: 15px; }',
+      '.hj-input-area { background: transparent; border-top: 0; padding: 10px 18px 12px; display: block; }',
+      '.hj-input-pill { display: flex; align-items: center; gap: 8px; background: #f1ede8; border: 1px solid #e7e0d7; border-radius: 999px; padding: 6px 6px 6px 18px; }',
+      '.hj-input-pill input { flex: 1; border: 0 !important; background: transparent !important; outline: none; font: inherit; font-size: 15px; color: #2a211d; padding: 8px 0 !important; box-shadow: none !important; min-width: 0; }',
+      '.hj-send-btn { width: 40px; height: 40px; min-width: 40px; border-radius: 50%; background: #3a2a24 !important; color: #fff !important; border: 0; padding: 0 !important; display: flex; align-items: center; justify-content: center; cursor: pointer; }',
+      '.hj-send-btn:disabled { opacity: .45; }',
+      '.hj-powered { text-align: center; font-size: 12px; color: #8a7f77; margin-top: 8px; }',
+      '.hj-powered b { color: #2a211d; font-weight: 600; }',
+      '.hj-launcher-btn { background: #3a2a24; color: #fff; box-shadow: 0 8px 24px rgba(58,42,36,.28); }',
+      '.hj-success { background: #f3efe6; border: 1px solid #e6dccb; border-radius: 16px; }',
+      '.hj-success-title { color: #2a211d; }',
+      '.hj-new-request { border-color: #3a2a24; color: #3a2a24; background: transparent; }',
+      '.hj-new-request:hover { background: #3a2a24; color: #fff; }',
+      '.hj-typing span { background: #b9ab9f; }',
     ].join('\n');
 
     // ── State ────────────────────────────────────────────────────────────────
@@ -517,17 +554,20 @@
     root.innerHTML =
       '<div class="hj-frame" id="hj-frame">' +
         '<div class="hj-head">' +
-          '<span class="hj-head-title" id="hj-title">Chat with us</span>' +
+          '<span class="hj-avatar">' + LEAF_SVG + '</span>' +
+          '<div class="hj-head-text"><span class="hj-head-title" id="hj-title">Chat with us</span>' +
+          '<span class="hj-head-sub">Your smile concierge</span></div>' +
           '<div class="hj-head-actions">' +
             '<button class="hj-mode-toggle" id="hj-mode-toggle" aria-label="Switch to form" title="Switch to form">Form</button>' +
-            '<button class="hj-head-close" id="hj-close" aria-label="Close chat">&times;</button>' +
+            '<button class="hj-head-close" id="hj-close" aria-label="Close chat">' + CLOSE_SVG + '</button>' +
           '</div>' +
         '</div>' +
         '<div class="hj-chat-panel active" id="hj-chat-panel">' +
           '<div class="hj-body" id="hj-body"></div>' +
           '<div class="hj-input-area" id="hj-input-area">' +
-            '<input id="hj-msg" type="text" autocomplete="off" placeholder="Type a message..." aria-label="Message" maxlength="2000"/>' +
-            '<button class="hj-send-btn" id="hj-send" aria-label="Send message">Send</button>' +
+            '<div class="hj-input-pill"><input id="hj-msg" type="text" autocomplete="off" placeholder="Type your message..." aria-label="Message" maxlength="2000"/>' +
+            '<button class="hj-send-btn" id="hj-send" aria-label="Send message">' + SEND_SVG + '</button></div>' +
+            '<div class="hj-powered">Powered by <b>HeyJarvis</b></div>' +
           '</div>' +
         '</div>' +
         '<div class="hj-form-panel" id="hj-form-panel">' +
@@ -573,6 +613,17 @@
       el.innerHTML = html;
       body.appendChild(el);
       scrollToBottom();
+    }
+
+    function appendWelcome() {
+      var name = config && config.tenant_name ? config.tenant_name : '';
+      var short = name.split(/\s+/)[0] || 'us';
+      var el = document.createElement('div');
+      el.className = 'hj-welcome';
+      el.innerHTML = '<div class="hj-hello">Hello, welcome to ' + esc(short) + '.</div>' +
+        '<div class="hj-big">How can we help?</div>' +
+        '<div class="hj-subtle">We can help you plan a visit or answer a question.</div>';
+      appendRaw(el);
     }
 
     function appendRaw(node) {
@@ -1125,7 +1176,7 @@
       return api('/api/v1/public/config?client_key=' + encodeURIComponent(clientKey))
         .then(function (c) {
           config = c;
-          if (c.tenant_name) titleEl.textContent = c.tenant_name + ' — Concierge';
+          if (c.tenant_name) titleEl.textContent = c.tenant_name;
           if (c.greeting) fields._greeting = c.greeting;
           if (c.greeting) {
             appendBubble(esc(c.greeting));
@@ -1151,9 +1202,7 @@
             if (data.fields[keys[i]]) fields[keys[i]] = data.fields[keys[i]];
           }
         }
-        if (data.reply) {
-          appendBubble(esc(data.reply));
-        }
+        appendWelcome();
         showOptions(data.options);
         return data;
       });
