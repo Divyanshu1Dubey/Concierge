@@ -1,125 +1,104 @@
 # Handoff: get Concierge live for Raleigh Dentistry
 
-> **Use branch `integrate-production-readiness`.** It is latest `main` (your React app, Render
-> config, security pass) merged with `production-readiness`, conflicts resolved, 276 tests passing.
->
-> **Action needed now:** `main` contained a real Gmail address and app password as hardcoded
-> fallbacks in `ensure_demo_data()`. They are removed on this branch but remain in git history:
-> **revoke that app password in the Google account** and create a new one if it's still needed.
->
-> Merge decisions to review:
-> - Demo clinic + `password` logins are created only when `APP_ENV != production` (or `CONCIERGE_DEMO=1`).
-> - Login no longer falls back to "the only clinic" when the clinic ID is unknown.
-> - Front desk accepts staff logins only (`X-API-Key` with the public widget key removed).
-> - `/tenants` returns only the user's own clinic (no "return all" fallback).
-> - Startup migration moved into the app `lifespan` (FastAPI ignores `on_event` when lifespan is set).
-> - The chat still asks *what the visit is for* when intent is unknown (main had removed this).
-> - Lead statuses accept both sets: yours (scheduled/completed/archived...) and booked/closed/qualified/spam.
-> - `/frontdesk` (HTML) has the email thread, approvals, cadence and Settings; the React app at `/desk`
->   doesn't call those endpoints yet, and some of its calls (`/fd/ai/action`, `/resend-email`) don't exist.
+For: Divyanshu and Arpan · From: Avi · Branch: **`integrate-production-readiness`** (open a PR into `main`)
 
-For: Divyanshu · From: Avi · Branch: `production-readiness`
+This branch is the latest `main` (including Arpan's Oct 7 commit) plus everything needed for launch.
+All tests pass: `.venv/bin/python -m pytest -q`, or `uv run pytest -q`.
 
-## What changed (summary)
+## Decisions already made
 
-- **Security:** every admin route is now scoped to the user's clinic. The public widget key
-  no longer opens the front desk. Passwords are required, the app refuses placeholder secrets
-  in production, logins and public lead endpoints are rate-limited, patient text is escaped
-  in the dashboard (XSS fix), and staff log in with emailed one-time codes.
-- **Email:** approved drafts are sent from the **clinic's own Gmail** (Google sign-in or app
-  password). Patient replies and desk-sent mail are read back over read-only IMAP.
-- **Follow-up:** one editable cadence per clinic, with reply rules. A background scheduler
-  drafts due follow-ups, and a person approves each one before it sends.
-- **Chat:** Gemini pulls out the patient's details, with rules as a fallback. The widget is now
-  clickable on host sites, and `/widget.js` is served at the root.
-- **Bug fixes:** missing argon2 dependency, a database deadlock, and broken front desk
-  endpoints and dashboard loading.
-- **Tests:** 271 pass (`uv run pytest`).
+- **One front desk: `/frontdesk`.** It's the simple inbox (who needs a reply → reply → Approve & send),
+  with Settings at `/frontdesk/settings`. The React app is retired: `/desk` and `/app` redirect to
+  `/frontdesk`, and Render no longer builds `frontend/`. Delete `frontend/` and `static/dist/` in a cleanup PR
+  once you agree.
+- **Email goes through the clinic's own mailbox.** Raleigh's email is hosted by **Einstein Mail**
+  (`mx.einsteinmail.com`), not Google. Settings → Email has an Einstein Mail preset
+  (`smtp.einsteinmail.com:465`, `imap.einsteinmail.com:993`, both checked: valid TLS, password login).
+- **Deploy on Render, paid plan with a disk.** The free plan wipes the SQLite database on every
+  deploy and sleeps, which also stops the follow-up scheduler. `render.yaml` is already set up.
+- **No demo data in production.** Demo logins, the demo clinic and the developer portal at `/` only exist
+  when `APP_ENV` is not `production`.
 
-## 1. Get the branch into GitHub (≈5 min)
+**Still needed:** `main`'s history contains a real Gmail address and app password (from the old
+`ensure_demo_data`). Revoke that app password in that Google account if it hasn't been done yet.
 
-Avi's GitHub account (`avisanghavi`) can't push to this repo. Either:
+## 1. Deploy (≈20 min) — Divyanshu
 
-- **A.** Add `avisanghavi` as a collaborator (repo → Settings → Collaborators) and Avi pushes; **or**
-- **B.** Apply the bundle Avi sends you (`concierge-production-readiness.bundle`):
-  ```bash
-  cd Concierge && git fetch /path/to/concierge-production-readiness.bundle production-readiness:production-readiness
-  git push -u origin production-readiness
-  ```
-
-Then open a PR from `integrate-production-readiness` into `main`, review it, and merge.
-
-## 2. Deploy on Railway (not Vercel) (≈20 min)
-
-heyjarvis.ai stays on Vercel. This service has to be always-on: it checks Gmail every
-2 minutes and keeps a database file.
-
-1. Railway → New Project → Deploy from GitHub → this repo, branch `main`.
-2. Add a **Volume** mounted at `/data`.
-3. Variables:
+1. Merge the PR into `main`.
+2. Render → New → Blueprint → this repo. It reads `render.yaml`: **Starter plan, 1 instance,
+   1 GB disk at `/data`**, `DATABASE_URL=/data/saas.db`, `APP_ENV=production`, current Gemini models,
+   and auto-generated `JWT_SECRET` and `ENCRYPTION_KEY`. **Never change `ENCRYPTION_KEY` after launch:**
+   clinic mailbox passwords are encrypted with it.
+3. Set these secrets in the Render dashboard:
 
 | Variable | Value |
 |---|---|
-| `APP_ENV` | `production` |
 | `APP_URL` | `https://concierge.heyjarvis.ai` |
-| `DATABASE_URL` | `/data/saas.db` |
-| `JWT_SECRET` | `python -c "import secrets;print(secrets.token_urlsafe(48))"` |
-| `ENCRYPTION_KEY` | same command, a different value. **Never change it after launch** (mailbox credentials are encrypted with it) |
-| `GEMINI_API_KEY` | Avi adds it for testing |
-| `DEFAULT_SMTP_HOST` / `PORT` / `USER` / `PASSWORD` / `FROM` | a HeyJarvis sending mailbox (e.g. Google Workspace `noreply@heyjarvis.ai` + app password, host `smtp.gmail.com`, port `465`). **Required:** staff login codes are sent from it |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | optional, see step 4 |
+| `GEMINI_API_KEY` | from https://aistudio.google.com/apikey |
+| `DEFAULT_SMTP_HOST` / `DEFAULT_SMTP_PORT` / `DEFAULT_SMTP_USER` / `DEFAULT_SMTP_PASSWORD` / `DEFAULT_SMTP_FROM` | a HeyJarvis sending address (e.g. `noreply@heyjarvis.ai`). **Required:** staff login codes and teammate invites come from it. Without it nobody can sign in. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | optional; only for clinics on Google Workspace (see the end of this doc) |
 
-4. Keep **1 replica** (the scheduler runs inside the web process).
-5. Settings → Networking → custom domain `concierge.heyjarvis.ai`, then add the CNAME
-   Railway shows in heyjarvis.ai's DNS (Vercel → Domains, or wherever DNS lives).
-6. Check that `https://concierge.heyjarvis.ai/health` returns `{"ok": true}`.
+4. Custom domain `concierge.heyjarvis.ai` in Render, then add the CNAME it shows in heyjarvis.ai's DNS.
+   heyjarvis.ai itself stays on Vercel.
+5. Check: `https://concierge.heyjarvis.ai/health` returns `{"ok": true}`, and `/` redirects to `/frontdesk`.
 
-## 3. Create the clinic (≈2 min)
+## 2. Create the clinic (≈2 min) — Divyanshu
 
-In a Railway shell:
+In the Render shell:
 
 ```bash
-uv run python -m saas.cli onboard --slug raleigh-dentistry \
+PYTHONPATH=src python -m saas.cli onboard --slug raleigh-dentistry \
   --name "Raleigh Comprehensive and Cosmetic Dentistry" \
-  --owner-email <Avi's email for testing> --domain raleighdentistry.com
+  --owner-email <Avi's email> --domain raleighdentistry.com \
+  --phone "<clinic phone>" --hours "<office hours>"
 ```
 
-It prints the front desk link and the website snippet. Send both to Avi. Logins use an
-emailed code, so there's no password to hand out.
+It prints the front desk link and the website snippet. Send both to Avi. Sign-in uses emailed
+codes, so there's no password to hand out.
 
-## 4. Optional: Google sign-in for the clinic mailbox
+## 3. Production test — Avi
 
-Without this, the clinic connects with a Google app password (Settings → "Use an app password instead").
+1. Sign in at `/frontdesk?clinic=raleigh-dentistry` with the emailed code.
+2. Settings → **Clinic details**: phone, address, hours (used in emergency replies and email signatures).
+3. Settings → **Email**: connect a test mailbox, then **Send me a test email**.
+4. Open `/concierge/raleigh-dentistry`, request an appointment with your own email, then **Approve & send**
+   in the inbox. Reply from your inbox; within about 2 minutes the reply appears under "Needs your reply".
 
-1. console.cloud.google.com → new project → OAuth consent screen.
-   - **Internal** (best) only works if the project is created in the clinic's own
-     Google Workspace (their admin). No Google review, and tokens don't expire.
-   - **External / Testing** (HeyJarvis account): add the clinic address as a test user.
-     Google disconnects it **every 7 days** until the app passes Google's verification for the Gmail scope (takes weeks).
-2. Credentials → OAuth client ID → Web application → redirect URI
-   `https://concierge.heyjarvis.ai/oauth/google/callback`
-3. Put the ID and secret in Railway, then redeploy. The "Sign in with Google" button appears automatically.
+## 4. Go-live — Avi and the clinic
 
-## 5. Avi's production test (Avi does this)
+- [ ] **Ask Einstein Medical for the front desk mailbox password** (or a dedicated mailbox) so Settings →
+      Email → Einstein Mail can connect. If the login username isn't the full email address, it goes under
+      "Server settings".
+- [ ] The clinic approves the follow-up wording (Settings → Follow-ups).
+- [ ] HIPAA BAA signed.
+- [ ] Add the front desk staff (Settings → Team → Add & send invite).
+- [ ] Einstein Medical support pastes the snippet into the site's footer includes on every page.
+- [ ] Test on raleighdentistry.com: Chat with us → request → it appears in the inbox.
 
-1. Log in at `/frontdesk?clinic=raleigh-dentistry` with an emailed code.
-2. Settings → connect a test Gmail.
-3. Chat as a patient on `/concierge/raleigh-dentistry`, then Run follow-ups → Send → reply →
-   Sync mail. The reply should show up labelled and the cadence should react.
-4. Remove the test Gemini key or Gmail afterwards if wanted.
+## What changed (summary for review)
 
-## 6. Go-live (Avi + clinic)
+- **Security:** clinic-scoped admin routes, staff-only front desk, rate limits, XSS fixes, emailed login
+  codes, demo-only shortcuts, a guard against clinic-entered mail servers pointing at internal addresses,
+  and removed teammates lose access immediately.
+- **Email:** sending from the clinic mailbox (Einstein Mail, Gmail, Microsoft 365, any IMAP/SMTP),
+  read-only reply tracking, automatic Sent-folder detection, test email.
+- **Follow-ups:** one editable cadence per clinic with reply rules; every email waits for approval.
+- **Chat:** warm design, suggestion buttons, Gemini extraction, and an emergency reply that gives the
+  clinic phone number.
+- **Merged from main:** `middleware.py` import fix, lead filters, priority-sorted tasks; fixed
+  `/fd/ai/action` drafting and the Shorten/Warmer rewrites (they never worked).
+- **Deploy fixes:** `requirements.txt` uses `passlib[argon2]` (every login crashed without it);
+  single worker (4 workers ran 4 mailbox schedulers).
 
-- [ ] Clinic approves the cadence wording (Settings → Follow-up cadence).
-- [ ] HIPAA BAA signed (Avi).
-- [ ] Clinic connects their real mailbox.
-- [ ] Add the clinic's real front desk email as an owner (`POST /api/admin/tenants/{id}/members` with role `owner`).
-- [ ] Einstein Medical support pastes the snippet into the site's **footer includes**
-      (the site is Einstein Medical, not WordPress), or it goes in through the clinic's GTM.
-- [ ] Test on raleighdentistry.com: click Chat with us → submit → it appears in the front desk.
+## Known gaps (not launch blockers)
 
-## Known gaps (not blockers)
+- SQLite on a disk is fine for a handful of clinics; move to Postgres before scaling.
+- The chat collects requests but doesn't answer questions (insurance, hours) yet.
+- Repo root has old scratch scripts (`fix_*.py`, test HTML, `public_api_stashed.py`) to delete.
 
-- There's no self-serve "add staff" screen in the front desk yet (`POST /api/admin/tenants/{id}/members` works).
-- SQLite on a volume is fine for one clinic. Move to Postgres before many clinics.
-- Repo root has old scratch scripts (`fix_*.py`, test HTML) that are safe to delete in a cleanup PR.
+## Optional: "Sign in with Google" (clinics on Google Workspace only)
+
+Raleigh doesn't need this. For future Google clinics: create an OAuth client (Web) with redirect URI
+`https://concierge.heyjarvis.ai/oauth/google/callback`, set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`.
+External apps in Testing mode disconnect every 7 days; an Internal app inside the clinic's Workspace doesn't.
+Without it, Google clinics use an app password.
