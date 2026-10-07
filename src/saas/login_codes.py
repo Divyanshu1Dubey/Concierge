@@ -55,18 +55,26 @@ def verify(user_id: int, code: str) -> bool:
 
 
 def _send(to: str, code: str, clinic_name: str) -> None:
+    send_system_email(to, f"Your HeyJarvis login code: {code}",
+                      f"Your login code for the {clinic_name} front desk is:\n\n    {code}\n\n"
+                      f"It expires in {TTL_MINUTES} minutes. If you didn't ask for it, ignore this email.",
+                      dev_note=f"Login code for {to}: {code}")
+
+
+def send_system_email(to: str, subject: str, body: str, dev_note: str | None = None) -> bool:
+    """Email from the HeyJarvis address (DEFAULT_SMTP_*). In local dev without SMTP, logs instead of sending.
+    Returns True if actually sent."""
     s = get_settings()
     if not (s.default_smtp_host and s.default_smtp_user and s.default_smtp_password):
         if s.is_production:
             raise LoginCodeError("Email login is not configured (DEFAULT_SMTP_* settings).")
-        log.warning("DEV ONLY - no SMTP configured. Login code for %s: %s", to, code)
-        return
+        log.warning("DEV ONLY - no SMTP configured. %s", dev_note or f"Would email {to}: {subject}")
+        return False
     msg = EmailMessage()
     msg["From"] = s.default_smtp_from or s.default_smtp_user
     msg["To"] = to
-    msg["Subject"] = f"Your HeyJarvis login code: {code}"
-    msg.set_content(f"Your login code for the {clinic_name} front desk is:\n\n    {code}\n\n"
-                    f"It expires in {TTL_MINUTES} minutes. If you didn't ask for it, ignore this email.")
+    msg["Subject"] = subject
+    msg.set_content(body)
     port = int(s.default_smtp_port or 465)
     ctx = ssl.create_default_context()
     conn = smtplib.SMTP_SSL(s.default_smtp_host, port, context=ctx, timeout=20) if port == 465 \
@@ -76,3 +84,4 @@ def _send(to: str, code: str, clinic_name: str) -> None:
             conn.starttls(context=ctx)
         conn.login(s.default_smtp_user, s.default_smtp_password.get_secret_value())
         conn.send_message(msg)
+    return True

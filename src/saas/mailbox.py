@@ -28,6 +28,19 @@ log = logging.getLogger(__name__)
 
 GMAIL = {"smtp_host": "smtp.gmail.com", "smtp_port": 465, "imap_host": "imap.gmail.com", "imap_port": 993,
          "sent_folder": "[Gmail]/Sent Mail"}
+# Ready-made server settings. "custom" means the clinic types them in.
+PROVIDERS = {
+    "gmail": {"label": "Google Workspace / Gmail", **GMAIL},
+    "einstein": {"label": "Einstein Mail", "smtp_host": "smtp.einsteinmail.com", "smtp_port": 465,
+                 "imap_host": "imap.einsteinmail.com", "imap_port": 993, "sent_folder": None},
+    "microsoft": {"label": "Microsoft 365 / Outlook", "smtp_host": "smtp.office365.com", "smtp_port": 587,
+                  "imap_host": "outlook.office365.com", "imap_port": 993, "sent_folder": None},
+    "custom": {"label": "Other email provider", "smtp_host": "", "smtp_port": 465, "imap_host": "", "imap_port": 993,
+               "sent_folder": None},
+}
+SMTP_PORTS = {465, 587, 25, 2525}
+IMAP_PORTS = {993, 143}
+SENT_FOLDER_NAMES = ["Sent", "Sent Items", "Sent Messages", "Sent Mail", "INBOX.Sent", "INBOX/Sent", "[Gmail]/Sent Mail"]
 FIRST_SYNC_DAYS = 14
 MAX_FETCH_PER_SYNC = 200
 
@@ -53,10 +66,68 @@ def is_connected(tenant_id: int) -> bool:
 
 def connect_gmail(tenant_id: int, address: str, app_password: str, from_name: str | None = None) -> dict:
     """Store Gmail / Google Workspace credentials (encrypted) for sending and reply tracking."""
-    address = address.strip().lower()
-    secret = encrypt_value(app_password.replace(" ", ""))
-    return _save_gmail(tenant_id, address, from_name, auth_type="password", smtp_password_enc=secret,
-                       imap_password_enc=secret, oauth_refresh_enc=None)
+    return connect_mailbox(tenant_id, "gmail", address, app_password, from_name=from_name)
+
+
+def connect_mailbox(tenant_id: int, provider: str, address: str, password: str, *, username: str | None = None,
+                    smtp_host: str | None = None, smtp_port: int | None = None, imap_host: str | None = None,
+                    imap_port: int | None = None, from_name: str | None = None) -> dict:
+    """Store any IMAP/SMTP mailbox (Gmail, Einstein Mail, Microsoft 365, or custom servers), password encrypted.
+
+    Raises ValueError with a readable message for missing or unsafe settings."""
+    if provider not in PROVIDERS:
+        raise ValueError("Unknown email provider.")
+    preset = PROVIDERS[provider]
+    address = (address or "").strip().lower()
+    if "@" not in address:
+        raise ValueError("Enter the clinic email address.")
+    if provider == "gmail":
+        password = (password or "").replace(" ", "")  # Google shows app passwords in groups of four
+    if not password:
+        raise ValueError("Enter the mailbox password.")
+    smtp_host = (smtp_host or preset["smtp_host"] or "").strip().lower()
+    imap_host = (imap_host or preset["imap_host"] or "").strip().lower()
+    try:
+        smtp_port = int(smtp_port or preset["smtp_port"])
+        imap_port = int(imap_port or preset["imap_port"])
+    except (TypeError, ValueError):
+        raise ValueError("Ports must be numbers.") from None
+    if not smtp_host or not imap_host:
+        raise ValueError("Enter the outgoing (SMTP) and incoming (IMAP) server addresses.")
+    if smtp_port not in SMTP_PORTS:
+        raise ValueError(f"Outgoing port must be one of {sorted(SMTP_PORTS)} (usually 465 or 587).")
+    if imap_port not in IMAP_PORTS:
+        raise ValueError("Incoming port must be 993 (or 143).")
+    for host in (smtp_host, imap_host):
+        _check_public_host(host)
+    secret = encrypt_value(password)
+    fields = {
+        "provider": "smtp", "mail_provider": provider, "auth_type": "password",
+        "smtp_host": smtp_host, "smtp_port": smtp_port, "smtp_user": (username or address).strip(),
+        "imap_host": imap_host, "imap_port": imap_port, "imap_user": (username or address).strip(),
+        "smtp_password_enc": secret, "imap_password_enc": secret, "oauth_refresh_enc": None,
+        "sent_folder": preset["sent_folder"], "from_email": address, "imap_state": None, "last_sync_error": None,
+    }
+    return _store(tenant_id, fields, from_name)
+
+
+def _check_public_host(host: str) -> None:
+    """Clinic-entered servers must be public mail servers, never internal addresses (SSRF guard)."""
+    import ipaddress
+    import socket
+    from saas.repositories import _demo_allowed
+    if not re.fullmatch(r"[a-z0-9.-]{1,253}", host) or host.startswith(".") or ".." in host:
+        raise ValueError(f"'{host}' is not a valid server address.")
+    if _demo_allowed():
+        return  # local development and tests talk to fakes
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        raise ValueError(f"Could not find the server '{host}'. Check the spelling.") from None
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            raise ValueError(f"'{host}' is not a public mail server.")
 
 
 def connect_gmail_oauth(tenant_id: int, address: str, refresh_token: str, from_name: str | None = None) -> dict:
@@ -78,11 +149,15 @@ def disconnect(tenant_id: int) -> dict:
 
 def _save_gmail(tenant_id: int, address: str, from_name: str | None, **creds) -> dict:
     fields = {
-        "provider": "smtp", "smtp_host": GMAIL["smtp_host"], "smtp_port": GMAIL["smtp_port"], "smtp_user": address,
-        "imap_host": GMAIL["imap_host"], "imap_port": GMAIL["imap_port"], "imap_user": address,
+        "provider": "smtp", "mail_provider": "gmail", "smtp_host": GMAIL["smtp_host"], "smtp_port": GMAIL["smtp_port"],
+        "smtp_user": address, "imap_host": GMAIL["imap_host"], "imap_port": GMAIL["imap_port"], "imap_user": address,
         "sent_folder": GMAIL["sent_folder"], "from_email": address, "imap_state": None, "last_sync_error": None,
         **creds,
     }
+    return _store(tenant_id, fields, from_name)
+
+
+def _store(tenant_id: int, fields: dict, from_name: str | None) -> dict:
     if from_name:
         fields["from_name"] = from_name
     with connect() as c:
@@ -101,28 +176,92 @@ def mailbox_status(tenant_id: int) -> dict:
     from saas import google_oauth
     connected = is_connected(tenant_id)
     return {"connected": connected, "demo_mode": demo_mode(tenant_id),
-            "address": s.get("smtp_user") if connected else None,
+            "address": (s.get("from_email") or s.get("smtp_user")) if connected else None,
+            "provider": s.get("mail_provider") or ("gmail" if connected else None),
+            "username": s.get("smtp_user") if connected else None,
+            "smtp_host": s.get("smtp_host") if connected else None, "smtp_port": s.get("smtp_port") if connected else None,
+            "imap_host": s.get("imap_host") if connected else None, "imap_port": s.get("imap_port") if connected else None,
+            "sent_folder": s.get("sent_folder") if connected else None,
+            "providers": {k: {kk: vv for kk, vv in v.items() if kk != "sent_folder"} for k, v in PROVIDERS.items()},
             "from_name": s.get("from_name"), "method": (s.get("auth_type") or "password") if connected else None,
             "google_sign_in_available": google_oauth.available(),
             "last_sync_at": s.get("last_sync_at"), "last_sync_error": s.get("last_sync_error")}
 
 
 def test_mailbox(tenant_id: int) -> dict:
-    """Log in to SMTP and IMAP without sending or reading anything."""
+    """Log in to SMTP and IMAP without sending anything; also finds the Sent folder for reply tracking."""
     s = _require(tenant_id)
-    out = {"smtp": "ok", "imap": "ok"}
+    out = {"smtp": "ok", "imap": "ok", "sent_folder": s.get("sent_folder")}
     try:
         with _smtp(s):
             pass
     except Exception as e:
-        out["smtp"] = _friendly(e)
+        out["smtp"] = _friendly(e, s)
     try:
         imap = _imap(s)
-        imap.logout()
+        try:
+            found = detect_sent_folder(imap)
+            if found and found != s.get("sent_folder"):
+                with connect() as c:
+                    c.execute("UPDATE email_settings SET sent_folder = ? WHERE tenant_id = ?", (found, tenant_id))
+            out["sent_folder"] = found or s.get("sent_folder")
+        finally:
+            try:
+                imap.logout()
+            except Exception:
+                pass
     except Exception as e:
-        out["imap"] = _friendly(e)
+        out["imap"] = _friendly(e, s)
     out["ok"] = out["smtp"] == "ok" and out["imap"] == "ok"
     return out
+
+
+def detect_sent_folder(imap) -> str | None:
+    """Find the mailbox's Sent folder: the RFC 6154 \\Sent flag first, then common names."""
+    try:
+        typ, data = imap.list()
+    except Exception:
+        return None
+    if typ != "OK":
+        return None
+    folders: list[tuple[str, str]] = []
+    for raw in data or []:
+        line = raw.decode(errors="replace") if isinstance(raw, bytes) else str(raw)
+        m = re.match(r'\((?P<flags>[^)]*)\)\s+(?:"[^"]*"|NIL)\s+(?P<name>.+)$', line)
+        if not m:
+            continue
+        name = m.group("name").strip()
+        if name.startswith('"') and name.endswith('"'):
+            name = name[1:-1].replace('\\"', '"')
+        folders.append((m.group("flags").lower(), name))
+    for flags, name in folders:
+        if "\\sent" in flags:
+            return name
+    by_lower = {name.lower(): name for _, name in folders}
+    for candidate in SENT_FOLDER_NAMES:
+        if candidate.lower() in by_lower:
+            return by_lower[candidate.lower()]
+    return None
+
+
+def send_test_email(tenant_id: int) -> dict:
+    """Send a short message from the clinic mailbox to itself, to prove sending works end to end."""
+    s = _require(tenant_id)
+    sender = s.get("from_email") or s["smtp_user"]
+    msg = EmailMessage()
+    msg["From"] = f'{s["from_name"]} <{sender}>' if s.get("from_name") else sender
+    msg["To"] = sender
+    msg["Subject"] = "HeyJarvis is connected to this mailbox"
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=sender.split("@")[-1])
+    msg.set_content("This test email was sent by HeyJarvis from your clinic mailbox.\n\n"
+                    "Patient replies sent to this address will now appear in your HeyJarvis front desk.")
+    try:
+        with _smtp(s) as conn:
+            conn.send_message(msg)
+    except Exception as e:
+        raise MailboxError(f"Send failed: {_friendly(e, s)}") from e
+    return {"ok": True, "to": sender}
 
 
 def demo_mode(tenant_id: int) -> bool:
@@ -133,18 +272,32 @@ def demo_mode(tenant_id: int) -> bool:
 
 def _require(tenant_id: int) -> dict:
     if not is_connected(tenant_id):
-        raise MailboxError("The clinic mailbox is not connected yet. Connect Gmail in Settings first.")
+        raise MailboxError("The clinic mailbox is not connected yet. Connect it in Settings first.")
     return get_settings_row(tenant_id)
 
 
-def _friendly(e: Exception) -> str:
+def _friendly(e: Exception, s: dict | None = None) -> str:
+    import smtplib
+    import socket
     text = str(e)
-    if "Application-specific password required" in text or "BadCredentials" in text or "AUTHENTICATIONFAILED" in text \
-            or "Username and Password not accepted" in text:
-        return ("Google rejected the login. Reconnect with 'Sign in with Google', or use a Google app password "
-                "(not the normal password; 2-Step Verification must be on).")
+    google = (s or {}).get("mail_provider", "gmail") == "gmail" or "gmail.com" in str((s or {}).get("smtp_host", ""))
+    auth_failed = (isinstance(e, smtplib.SMTPAuthenticationError) or "AUTHENTICATIONFAILED" in text
+                   or "BadCredentials" in text or "Username and Password not accepted" in text
+                   or "Application-specific password required" in text or "LOGIN failed" in text
+                   or "Invalid credentials" in text.lower() or "authentication failed" in text.lower())
+    if auth_failed:
+        if google:
+            return ("Google rejected the login. Reconnect with 'Sign in with Google', or use a Google app password "
+                    "(not the normal password; 2-Step Verification must be on).")
+        return "The mail server rejected the login. Check the email address (or username) and the mailbox password."
     if "revoked or expired" in text:
         return text
+    if isinstance(e, socket.gaierror):
+        return "Could not find that mail server. Check the server address."
+    if isinstance(e, (socket.timeout, TimeoutError, ConnectionRefusedError)) or "timed out" in text:
+        return "Could not reach the mail server. Check the server address and port."
+    if isinstance(e, ssl.SSLError):
+        return "Secure connection to the mail server failed. Check the port (465/587 to send, 993 to receive)."
     return f"{type(e).__name__}: {text[:160]}"
 
 
@@ -170,8 +323,12 @@ def _smtp(s: dict):
 
 
 def _imap(s: dict):
-    conn = imaplib.IMAP4_SSL(s.get("imap_host") or GMAIL["imap_host"], int(s.get("imap_port") or 993),
-                             ssl_context=ssl.create_default_context(), timeout=30)
+    host, port = s.get("imap_host") or GMAIL["imap_host"], int(s.get("imap_port") or 993)
+    if port == 143:  # plain IMAP upgraded with STARTTLS; credentials never go over an unencrypted link
+        conn = imaplib.IMAP4(host, port, timeout=30)
+        conn.starttls(ssl_context=ssl.create_default_context())
+    else:
+        conn = imaplib.IMAP4_SSL(host, port, ssl_context=ssl.create_default_context(), timeout=30)
     if s.get("auth_type") == "oauth":
         auth = _xoauth2(s).encode()
         conn.authenticate("XOAUTH2", lambda _challenge: auth)
@@ -272,7 +429,7 @@ def send_draft(tenant_id: int, draft_id: int, *, subject: str | None = None, bod
             with _smtp(s) as conn:
                 conn.send_message(msg)
     except Exception as e:
-        err = _friendly(e)
+        err = _friendly(e, s)
         with connect() as c:
             c.execute("UPDATE ai_drafts SET status = 'failed', error = ?, updated_at = ? WHERE id = ?",
                       (err, now_iso(), draft_id))
@@ -319,10 +476,18 @@ def sync_mailbox(tenant_id: int) -> dict:
     try:
         imap = _imap(s)
     except Exception as e:
-        _save_sync(tenant_id, state, _friendly(e))
-        raise MailboxError(_friendly(e)) from e
+        _save_sync(tenant_id, state, _friendly(e, s))
+        raise MailboxError(_friendly(e, s)) from e
     try:
-        for folder, direction in (("INBOX", "in"), (s.get("sent_folder") or GMAIL["sent_folder"], "out")):
+        sent = s.get("sent_folder")
+        if not sent and s.get("mail_provider") not in (None, "gmail"):
+            sent = detect_sent_folder(imap)
+            if sent:
+                with connect() as c:
+                    c.execute("UPDATE email_settings SET sent_folder = ? WHERE tenant_id = ?", (sent, tenant_id))
+        sent = sent or (GMAIL["sent_folder"] if s.get("mail_provider") in (None, "gmail") else None)
+        folders = [("INBOX", "in")] + ([(sent, "out")] if sent else [])
+        for folder, direction in folders:
             try:
                 _sync_folder(imap, tenant_id, folder, direction, state, stats)
             except Exception as e:  # a missing Sent folder must not block reply tracking

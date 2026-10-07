@@ -748,3 +748,33 @@ def _seed_demo_story(tenant_id: int, clinic: str) -> None:
                 insert(c, "ai_drafts", tenant_id=tenant_id, lead_id=lid, subject="Your appointment request",
                        body=body.format(clinic=clinic), status="pending", cadence_step=step_id, to_email=email,
                        source=source, created_at=ago(min(created, 1)), updated_at=ago(min(created, 1)))
+
+
+# --- clinic profile (phone, address, hours shown to patients) -------------------------
+
+CLINIC_FIELDS = ("phone", "address", "hours", "website")
+
+
+def get_clinic_profile(tenant_id: int) -> dict:
+    t = get_tenant(tenant_id)
+    with connect() as c:
+        r = row(c, "SELECT flags FROM tenant_settings WHERE tenant_id = ?", tenant_id)
+    clinic = _loads(r["flags"]).get("clinic", {}) if r else {}
+    return {"name": t.name if t else "", **{k: (clinic.get(k) or "") for k in CLINIC_FIELDS}}
+
+
+def save_clinic_profile(tenant_id: int, data: dict[str, Any]) -> dict:
+    clinic = {k: str(data.get(k) or "").strip()[:300] for k in CLINIC_FIELDS}
+    with connect() as c:
+        r = row(c, "SELECT id, flags FROM tenant_settings WHERE tenant_id = ?", tenant_id)
+        if r:
+            flags = _loads(r["flags"])
+            flags["clinic"] = clinic
+            c.execute("UPDATE tenant_settings SET flags = ?, updated_at = ? WHERE tenant_id = ?",
+                      (_json(flags), now_iso(), tenant_id))
+        else:
+            insert(c, "tenant_settings", tenant_id=tenant_id, flags=_json({"clinic": clinic}), updated_at=now_iso())
+    name = str(data.get("name") or "").strip()
+    if name:
+        update_tenant(tenant_id, name=name[:120])
+    return get_clinic_profile(tenant_id)

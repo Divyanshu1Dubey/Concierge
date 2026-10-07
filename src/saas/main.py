@@ -128,7 +128,7 @@ def google_callback(code: str | None = None, state: str | None = None, error: st
     from saas.repositories import audit, get_user
 
     def back(msg: str | None) -> RedirectResponse:
-        return RedirectResponse("/frontdesk/full" + (f"?mailbox_error={quote(msg)}" if msg else "?mailbox=connected"),
+        return RedirectResponse("/frontdesk/settings" + (f"?mailbox_error={quote(msg)}" if msg else "?mailbox=connected"),
                                 status_code=303)
 
     if error or not code or not state:
@@ -209,6 +209,12 @@ def legacy_desk_redirect() -> RedirectResponse:
 def frontdesk_page() -> HTMLResponse:
     """Simple inbox for the front desk: who needs a reply, the reply, Approve & send."""
     return HTMLResponse((ROOT / "src" / "saas" / "templates" / "desk.html").read_text(encoding="utf-8"))
+
+
+@app.get("/frontdesk/settings")
+def frontdesk_settings_page() -> HTMLResponse:
+    """Clinic details, email connection, team and follow-up schedule."""
+    return HTMLResponse((ROOT / "src" / "saas" / "templates" / "settings.html").read_text(encoding="utf-8"))
 
 
 @app.get("/frontdesk/full")

@@ -121,6 +121,9 @@ def onboard():
     ap.add_argument("--name", required=True, help="clinic name patients see")
     ap.add_argument("--owner-email", required=True, help="front desk owner's login email")
     ap.add_argument("--domain", action="append", default=[], help="website domain (repeatable), e.g. raleighdentistry.com")
+    ap.add_argument("--phone", default="", help="clinic phone shown to patients, e.g. '(919) 555-0100'")
+    ap.add_argument("--address", default="", help="clinic street address")
+    ap.add_argument("--hours", default="", help="office hours, e.g. 'Mon-Fri 8am-5pm'")
     args = ap.parse_args(sys.argv[2:])
 
     if get_tenant_by_slug(args.slug):
@@ -130,6 +133,9 @@ def onboard():
     # No password: staff log in with a code emailed to them.
     create_user(tenant.id, args.owner_email.strip().lower(), display_name="Owner", password=None, role="owner")
     key = create_api_key(tenant.id, "website", _secrets.token_urlsafe(24))
+    if args.phone or args.address or args.hours:
+        from saas.repositories import save_clinic_profile
+        save_clinic_profile(tenant.id, {"phone": args.phone, "address": args.address, "hours": args.hours})
     domains = []
     for d in args.domain:
         d = d.strip().lower().replace("https://", "").replace("http://", "").split("/")[0]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import logging
 import os
 import zipfile
@@ -763,17 +764,144 @@ async def fd_mailbox_status(request: Request):
 
 @frontdesk_app.put("/mailbox")
 async def fd_connect_mailbox(request: Request, body: dict[str, Any]):
-    """Connect the clinic's Gmail / Google Workspace mailbox with an app password."""
+    """Connect the clinic mailbox: Gmail (app password), Einstein Mail, Microsoft 365, or any IMAP/SMTP server."""
     auth = await _fd_auth(request)
     _fd_require_manager(auth)
-    address, password = (body.get("address") or "").strip(), (body.get("app_password") or "").strip()
-    if "@" not in address or not password:
-        raise HTTPException(status_code=422, detail="address and app_password are required")
-    status_ = mailbox.connect_gmail(auth["tenant_id"], address, password, from_name=body.get("from_name"))
+    provider = body.get("provider") or "gmail"
+    password = (body.get("password") or body.get("app_password") or "").strip()
+    try:
+        status_ = await run_in_threadpool(
+            lambda: mailbox.connect_mailbox(
+                auth["tenant_id"], provider, body.get("address") or "", password,
+                username=(body.get("username") or "").strip() or None,
+                smtp_host=body.get("smtp_host"), smtp_port=body.get("smtp_port"),
+                imap_host=body.get("imap_host"), imap_port=body.get("imap_port"),
+                from_name=body.get("from_name")))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     check = await run_in_threadpool(mailbox.test_mailbox, auth["tenant_id"])
     from saas.repositories import audit
-    audit(auth["tenant_id"], auth.get("user_id"), "mailbox_connected", {"address": address, "ok": check["ok"]})
-    return {**status_, "test": check}
+    audit(auth["tenant_id"], auth.get("user_id"), "mailbox_connected",
+          {"address": status_.get("address"), "provider": provider, "ok": check["ok"]})
+    return {**mailbox.mailbox_status(auth["tenant_id"]), "test": check}
+
+
+@frontdesk_app.get("/clinic")
+async def fd_get_clinic(request: Request):
+    """Clinic name, phone, address, hours and website (used in patient emails and the chat)."""
+    auth = await _fd_auth(request)
+    from saas.repositories import get_clinic_profile
+    return get_clinic_profile(auth["tenant_id"])
+
+
+@frontdesk_app.put("/clinic")
+async def fd_put_clinic(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    _fd_require_manager(auth)
+    from saas.repositories import audit, save_clinic_profile
+    if "name" in body and not str(body.get("name") or "").strip():
+        raise HTTPException(status_code=422, detail="Clinic name can't be empty")
+    profile = save_clinic_profile(auth["tenant_id"], body)
+    audit(auth["tenant_id"], auth.get("user_id"), "clinic_profile_updated", {})
+    return profile
+
+
+TEAM_ROLES = {"admin": "Can change settings", "member": "Replies to patients"}
+
+
+@frontdesk_app.get("/team")
+async def fd_list_team(request: Request):
+    auth = await _fd_auth(request)
+    with connect() as c:
+        people = rows(c, "SELECT id, email, display_name, role, created_at FROM users WHERE tenant_id = ? "
+                         "AND role != 'removed' ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, "
+                         "created_at", auth["tenant_id"])
+    for p in people:
+        p["you"] = p["id"] == auth.get("user_id")
+    return {"team": people, "roles": TEAM_ROLES}
+
+
+@frontdesk_app.post("/team")
+async def fd_add_teammate(request: Request, body: dict[str, Any]):
+    """Add a front desk teammate. They sign in with a code emailed to them (no password)."""
+    auth = await _fd_auth(request)
+    _fd_require_manager(auth)
+    from saas.repositories import audit, create_user, get_tenant, get_user, get_user_by_email
+    email = (body.get("email") or "").strip().lower()
+    name = (body.get("name") or "").strip()[:80] or None
+    role = body.get("role") or "member"
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(status_code=422, detail="Enter a valid email address")
+    if role not in TEAM_ROLES:
+        raise HTTPException(status_code=422, detail="Role must be admin or member")
+    me = get_user(auth["user_id"])
+    if role == "admin" and me.role != "owner":
+        raise HTTPException(status_code=403, detail="Only the clinic owner can add admins")
+    existing = get_user_by_email(auth["tenant_id"], email)
+    if existing and existing.role != "removed":
+        raise HTTPException(status_code=409, detail="That person is already on the team")
+    if existing:  # re-adding someone who was removed
+        with connect() as c:
+            c.execute("UPDATE users SET role = ?, display_name = COALESCE(?, display_name), updated_at = ? WHERE id = ?",
+                      (role, name, now_iso(), existing.id))
+            c.execute("INSERT OR IGNORE INTO memberships (tenant_id, user_id, role, created_at) VALUES (?, ?, ?, ?)",
+                      (auth["tenant_id"], existing.id, role, now_iso()))
+        user_id = existing.id
+    else:
+        user_id = create_user(auth["tenant_id"], email, display_name=name, password=None, role=role).id
+    tenant = get_tenant(auth["tenant_id"])
+    invited = await run_in_threadpool(_send_invite, email, tenant)
+    audit(auth["tenant_id"], auth.get("user_id"), "teammate_added", {"email": email, "role": role})
+    return {"id": user_id, "email": email, "role": role, "invite_sent": invited}
+
+
+def _send_invite(email: str, tenant: Any) -> bool:
+    from saas import login_codes
+    url = f"{settings.app_url.rstrip('/')}/frontdesk?clinic={tenant.slug}"
+    try:
+        return login_codes.send_system_email(
+            email, f"You've been added to the {tenant.name} front desk",
+            f"Hi,\n\nYou now have access to the {tenant.name} front desk on HeyJarvis, where patient requests "
+            f"from the website are answered.\n\nSign in here: {url}\nClinic ID: {tenant.slug}\n\n"
+            "Use this email address. We'll email you a 6-digit code each time you sign in, so there's no password "
+            "to remember.\n",
+            dev_note=f"Invite for {email}: {url}")
+    except Exception:
+        log.exception("invite email failed for %s", email)
+        return False
+
+
+@frontdesk_app.delete("/team/{user_id}")
+async def fd_remove_teammate(request: Request, user_id: int):
+    auth = await _fd_auth(request)
+    _fd_require_manager(auth)
+    from saas.repositories import audit, get_user
+    target = get_user(user_id)
+    if not target or target.tenant_id != auth["tenant_id"] or target.role == "removed":
+        raise HTTPException(status_code=404, detail="Teammate not found")
+    if target.id == auth.get("user_id"):
+        raise HTTPException(status_code=409, detail="You can't remove yourself")
+    if target.role == "owner":
+        raise HTTPException(status_code=403, detail="The clinic owner can't be removed here")
+    if target.role == "admin" and get_user(auth["user_id"]).role != "owner":
+        raise HTTPException(status_code=403, detail="Only the clinic owner can remove admins")
+    with connect() as c:
+        c.execute("UPDATE users SET role = 'removed', updated_at = ? WHERE id = ?", (now_iso(), user_id))
+        c.execute("DELETE FROM memberships WHERE user_id = ?", (user_id,))
+        c.execute("UPDATE login_codes SET used_at = ? WHERE user_id = ? AND used_at IS NULL", (now_iso(), user_id))
+    audit(auth["tenant_id"], auth.get("user_id"), "teammate_removed", {"email": target.email})
+    return {"ok": True}
+
+
+@frontdesk_app.post("/mailbox/test-send")
+async def fd_mailbox_test_send(request: Request):
+    """Send a test email from the clinic mailbox to itself."""
+    auth = await _fd_auth(request)
+    _fd_require_manager(auth)
+    try:
+        return await run_in_threadpool(mailbox.send_test_email, auth["tenant_id"])
+    except mailbox.MailboxError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 @frontdesk_app.post("/mailbox/google/start")
@@ -1184,7 +1312,7 @@ def admin_request_code(body: dict[str, Any], request: Request) -> dict:
     tenant = get_tenant_by_slug((body.get("tenant_slug") or "").strip())
     email = (body.get("email") or "").strip().lower()
     user = get_user_by_email(tenant.id, email) if tenant and email else None
-    if user:
+    if user and user.role != "removed":
         try:
             login_codes.issue(user.id, user.email, tenant.name)
         except login_codes.LoginCodeError as e:
@@ -1204,7 +1332,7 @@ def admin_verify_code(body: dict[str, Any], request: Request) -> TokenOut:
     from saas.security import create_access_token
     tenant = get_tenant_by_slug((body.get("tenant_slug") or "").strip())
     user = get_user_by_email(tenant.id, (body.get("email") or "").strip().lower()) if tenant else None
-    if not user or not login_codes.verify(user.id, str(body.get("code") or "")):
+    if not user or user.role == "removed" or not login_codes.verify(user.id, str(body.get("code") or "")):
         raise HTTPException(status_code=401, detail="That code is wrong or expired. Request a new one.")
     return TokenOut(access_token=create_access_token(subject=str(user.id), tenant_id=tenant.id),
                     user=_user_payload(user))

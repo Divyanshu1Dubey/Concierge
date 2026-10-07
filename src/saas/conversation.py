@@ -134,6 +134,11 @@ class ConversationEngine:
         missing = self._missing_required(context.fields)
         if not missing:
             context.state = State.SUBMITTED
+            if context.fields.get("intent") == "emergency":
+                phone = ((self.config.get("clinic") or {}).get("phone") or "").strip()
+                call = f"please call us now at {phone}" if phone else "please call our office now"
+                return (f"Thanks, I've sent this to our front desk as urgent. Since you're in pain, {call} so we can "
+                        "see you as soon as possible. If you have trouble breathing or swallowing, call 911.")
             return "Thanks, I have everything I need. Our front desk will follow up shortly."
         if context.turn_count >= self.config.get("max_turns", 8):
             context.state = State.HANDOFF

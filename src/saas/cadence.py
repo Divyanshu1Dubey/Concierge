@@ -42,22 +42,22 @@ DEFAULT_CADENCE: dict[str, Any] = {
                         "ask them to reply with two or three days/times that work, or to call the office. "
                         "Do not promise a specific slot.",
          "template": "Hi {{name}},\n\nThanks for reaching out to {{practice_name}} about {{service}}. "
-                     "Could you reply with two or three days and times that work for you? You can also call us "
-                     "and we'll get you scheduled.\n\nBest,\n{{practice_name}}"},
+                     "Could you reply with two or three days and times that work for you? You can also call us{{call_us_at}} "
+                     "and we'll get you scheduled.\n\nBest,\n{{signature}}"},
         {"id": "follow_up_1", "name": "Follow-up 1", "delay_hours": 24, "mode": "ai",
          "instruction": "Short, friendly nudge: we haven't heard back, we're happy to find a time, reply with "
                         "what works. 2-3 sentences.",
          "template": "Hi {{name}},\n\nJust following up on your request. Reply with a few times that work and "
-                     "we'll take care of the rest.\n\nBest,\n{{practice_name}}"},
+                     "we'll take care of the rest.\n\nBest,\n{{signature}}"},
         {"id": "follow_up_2", "name": "Follow-up 2", "delay_hours": 72, "mode": "ai",
          "instruction": "Second nudge, warm and brief. Mention they can also call the office directly.",
          "template": "Hi {{name}},\n\nWe'd still love to get you in. Reply here or give us a call whenever "
-                     "is convenient.\n\nBest,\n{{practice_name}}"},
+                     "is convenient.\n\nBest,\n{{signature}}"},
         {"id": "last_check_in", "name": "Last check-in", "delay_hours": 168, "mode": "ai",
          "instruction": "Final polite check-in. Say we'll close out the request for now and they can reach out "
                         "any time. No pressure.",
          "template": "Hi {{name}},\n\nWe'll close out your request for now. If you'd like to schedule later, "
-                     "just reply to this email.\n\nBest,\n{{practice_name}}"},
+                     "just reply to this email.\n\nBest,\n{{signature}}"},
     ],
     "on_reply": [
         {"when": ["booked"], "do": ["stop", "set_status:booked"]},
@@ -69,13 +69,14 @@ DEFAULT_CADENCE: dict[str, Any] = {
 
 
 EMERGENCY_INSTRUCTION = ("This patient reported a dental emergency. Reply briefly and urgently: ask them to call the "
-                         "office right away so we can see them as soon as possible, and say that if they have swelling "
+                         "office right away (use the clinic phone from PRACTICE CONTEXT if one is listed) so we can see "
+                         "them as soon as possible, and say that if they have swelling "
                          "affecting breathing or swallowing, a high fever, or bleeding that won't stop they should call "
                          "911 or go to the ER. Do not ask for preferred times.")
-EMERGENCY_TEMPLATE = ("Hi {{name}},\n\nWe're sorry you're in pain. Please call our office right away so we can see you "
-                      "as soon as possible.\n\nIf you have swelling that affects your breathing or swallowing, a high "
-                      "fever, or bleeding that won't stop, call 911 or go to the nearest emergency room.\n\n"
-                      "{{practice_name}}")
+EMERGENCY_TEMPLATE = ("Hi {{name}},\n\nWe're sorry you're in pain. Please call our office right away{{call_us_at}} so we "
+                      "can see you as soon as possible.\n\nIf you have swelling that affects your breathing or swallowing, "
+                      "a high fever, or bleeding that won't stop, call 911 or go to the nearest emergency room.\n\n"
+                      "{{signature}}")
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -405,11 +406,16 @@ def _patient(lead: dict) -> dict:
 
 
 def _practice(tenant_id: int) -> dict:
-    from saas.repositories import get_tenant
-    t = get_tenant(tenant_id)
+    """Clinic details for drafts. Only these are given to the AI, so it never has to guess a phone or address."""
+    from saas.repositories import get_clinic_profile
+    clinic = get_clinic_profile(tenant_id)
     with connect() as c:
         s = row(c, "SELECT from_name, from_email FROM email_settings WHERE tenant_id = ?", tenant_id) or {}
-    return {"practice_name": s.get("from_name") or (t.name if t else ""), "reply_email": s.get("from_email")}
+    out = {"practice_name": s.get("from_name") or clinic["name"], "reply_email": s.get("from_email")}
+    for key in ("phone", "address", "hours", "website"):
+        if clinic[key]:
+            out["clinic_" + key] = clinic[key]
+    return out
 
 
 def _history(tenant_id: int, lead: dict) -> str:
@@ -431,4 +437,7 @@ def _fill(template: str, lead: dict, tenant_id: int) -> str:
     values = {**{k: v or "" for k, v in _patient(lead).items()}, **_practice(tenant_id)}
     values["name"] = (lead.get("name") or "there").split()[0] if lead.get("name") else "there"
     values["service"] = lead.get("service") or "your visit"
+    phone = values.get("clinic_phone") or ""
+    values["call_us_at"] = f" at {phone}" if phone else ""
+    values["signature"] = values.get("practice_name", "") + (f"\n{phone}" if phone else "")
     return re.sub(r"\{\{\s*(\w+)\s*\}\}", lambda m: str(values.get(m.group(1), "")), template)

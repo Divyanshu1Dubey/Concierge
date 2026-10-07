@@ -615,6 +615,11 @@
       scrollToBottom();
     }
 
+    function clinicPhone() {
+      var cfg = config && config.widget_config;
+      return (cfg && cfg.clinic && cfg.clinic.phone) || '';
+    }
+
     function appendWelcome() {
       var name = config && config.tenant_name ? config.tenant_name : '';
       var short = name.split(/\s+/)[0] || 'us';
@@ -906,7 +911,9 @@
       el.innerHTML =
         '<div class="hj-emergency-icon">' + ALERT_SVG + '</div>' +
         '<div class="hj-emergency-title">Emergency Detected</div>' +
-        '<div class="hj-emergency-body">We\'ve noted this as urgent. For immediate assistance, please call us directly at the number on our website. We\'ll prioritize your request.</div>';
+        '<div class="hj-emergency-body">We\'ve noted this as urgent. For immediate help, please call us' +
+        (clinicPhone() ? ' at <a href="tel:' + esc(clinicPhone()) + '">' + esc(clinicPhone()) + '</a>' : ' directly') +
+        '. If you have trouble breathing or swallowing, call 911.</div>';
       appendRaw(el);
     }
 
