@@ -578,9 +578,10 @@ def ensure_demo_data() -> Tenant:
         if ea not in existing_emails:
             create_user(tenant.id, ea, password="password", display_name="Clinic Staff", role="admin")
 
-    # Demo clinic mailbox: only from environment variables, never hardcoded credentials.
-    smtp_user = os.getenv("SMTP_USER") or os.getenv("DEFAULT_SMTP_USER")
-    smtp_pass = os.getenv("SMTP_PASSWORD") or os.getenv("DEFAULT_SMTP_PASSWORD")
+    # Demo clinic mailbox: only when SMTP_USER/SMTP_PASSWORD are set on purpose. DEFAULT_SMTP_* is the
+    # HeyJarvis login-code sender and must not turn the demo clinic into a real sending mailbox.
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_pass = os.getenv("SMTP_PASSWORD")
     if smtp_user and smtp_pass:
         smtp_host = os.getenv("SMTP_HOST") or os.getenv("DEFAULT_SMTP_HOST") or "smtp.gmail.com"
         smtp_port = int(os.getenv("SMTP_PORT") or os.getenv("DEFAULT_SMTP_PORT") or 465)

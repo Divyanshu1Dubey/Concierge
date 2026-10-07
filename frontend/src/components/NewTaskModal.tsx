@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, CheckSquare, CornerDownLeft } from 'lucide-react';
 
 interface NewTaskModalProps {
   isOpen: boolean;
@@ -12,6 +12,16 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onClose, onS
   const [priority, setPriority] = useState('normal');
   const [dueAt, setDueAt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -38,80 +48,135 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onClose, onS
     <div style={{
       position: 'fixed',
       inset: 0,
-      background: 'rgba(0, 0, 0, 0.5)',
-      backdropFilter: 'blur(4px)',
+      background: 'rgba(0, 0, 0, 0.65)',
+      backdropFilter: 'blur(8px)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       zIndex: 100,
+      padding: '20px',
     }}>
-      <div style={{
+      <div className="glass-card animate-slide-up" style={{
         background: 'var(--bg-secondary)',
-        borderRadius: '12px',
-        padding: '20px 24px',
-        width: '420px',
-        maxWidth: '92vw',
+        borderRadius: '16px',
+        padding: '24px 28px',
+        width: '460px',
+        maxWidth: '100%',
         boxShadow: 'var(--shadow-glass)',
-        border: '1px solid var(--border-subtle)',
+        border: '1px solid var(--border-medium)',
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-          <h3 style={{ fontSize: '16px', fontWeight: 600 }}>📋 New Task</h3>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <CheckSquare size={18} color="var(--brand-accent)" />
+            <h3 className="font-display" style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>
+              Create Follow-Up Task
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--text-muted)',
+              padding: '4px',
+            }}
+          >
             <X size={18} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '11px',
+              fontWeight: 700,
+              color: 'var(--text-muted)',
+              marginBottom: '6px',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}>
               Task Title
             </label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Call patient to confirm insurance ID"
+              placeholder="e.g. Call patient back to confirm morning appointment slot"
               autoFocus
+              required
               style={{
                 width: '100%',
-                padding: '8px 12px',
-                borderRadius: '8px',
+                padding: '10px 14px',
+                borderRadius: '10px',
                 border: '1px solid var(--border-subtle)',
                 background: 'var(--bg-primary)',
                 color: 'var(--text-primary)',
                 fontSize: '13px',
                 outline: 'none',
+                transition: 'border-color 0.15s ease',
               }}
+              onFocus={(e) => (e.target.style.borderColor = 'var(--brand-accent)')}
+              onBlur={(e) => (e.target.style.borderColor = 'var(--border-subtle)')}
             />
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '11px',
+              fontWeight: 700,
+              color: 'var(--text-muted)',
+              marginBottom: '6px',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}>
               Priority Level
             </label>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--border-subtle)',
-                background: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-                fontSize: '13px',
-                outline: 'none',
-              }}
-            >
-              <option value="normal">Normal</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {[
+                { key: 'normal', label: 'Normal', color: 'var(--text-secondary)' },
+                { key: 'high', label: 'High Priority', color: '#f59e0b' },
+                { key: 'urgent', label: 'Urgent', color: '#ef4444' },
+              ].map((p) => {
+                const isSelected = priority === p.key;
+                return (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => setPriority(p.key)}
+                    style={{
+                      flex: 1,
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      border: isSelected ? '1px solid currentColor' : '1px solid var(--border-subtle)',
+                      background: isSelected ? 'var(--bg-elevated)' : 'var(--bg-tertiary)',
+                      color: isSelected ? p.color : 'var(--text-muted)',
+                      fontSize: '12px',
+                      fontWeight: isSelected ? 700 : 500,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              Due Date & Time (Optional)
+            <label style={{
+              display: 'block',
+              fontSize: '11px',
+              fontWeight: 700,
+              color: 'var(--text-muted)',
+              marginBottom: '6px',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}>
+              Due Date &amp; Time (Optional)
             </label>
             <input
               type="datetime-local"
@@ -119,50 +184,47 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onClose, onS
               onChange={(e) => setDueAt(e.target.value)}
               style={{
                 width: '100%',
-                padding: '8px 12px',
-                borderRadius: '8px',
+                padding: '10px 14px',
+                borderRadius: '10px',
                 border: '1px solid var(--border-subtle)',
                 background: 'var(--bg-primary)',
                 color: 'var(--text-primary)',
                 fontSize: '13px',
                 outline: 'none',
+                transition: 'border-color 0.15s ease',
               }}
+              onFocus={(e) => (e.target.style.borderColor = 'var(--brand-accent)')}
+              onBlur={(e) => (e.target.style.borderColor = 'var(--border-subtle)')}
             />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
-            <button
-              type="button"
-              onClick={onClose}
-              style={{
-                padding: '8px 14px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-subtle)',
-                background: 'var(--bg-tertiary)',
-                color: 'var(--text-secondary)',
-                fontSize: '13px',
-                cursor: 'pointer',
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!title.trim() || isSubmitting}
-              style={{
-                padding: '8px 16px',
-                borderRadius: '6px',
-                border: 'none',
-                background: 'var(--brand-green)',
-                color: '#fff',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: !title.trim() || isSubmitting ? 'not-allowed' : 'pointer',
-                opacity: !title.trim() || isSubmitting ? 0.6 : 1,
-              }}
-            >
-              Save Task
-            </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '3px' }}>
+              Press Ctrl+Enter to save <CornerDownLeft size={10} />
+            </span>
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={onClose}
+                className="btn-action"
+                style={{ padding: '8px 16px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!title.trim() || isSubmitting}
+                className="btn-action btn-primary"
+                style={{
+                  padding: '8px 18px',
+                  opacity: !title.trim() || isSubmitting ? 0.6 : 1,
+                  cursor: !title.trim() || isSubmitting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isSubmitting ? 'Creating...' : 'Create Task'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

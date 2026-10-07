@@ -94,7 +94,7 @@ def test_login_is_rate_limited(client):
 
 def test_front_desk_sees_only_own_leads(client):
     a, b = _clinic(client, "Alpha"), _clinic(client, "Beta")
-    ids = {l["id"] for l in client.get("/api/admin/fd/leads", headers=a["auth"]).json()}
+    ids = {l["id"] for l in client.get("/api/admin/fd/leads", headers=a["auth"]).json()["leads"]}
     assert a["lead_id"] in ids and b["lead_id"] not in ids
 
 

@@ -158,7 +158,10 @@ def index(request: Request) -> Response:
     accept = request.headers.get("accept", "").lower()
     format_param = request.query_params.get("format", "").lower()
     if format_param == "json" or ("application/json" in accept and "text/html" not in accept):
-        return JSONResponse({"app": "heyjarvis-platform", "docs": "/docs", "portal": "/", "desk": "/desk", "concierge": "/concierge/raleigh-dental-demo", "admin": "/admin"})
+        return JSONResponse({"app": "heyjarvis-platform", "docs": "/docs", "portal": "/", "frontdesk": "/frontdesk", "admin": "/admin"})
+    from saas.repositories import _demo_allowed
+    if not _demo_allowed():  # production: no developer portal (it lists demo logins)
+        return RedirectResponse(url="/frontdesk", status_code=307)
     portal_file = ROOT / "src" / "saas" / "templates" / "portal.html"
     if portal_file.exists():
         return HTMLResponse(portal_file.read_text(encoding="utf-8"))
@@ -167,7 +170,10 @@ def index(request: Request) -> Response:
 
 @app.get("/portal")
 @app.get("/portal.html")
-def portal_page() -> HTMLResponse:
+def portal_page() -> Response:
+    from saas.repositories import _demo_allowed
+    if not _demo_allowed():
+        return RedirectResponse(url="/frontdesk", status_code=307)
     portal_file = ROOT / "src" / "saas" / "templates" / "portal.html"
     return HTMLResponse(portal_file.read_text(encoding="utf-8"))
 
@@ -190,23 +196,13 @@ def hosted_concierge(tenant_slug: str) -> HTMLResponse:
     return HTMLResponse(html)
 
 
-DIST_DIR = STATIC / "dist"
-if (DIST_DIR / "assets").exists():
-    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="app-root-assets")
-    app.mount("/desk/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="desk-assets")
-    app.mount("/app/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="app-assets")
-
-
 @app.get("/desk")
 @app.get("/desk/")
 @app.get("/app")
 @app.get("/app/")
-def modern_react_frontdesk() -> HTMLResponse:
-    index_file = DIST_DIR / "index.html"
-    if index_file.exists():
-        return HTMLResponse(index_file.read_text(encoding="utf-8"))
-    path = ROOT / "src" / "saas" / "templates" / "frontdesk.html"
-    return HTMLResponse(path.read_text(encoding="utf-8"))
+def legacy_desk_redirect() -> RedirectResponse:
+    # The React desk is retired; the approved front desk is /frontdesk.
+    return RedirectResponse(url="/frontdesk", status_code=307)
 
 
 @app.get("/frontdesk")

@@ -135,7 +135,7 @@ export const App: React.FC = () => {
       const noteRes = await api.getNotes(id);
       setNotes(noteRes.notes || []);
 
-      const taskRes = await api.getTasks();
+      const taskRes = await api.getTasks(id);
       setTasks(taskRes.tasks || []);
     } catch {
       // ignore
@@ -331,6 +331,8 @@ export const App: React.FC = () => {
         onRefresh={handleRefresh}
         onLogout={handleLogout}
         isRefreshing={isRefreshing}
+        onSelectCategory={setCategory}
+        activeCategory={category}
       />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
@@ -392,21 +394,28 @@ export const App: React.FC = () => {
 
       {/* Toast Alert */}
       {toastMessage && (
-        <div style={{
-          position: 'fixed',
-          bottom: '24px',
-          right: '24px',
-          background: 'var(--brand-green)',
-          color: '#ffffff',
-          padding: '10px 18px',
-          borderRadius: '10px',
-          fontSize: '13px',
-          fontWeight: 500,
-          boxShadow: 'var(--shadow-glass)',
-          zIndex: 1000,
-          animation: 'fadeIn 0.2s ease-out forwards',
-        }}>
-          {toastMessage}
+        <div
+          className="animate-slide-up"
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            background: 'var(--brand-gradient)',
+            color: '#ffffff',
+            padding: '10px 18px',
+            borderRadius: '12px',
+            fontSize: '13px',
+            fontWeight: 600,
+            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.35), 0 0 15px var(--brand-accent-glow)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+          }}
+        >
+          <span>✨</span>
+          <span>{toastMessage}</span>
         </div>
       )}
     </div>

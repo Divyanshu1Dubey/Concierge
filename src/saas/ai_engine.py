@@ -493,3 +493,23 @@ def extract_intake(message: str, known: dict[str, Any], last_question: str | Non
     if not result:
         return {}
     return {k: v.strip() if isinstance(v, str) else v for k, v in result.items() if v not in (None, "", "none")}
+
+
+# ── Rewriting front desk text ────────────────────────────────────────────────
+
+_SCHEMA_TEXT = {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
+_REWRITE_HOW = {
+    "shorten": "Shorten this message to one or two concise sentences. Keep every fact, time and name.",
+    "warmer": "Rewrite this message to sound warmer and more personable while staying professional.",
+}
+
+
+def rewrite_text(text: str, how: str) -> str:
+    """Shorten or warm up a draft. Returns the original text if no LLM is available."""
+    if not text.strip() or how not in _REWRITE_HOW:
+        return text
+    result, _ = _llm(f"{_REWRITE_HOW[how]}\n\nMessage:\n{text[:6000]}",
+                     system="You edit emails written by a dental front desk. Return only the rewritten message.",
+                     schema=_SCHEMA_TEXT)
+    out = (result or {}).get("text", "").strip()
+    return out or text

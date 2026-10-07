@@ -1,4 +1,5 @@
-import { User, Calendar, Shield, MessageSquare, CheckCircle2, Circle, Plus } from 'lucide-react';
+import React from 'react';
+import { User, Calendar, Shield, MessageSquare, CheckCircle2, Circle, Plus, Phone, Mail, Clock, CheckSquare } from 'lucide-react';
 import type { Lead, Note, Task } from '../types';
 
 interface PatientContextPanelProps {
@@ -21,7 +22,7 @@ export const PatientContextPanel: React.FC<PatientContextPanelProps> = ({
   if (!lead) {
     return (
       <aside style={{
-        width: '300px',
+        width: '320px',
         background: 'var(--bg-secondary)',
         borderLeft: '1px solid var(--border-subtle)',
         padding: '24px',
@@ -32,7 +33,7 @@ export const PatientContextPanel: React.FC<PatientContextPanelProps> = ({
         justifyContent: 'center',
         fontSize: '13px',
       }}>
-        <div>Select a conversation to view patient details and open tasks.</div>
+        <div>Select an inquiry to view patient profile, records, and tasks.</div>
       </aside>
     );
   }
@@ -41,7 +42,7 @@ export const PatientContextPanel: React.FC<PatientContextPanelProps> = ({
 
   return (
     <aside style={{
-      width: '320px',
+      width: '330px',
       background: 'var(--bg-secondary)',
       borderLeft: '1px solid var(--border-subtle)',
       display: 'flex',
@@ -50,59 +51,186 @@ export const PatientContextPanel: React.FC<PatientContextPanelProps> = ({
       overflowY: 'auto',
       flexShrink: 0,
     }}>
-      {/* Patient Profile Card */}
-      <div style={{ padding: '16px', borderBottom: '1px solid var(--border-subtle)' }}>
-        <h3 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '12px' }}>
-          Patient Context
+      {/* Patient Profile Section */}
+      <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <h3 className="font-display" style={{
+          fontSize: '13px',
+          fontWeight: 800,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          color: 'var(--text-muted)',
+          marginBottom: '14px',
+        }}>
+          Patient Profile
         </h3>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <User size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
+          {/* Full Name */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+            <div style={{
+              width: '28px',
+              height: '28px',
+              borderRadius: '8px',
+              background: 'var(--bg-tertiary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--text-muted)',
+              flexShrink: 0,
+            }}>
+              <User size={15} />
+            </div>
             <div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Full Name</div>
-              <div style={{ fontWeight: 600 }}>{lead.name || 'Not provided'}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Full Name</div>
+              <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                {lead.name || 'Anonymous Visitor'}
+              </div>
             </div>
           </div>
 
+          {/* Contact Details */}
+          {(lead.phone || lead.email) && (
+            <div style={{
+              background: 'var(--bg-tertiary)',
+              borderRadius: '10px',
+              padding: '10px 12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+            }}>
+              {lead.phone && (
+                <a
+                  href={`tel:${lead.phone}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '12px',
+                    color: 'var(--brand-accent)',
+                    textDecoration: 'none',
+                    fontWeight: 600,
+                  }}
+                >
+                  <Phone size={13} /> {lead.phone}
+                </a>
+              )}
+              {lead.email && (
+                <a
+                  href={`mailto:${lead.email}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '12px',
+                    color: 'var(--text-secondary)',
+                    textDecoration: 'none',
+                  }}
+                >
+                  <Mail size={13} /> {lead.email}
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* Service Requested */}
           {lead.service && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '14px', flexShrink: 0 }}>🩺</span>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+              <div style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '8px',
+                background: 'var(--bg-tertiary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '13px',
+                flexShrink: 0,
+              }}>
+                🩺
+              </div>
               <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Service Requested</div>
-                <div style={{ fontWeight: 500 }}>{lead.service}</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Service Requested</div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{lead.service}</div>
               </div>
             </div>
           )}
 
+          {/* Preferred Time / Date */}
           {(lead.preferred_date || lead.preferred_time) && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Calendar size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+              <div style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '8px',
+                background: 'var(--bg-tertiary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--text-muted)',
+                flexShrink: 0,
+              }}>
+                <Calendar size={15} />
+              </div>
               <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Preferred Window</div>
-                <div style={{ fontWeight: 500 }}>
-                  {[lead.preferred_date, lead.preferred_time].filter(Boolean).join(' ')}
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Preferred Schedule</div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {[lead.preferred_date, lead.preferred_time].filter(Boolean).join(' at ')}
                 </div>
               </div>
             </div>
           )}
 
+          {/* Insurance */}
           {lead.insurance && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Shield size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+              <div style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '8px',
+                background: 'var(--bg-tertiary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--text-muted)',
+                flexShrink: 0,
+              }}>
+                <Shield size={15} />
+              </div>
               <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Insurance Coverage</div>
-                <div style={{ fontWeight: 500 }}>{lead.insurance}</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Insurance / Carrier</div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{lead.insurance}</div>
               </div>
             </div>
           )}
 
+          {/* Intake Message */}
           {lead.message && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-              <MessageSquare size={15} style={{ color: 'var(--text-muted)', flexShrink: 0, marginTop: '2px' }} />
-              <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Initial Inquiry</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', background: 'var(--bg-tertiary)', padding: '6px 8px', borderRadius: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+              <div style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '8px',
+                background: 'var(--bg-tertiary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--text-muted)',
+                flexShrink: 0,
+              }}>
+                <MessageSquare size={15} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '3px' }}>
+                  Intake Description
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  color: 'var(--text-secondary)',
+                  background: 'var(--bg-tertiary)',
+                  padding: '8px 10px',
+                  borderRadius: '8px',
+                  lineHeight: 1.45,
+                }}>
                   {lead.message}
                 </div>
               </div>
@@ -112,32 +240,38 @@ export const PatientContextPanel: React.FC<PatientContextPanelProps> = ({
       </div>
 
       {/* Actionable Tasks Checklist */}
-      <div style={{ padding: '16px', borderBottom: '1px solid var(--border-subtle)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <h3 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
-            Tasks ({patientTasks.length})
-          </h3>
+      <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <CheckSquare size={14} color="var(--brand-accent)" />
+            <h3 className="font-display" style={{
+              fontSize: '13px',
+              fontWeight: 800,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: 'var(--text-muted)',
+              margin: 0,
+            }}>
+              Tasks ({patientTasks.length})
+            </h3>
+          </div>
           <button
             onClick={onOpenTaskModal}
+            className="btn-action"
             style={{
-              background: 'transparent',
-              border: 'none',
+              padding: '3px 8px',
+              fontSize: '11px',
               color: 'var(--brand-accent)',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '2px',
+              borderColor: 'rgba(16, 185, 129, 0.3)',
             }}
           >
-            <Plus size={13} /> Add
+            <Plus size={12} /> Add Task
           </button>
         </div>
 
         {patientTasks.length === 0 ? (
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-            No open tasks for this conversation.
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '6px 0' }}>
+            No pending tasks for this patient.
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -147,16 +281,18 @@ export const PatientContextPanel: React.FC<PatientContextPanelProps> = ({
                 style={{
                   display: 'flex',
                   alignItems: 'flex-start',
-                  gap: '8px',
-                  padding: '8px',
-                  borderRadius: '6px',
+                  gap: '10px',
+                  padding: '9px 10px',
+                  borderRadius: '8px',
                   background: 'var(--bg-tertiary)',
                   fontSize: '12px',
+                  border: '1px solid var(--border-subtle)',
+                  transition: 'background 0.15s ease',
                 }}
               >
                 <button
                   onClick={() => onCompleteTask(t.id)}
-                  title="Mark task completed"
+                  title={t.completed ? 'Completed' : 'Mark as completed'}
                   style={{
                     background: 'transparent',
                     border: 'none',
@@ -164,26 +300,35 @@ export const PatientContextPanel: React.FC<PatientContextPanelProps> = ({
                     color: t.completed ? '#10b981' : 'var(--text-muted)',
                     padding: 0,
                     marginTop: '1px',
+                    display: 'flex',
                   }}
                 >
                   {t.completed ? <CheckCircle2 size={16} /> : <Circle size={16} />}
                 </button>
-                <div style={{ flex: 1 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
-                    fontWeight: 500,
+                    fontWeight: 600,
                     textDecoration: t.completed ? 'line-through' : 'none',
                     color: t.completed ? 'var(--text-muted)' : 'var(--text-primary)',
+                    wordBreak: 'break-word',
                   }}>
                     {t.title}
                   </div>
                   {t.due_at && (
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      Due: {new Date(t.due_at).toLocaleDateString()}
+                    <div style={{
+                      fontSize: '10px',
+                      color: 'var(--text-muted)',
+                      marginTop: '3px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '3px',
+                    }}>
+                      <Clock size={10} /> Due: {new Date(t.due_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                     </div>
                   )}
                 </div>
                 {t.priority === 'urgent' && (
-                  <span className="badge badge-urgent" style={{ fontSize: '9px', padding: '1px 4px' }}>
+                  <span className="badge badge-urgent" style={{ fontSize: '9px', padding: '1px 5px' }}>
                     Urgent
                   </span>
                 )}
@@ -193,33 +338,36 @@ export const PatientContextPanel: React.FC<PatientContextPanelProps> = ({
         )}
       </div>
 
-      {/* Internal Notes Quick View */}
-      <div style={{ padding: '16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <h3 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
-            Notes ({notes.length})
+      {/* Internal Staff Notes Quick View */}
+      <div style={{ padding: '18px 20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <h3 className="font-display" style={{
+            fontSize: '13px',
+            fontWeight: 800,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            color: 'var(--text-muted)',
+            margin: 0,
+          }}>
+            Staff Notes ({notes.length})
           </h3>
           <button
             onClick={onOpenNoteModal}
+            className="btn-action"
             style={{
-              background: 'transparent',
-              border: 'none',
+              padding: '3px 8px',
+              fontSize: '11px',
               color: 'var(--brand-accent)',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '2px',
+              borderColor: 'rgba(16, 185, 129, 0.3)',
             }}
           >
-            <Plus size={13} /> Add
+            <Plus size={12} /> Add Note
           </button>
         </div>
 
         {notes.length === 0 ? (
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-            No internal staff notes yet.
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '6px 0' }}>
+            No internal staff notes recorded yet.
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -227,17 +375,18 @@ export const PatientContextPanel: React.FC<PatientContextPanelProps> = ({
               <div
                 key={n.id}
                 style={{
-                  padding: '8px 10px',
-                  borderRadius: '6px',
+                  padding: '9px 12px',
+                  borderRadius: '8px',
                   background: 'var(--bg-tertiary)',
                   fontSize: '12px',
                   color: 'var(--text-secondary)',
+                  border: '1px solid var(--border-subtle)',
                 }}
               >
-                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '3px' }}>
-                  {new Date(n.created_at).toLocaleString()}
+                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: 500 }}>
+                  {new Date(n.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                 </div>
-                <div>{n.note}</div>
+                <div style={{ lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{n.note}</div>
               </div>
             ))}
           </div>
