@@ -20,13 +20,15 @@ follow-ups can't be sent by accident.
 from __future__ import annotations
 
 import copy
+import sqlite3
+import threading
 import json
 import logging
 import re
 from datetime import datetime, timedelta
 from typing import Any
 
-from saas.database import connect, insert, now_iso, row, rows
+from saas.database import connect, insert, now_iso, row, rows, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -213,9 +215,19 @@ def _discard_pending(tenant_id: int, lead_id: int, step_id: str | None = None) -
 # ── Scheduler ────────────────────────────────────────────────────────────────
 
 
+_RUN_LOCK = threading.Lock()
+
+
 def run_due(tenant_id: int | None = None, now: datetime | None = None) -> list[int]:
-    """Create drafts for every step that is due. Returns the new draft ids."""
-    now = now or datetime.now()
+    """Create drafts for every step that is due. Returns the new draft ids.
+
+    Serialized: the scheduler and the front desk's "check now" can run at the same moment."""
+    with _RUN_LOCK:
+        return _run_due(tenant_id, now)
+
+
+def _run_due(tenant_id: int | None, now: datetime | None) -> list[int]:
+    now = now or utcnow()
     sql = "SELECT * FROM cadence_enrollments WHERE status = 'active'"
     args: list[Any] = []
     if tenant_id is not None:
@@ -240,7 +252,9 @@ def run_due(tenant_id: int | None = None, now: datetime | None = None) -> list[i
         if waiting or _due_at(enr, step) > now:
             continue
         try:
-            created.append(draft_for_step(enr["tenant_id"], enr["lead_id"], step))
+            did = draft_for_step(enr["tenant_id"], enr["lead_id"], step)
+            if did:
+                created.append(did)
         except Exception:
             log.exception("cadence draft failed tenant=%s lead=%s step=%s", enr["tenant_id"], enr["lead_id"], step["id"])
     return created
@@ -253,6 +267,15 @@ def fast_forward(tenant_id: int, hours: float) -> list[int]:
             earlier = (datetime.fromisoformat(e["anchor_at"]) - timedelta(hours=hours)).isoformat(timespec="seconds")
             c.execute("UPDATE cadence_enrollments SET anchor_at = ? WHERE id = ?", (earlier, e["id"]))
     return run_due(tenant_id)
+
+
+CLOSING_STATUSES = {"booked", "scheduled", "completed", "closed", "archived", "spam"}
+
+
+def stop_for_status(tenant_id: int, lead_id: int, status: str) -> None:
+    """Booked, visited or closed patients get no more automatic follow-ups."""
+    if status in CLOSING_STATUSES and get_enrollment(tenant_id, lead_id):
+        set_state(tenant_id, lead_id, "stopped", reason=f"marked {status}")
 
 
 def _finish(enrollment_id: int) -> None:
@@ -278,11 +301,13 @@ def draft_for_step(tenant_id: int, lead_id: int, step: dict) -> int:
             body, subject = result.get("body"), result.get("subject") or subject
     if not body:  # template mode, or AI unavailable
         body = _fill(EMERGENCY_TEMPLATE if urgent_first else (step.get("template") or ""), lead, tenant_id)
-    with connect() as c:
-        did = insert(c, "ai_drafts", tenant_id=tenant_id, lead_id=lead_id, conversation_id=lead.get("conversation_id"),
-                     subject=subject, body=body, status="pending", cadence_step=step["id"], to_email=lead.get("email"),
-                     source="cadence", created_at=now_iso(), updated_at=now_iso())
-    return did
+    try:
+        with connect() as c:
+            return insert(c, "ai_drafts", tenant_id=tenant_id, lead_id=lead_id, conversation_id=lead.get("conversation_id"),
+                          subject=subject, body=body, status="pending", cadence_step=step["id"], to_email=lead.get("email"),
+                          source="cadence", created_at=now_iso(), updated_at=now_iso())
+    except sqlite3.IntegrityError:
+        return None  # another run already drafted this step
 
 
 def on_outbound(tenant_id: int, lead_id: int, cadence_step: str | None) -> None:
@@ -372,16 +397,22 @@ def _draft_reply_to(tenant_id: int, lead: dict, message: dict) -> int:
 
 # ── Reply classification ─────────────────────────────────────────────────────
 
+# Fallback when AI is unavailable. Terminal outcomes (booked, not interested, cancel) need an explicit statement;
+# anything uncertain goes to the front desk instead of silently stopping follow-ups.
 _RULES = [
-    ("unsubscribe", r"\bunsubscribe\b|stop (emailing|contacting)|remove me|take me off"),
-    ("not_interested", r"not interested|no thanks|no thank you|went (somewhere|elsewhere)|found another|don'?t need"),
-    ("cancel", r"\bcancel"),
+    ("unsubscribe", r"\bunsubscribe\b|stop (emailing|contacting|sending)|remove me|take me off"),
+    ("not_interested", r"\bnot interested\b|\bno,? thanks\b|\bno thank you\b|\bwent (somewhere|elsewhere)\b|"
+                       r"\bfound (another|a different) (dentist|office|practice)\b|\bdon'?t need (an|the) appointment\b"),
+    ("cancel", r"\bcancel (my|the|our) (appointment|visit|cleaning|request)\b|\b(need|want|have) to cancel\b|"
+               r"\bplease cancel\b"),
+    ("booked", r"\b(i|we)('ve| have)? (already |just )?(booked|scheduled)\b|\balready (booked|scheduled|have an "
+               r"appointment)\b|\bbooked (it |one )?(by|over the) phone\b|\bsee you (on|then|monday|tuesday|wednesday|"
+               r"thursday|friday|saturday)\b"),
     ("reschedule", r"\breschedul|change (my|the) (appointment|time)|different (day|time)|move (my|the) appointment"),
-    ("booked", r"\b(already )?(booked|scheduled)\b|i called|have an appointment|see you (on|then|monday|tuesday|"
-               r"wednesday|thursday|friday)"),
     ("wants_appointment", r"\b(available|works for me|i can do|i'?m free|monday|tuesday|wednesday|thursday|friday|"
-                          r"saturday|morning|afternoon|evening|\d{1,2}(:\d\d)?\s?(am|pm))\b"),
+                          r"saturday|morning|afternoon|evening|appointment|book|schedule|\d{1,2}(:\d\d)?\s?(am|pm))\b"),
 ]
+_NEGATION = re.compile(r"\b(not|haven'?t|hasn'?t|didn'?t|don'?t|never|no longer|yet|can'?t|couldn'?t)\b")
 
 
 def classify_reply(text: str) -> dict:
@@ -391,8 +422,11 @@ def classify_reply(text: str) -> dict:
         return result
     lowered = text.lower()
     for intent, pattern in _RULES:
-        if re.search(pattern, lowered):
-            return {"intent": intent, "summary": text.strip()[:160], "provider": "rules"}
+        if not re.search(pattern, lowered):
+            continue
+        if intent in ("booked", "cancel") and ("?" in text or _NEGATION.search(lowered)):
+            continue  # "Can I get scheduled?", "I haven't booked yet": a person should read it
+        return {"intent": intent, "summary": text.strip()[:160], "provider": "rules"}
     return {"intent": "question" if "?" in text else "other", "summary": text.strip()[:160], "provider": "rules"}
 
 

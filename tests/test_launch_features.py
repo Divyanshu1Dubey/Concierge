@@ -111,7 +111,7 @@ def test_separate_login_username_is_used(clinic, monkeypatch):
 
 def test_port_587_uses_starttls(clinic, monkeypatch):
     monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
-    mailbox.connect_mailbox(clinic["id"], "microsoft", "frontdesk@rd.test", "pw")
+    mailbox.connect_mailbox(clinic["id"], "custom", "frontdesk@rd.test", "pw", smtp_host="smtp.rd.test", smtp_port=587, imap_host="imap.rd.test")
     mailbox._smtp(mailbox.get_settings_row(clinic["id"]))
     assert FakeSMTP.last.port == 587 and FakeSMTP.last.tls
 

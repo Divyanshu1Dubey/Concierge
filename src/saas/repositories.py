@@ -5,7 +5,7 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
-from saas.database import connect, insert, now_iso, row, rows
+from saas.database import connect, insert, now_iso, row, rows, utcnow
 from saas.result import Result
 from saas.models import ApiKey, Domain, Tenant, User
 from saas.security import hash_password
@@ -709,7 +709,7 @@ def _seed_demo_story(tenant_id: int, clinic: str) -> None:
     from email.utils import make_msgid
 
     def ago(hours: float) -> str:
-        return (datetime.now() - timedelta(hours=hours)).isoformat(timespec="seconds")
+        return (utcnow() - timedelta(hours=hours)).isoformat(timespec="seconds")
 
     def next_weekday(weekday: int) -> datetime:
         today = datetime.now()

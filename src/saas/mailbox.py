@@ -13,12 +13,13 @@ Privacy rules:
 from __future__ import annotations
 
 import email
+import email.policy
 import imaplib
 import json
 import logging
 import re
 import ssl
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage, Message
 from email.utils import formatdate, getaddresses, make_msgid, parsedate_to_datetime
 from saas.database import connect, insert, now_iso, row, rows
@@ -33,8 +34,6 @@ PROVIDERS = {
     "gmail": {"label": "Google Workspace / Gmail", **GMAIL},
     "einstein": {"label": "Einstein Mail", "smtp_host": "smtp.einsteinmail.com", "smtp_port": 465,
                  "imap_host": "imap.einsteinmail.com", "imap_port": 993, "sent_folder": None},
-    "microsoft": {"label": "Microsoft 365 / Outlook", "smtp_host": "smtp.office365.com", "smtp_port": 587,
-                  "imap_host": "outlook.office365.com", "imap_port": 993, "sent_folder": None},
     "custom": {"label": "Other email provider", "smtp_host": "", "smtp_port": 465, "imap_host": "", "imap_port": 993,
                "sent_folder": None},
 }
@@ -59,8 +58,8 @@ def get_settings_row(tenant_id: int) -> dict | None:
 
 def is_connected(tenant_id: int) -> bool:
     s = get_settings_row(tenant_id)
-    if not s or s.get("provider") != "smtp" or not s.get("smtp_host"):
-        return False
+    if not s or s.get("provider") != "smtp" or not s.get("smtp_host") or not s.get("imap_host"):
+        return False  # rows saved by the old admin email screen have no incoming server: reconnect needed
     return bool(s.get("oauth_refresh_enc") if s.get("auth_type") == "oauth" else s.get("smtp_password_enc"))
 
 
@@ -279,6 +278,8 @@ def _require(tenant_id: int) -> dict:
 def _friendly(e: Exception, s: dict | None = None) -> str:
     import smtplib
     import socket
+    if isinstance(e, MailboxError):
+        return str(e)
     text = str(e)
     google = (s or {}).get("mail_provider", "gmail") == "gmail" or "gmail.com" in str((s or {}).get("smtp_host", ""))
     auth_failed = (isinstance(e, smtplib.SMTPAuthenticationError) or "AUTHENTICATIONFAILED" in text
@@ -304,8 +305,17 @@ def _friendly(e: Exception, s: dict | None = None) -> str:
 # ── Transport (patched in tests) ─────────────────────────────────────────────
 
 
+def _recheck_host(host: str) -> None:
+    """Re-validate right before connecting: DNS may have changed since the settings were saved (rebinding)."""
+    try:
+        _check_public_host(host)
+    except ValueError as e:
+        raise MailboxError(str(e)) from None
+
+
 def _smtp(s: dict):
     import smtplib
+    _recheck_host(s["smtp_host"])
     port = int(s.get("smtp_port") or 465)
     ctx = ssl.create_default_context()
     if port == 465:
@@ -323,7 +333,10 @@ def _smtp(s: dict):
 
 
 def _imap(s: dict):
-    host, port = s.get("imap_host") or GMAIL["imap_host"], int(s.get("imap_port") or 993)
+    host, port = s.get("imap_host"), int(s.get("imap_port") or 993)
+    if not host:
+        raise MailboxError("Reconnect the mailbox in Settings (no incoming mail server saved).")
+    _recheck_host(host)
     if port == 143:  # plain IMAP upgraded with STARTTLS; credentials never go over an unencrypted link
         conn = imaplib.IMAP4(host, port, timeout=30)
         conn.starttls(ssl_context=ssl.create_default_context())
@@ -396,6 +409,8 @@ def send_draft(tenant_id: int, draft_id: int, *, subject: str | None = None, bod
         raise LookupError("draft not found")
     if draft["status"] == "sent":
         raise MailboxError("This draft was already sent.")
+    if draft["status"] not in ("pending", "failed"):
+        raise MailboxError("This draft was discarded and can't be sent. Write a new reply instead.")
     lead = get_lead(draft["lead_id"]) if draft.get("lead_id") else None
     if not lead:
         raise MailboxError("Draft is not attached to a patient.")
@@ -409,8 +424,9 @@ def send_draft(tenant_id: int, draft_id: int, *, subject: str | None = None, bod
     in_reply_to, references, root_subject = _thread_headers(tenant_id, lead["id"])
     subj = (subject if subject is not None else draft.get("subject") or "").strip() or "Your appointment request"
     if root_subject:  # keep everything in one thread for the patient and for Gmail
-        base = re.sub(r"^(re:\s*)+", "", root_subject, flags=re.I)
+        base = re.sub(r"^(re:\s*)+", "", clean_subject(root_subject), flags=re.I)
         subj = f"Re: {base}"
+    subj = clean_subject(subj) or "Your appointment request"
 
     sender = s.get("from_email") or s.get("smtp_user") or "frontdesk@clinic.demo"
     msg = EmailMessage()
@@ -493,7 +509,8 @@ def sync_mailbox(tenant_id: int) -> dict:
             except Exception as e:  # a missing Sent folder must not block reply tracking
                 log.warning("mailbox sync %s failed for tenant %s: %s", folder, tenant_id, e)
                 if direction == "in":
-                    raise
+                    _save_sync(tenant_id, state, _friendly(e, s))  # progress so far is kept; error shown in Settings
+                    raise MailboxError(_friendly(e, s)) from e
     finally:
         try:
             imap.logout()
@@ -531,7 +548,11 @@ def _sync_folder(imap, tenant_id: int, folder: str, direction: str, state: dict,
         typ, parts = imap.uid("FETCH", str(uid), "(BODY.PEEK[])")
         raw = next((p[1] for p in parts or [] if isinstance(p, tuple)), None)
         if raw:
-            _ingest(tenant_id, email.message_from_bytes(raw), direction, stats)
+            try:
+                _ingest(tenant_id, email.message_from_bytes(raw, policy=email.policy.default), direction, stats)
+            except Exception:  # one odd message must never block reply tracking for the clinic
+                log.exception("mailbox: skipped unreadable message uid=%s tenant=%s", uid, tenant_id)
+                stats["skipped"] += 1
         last_uid = max(last_uid, uid)
     state[key] = {"uidvalidity": uidvalidity, "last_uid": last_uid}
 
@@ -549,24 +570,25 @@ def _uidvalidity(imap) -> str:
 
 
 def _ingest(tenant_id: int, msg: Message, direction: str, stats: dict) -> None:
-    message_id = (msg.get("Message-ID") or "").strip()
+    message_id = _hdr(msg, "Message-ID")
     if not message_id:
         stats["skipped"] += 1
         return
-    in_reply_to = (msg.get("In-Reply-To") or "").strip() or None
-    references = " ".join((msg.get("References") or "").split()) or None
-    from_addr = _addr(msg.get("From"))
-    to_addrs = [a.lower() for _, a in getaddresses(msg.get_all("To", []) + msg.get_all("Cc", [])) if a]
+    in_reply_to = _hdr(msg, "In-Reply-To") or None
+    references = _hdr(msg, "References") or None
+    from_addr = _addr(_hdr(msg, "From"))
+    to_addrs = [a.lower() for _, a in getaddresses([str(v) for v in msg.get_all("To", []) + msg.get_all("Cc", [])]) if a]
 
     lead = _match_lead(tenant_id, in_reply_to, references, from_addr if direction == "in" else None,
                        to_addrs if direction == "out" else [])
     if not lead:
         stats["skipped"] += 1
         return
-    sent_at = _date(msg.get("Date"))
+    sent_at = _date(_hdr(msg, "Date"))
     body = _text_body(msg)
     saved = record_message(tenant_id, lead["id"], direction, message_id, from_addr=from_addr,
-                           to_addr=", ".join(to_addrs), subject=msg.get("Subject"), body=body, sent_at=sent_at,
+                           to_addr=", ".join(to_addrs), subject=clean_subject(_hdr(msg, "Subject")), body=body,
+                           sent_at=sent_at,
                            in_reply_to=in_reply_to, references=references, source="mailbox")
     if not saved:  # already have it (e.g. a draft we sent ourselves, now seen in Sent)
         return
@@ -604,9 +626,24 @@ def _addr(value: str | None) -> str | None:
 
 def _date(value: str | None) -> str:
     try:
-        return parsedate_to_datetime(value).astimezone().replace(tzinfo=None).isoformat(timespec="seconds")
+        dt = parsedate_to_datetime(value)
+        if dt.tzinfo is None:
+            return dt.isoformat(timespec="seconds")
+        return dt.astimezone(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
     except Exception:
         return now_iso()
+
+
+def _hdr(msg: Message, name: str) -> str:
+    """Header as one clean line of text (decoded, unfolded), whatever parsing policy produced it."""
+    value = msg.get(name)
+    if value is None:
+        return ""
+    return " ".join(str(value).split())
+
+
+def clean_subject(subject: str | None) -> str:
+    return " ".join(str(subject or "").split())[:300]
 
 
 def _text_body(msg: Message) -> str:
@@ -619,7 +656,10 @@ def _text_body(msg: Message) -> str:
     if part is None:
         return ""
     payload = part.get_payload(decode=True) or b""
-    text = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+    try:
+        text = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+    except LookupError:  # unknown charset name
+        text = payload.decode("utf-8", errors="replace")
     if part.get_content_type() == "text/html":
         text = re.sub(r"<(br|/p|/div)[^>]*>", "\n", text, flags=re.I)
         text = re.sub(r"<[^>]+>", "", text)
@@ -629,9 +669,15 @@ def _text_body(msg: Message) -> str:
 def strip_quoted(text: str) -> str:
     """Keep only the new part of a reply (drop 'On ... wrote:' and '>' quoted history)."""
     out = []
-    for line in text.replace("\r\n", "\n").split("\n"):
-        if re.match(r"^\s*On .{3,200}wrote:\s*$", line) or re.match(r"^-{2,}\s*Original Message", line, re.I):
+    lines = text.replace("\r\n", "\n").split("\n")
+    for i, line in enumerate(lines):
+        if re.match(r"^\s*On .{3,200}wrote:\s*$", line) or re.match(r"^\s*-{2,}\s*Original Message", line, re.I):
             break
+        if re.match(r"^\s*_{8,}\s*$", line):  # Outlook separator line above the quoted message
+            break
+        if re.match(r"^\s*\*?From:\*?\s", line) and any(
+                re.match(r"^\s*\*?(Sent|Date):\*?\s", nxt) for nxt in lines[i + 1:i + 5]):
+            break  # Outlook-style "From: / Sent: / To: / Subject:" header block
         if line.lstrip().startswith(">"):
             continue
         out.append(line)

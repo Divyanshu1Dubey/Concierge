@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from email.message import EmailMessage
 
 from saas.config import get_settings
-from saas.database import connect, insert, now_iso, row
+from saas.database import connect, insert, now_iso, row, utcnow
 
 log = logging.getLogger(__name__)
 TTL_MINUTES = 10
@@ -37,7 +37,7 @@ def issue(user_id: int, email: str, clinic_name: str) -> None:
     with connect() as c:
         c.execute("UPDATE login_codes SET used_at = ? WHERE user_id = ? AND used_at IS NULL", (now_iso(), user_id))
         insert(c, "login_codes", user_id=user_id, code_hash=_hash(code), attempts=0, created_at=now_iso(),
-               expires_at=(datetime.now() + timedelta(minutes=TTL_MINUTES)).isoformat(timespec="seconds"))
+               expires_at=(utcnow() + timedelta(minutes=TTL_MINUTES)).isoformat(timespec="seconds"))
     _send(email, code, clinic_name)
 
 

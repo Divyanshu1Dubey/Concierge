@@ -302,7 +302,9 @@ function toast(msg) {
 // API returns plain arrays; older code expected {key: [...]}. Accept both.
 function asList(d, key) { return Array.isArray(d) ? d : ((d && d[key]) || []); }
 function esc(v) { return v == null ? '' : escapeHtml(String(v)); }
-function fmt(ts) { return ts ? new Date(ts).toLocaleString() : ''; }
+// Server timestamps are UTC without a zone suffix; read them as UTC so times show in the viewer's local time.
+function toDate(ts) { if (!ts) return new Date(NaN); var s = String(ts); if (/^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(s)) s += 'Z'; return new Date(s); }
+function fmt(ts) { return ts ? toDate(ts).toLocaleString() : ''; }
 async function getJson(path) { var r = await api(path); return r.json(); }
 async function send(path, method, body) {
   try {
@@ -516,7 +518,7 @@ function renderLeadItems(leads) {
     if (l.urgency === 'urgent' || l.urgency === 'high') badges += '<span class="badge badge-urgent">' + esc(l.urgency || '') + '</span>';
     if (l.intent) badges += '<span class="badge" style="background:var(--tag-bg);color:var(--muted)">' + esc(l.intent.replace(/_/g,' ')) + '</span>';
 
-    var when = new Date(l.created_at).toLocaleString();
+    var when = toDate(l.created_at).toLocaleString();
     var sub = l.service || l.intent || 'Request';
     var preview = l.message ? l.message.substring(0,60) : '';
 
@@ -550,7 +552,7 @@ async function loadSidebarItems() {
       var notes = asList(d, 'notes');
       if (!notes.length) { list.innerHTML = '<div class="empty-state" style="padding:40px 20px">No notes yet</div>'; return; }
       list.innerHTML = notes.map(function(n) {
-        return '<div class="lead-item" onclick="' + (n.lead_id ? 'openLead(' + n.lead_id + ')' : '') + '"><div class="name">Note</div><div class="svc">' + esc(n.note.substring(0,80)) + '</div><div class="time">' + new Date(n.created_at).toLocaleString() + '</div></div>';
+        return '<div class="lead-item" onclick="' + (n.lead_id ? 'openLead(' + n.lead_id + ')' : '') + '"><div class="name">Note</div><div class="svc">' + esc(n.note.substring(0,80)) + '</div><div class="time">' + toDate(n.created_at).toLocaleString() + '</div></div>';
       }).join('');
     } catch(e) {}
   } else if (currentCategory === 'tasks') {
@@ -561,7 +563,7 @@ async function loadSidebarItems() {
       var tasks = asList(d2, 'tasks').filter(function(t) { return t.status !== 'done' && t.status !== 'completed'; });
       if (!tasks.length) { list.innerHTML = '<div class="empty-state" style="padding:40px 20px">No open tasks</div>'; return; }
       list.innerHTML = tasks.map(function(t) {
-        return '<div class="lead-item" onclick="' + (t.lead_id ? 'openLead(' + t.lead_id + ')' : '') + '"><div class="name">' + esc(t.title) + ' <span class="badge badge-' + (t.priority === 'urgent' ? 'urgent' : t.priority === 'high' ? 'contacted' : 'new') + '">' + t.priority + '</span></div><div class="time">' + (t.due_at ? 'Due: ' + new Date(t.due_at).toLocaleString() : 'No due date') + '</div></div>';
+        return '<div class="lead-item" onclick="' + (t.lead_id ? 'openLead(' + t.lead_id + ')' : '') + '"><div class="name">' + esc(t.title) + ' <span class="badge badge-' + (t.priority === 'urgent' ? 'urgent' : t.priority === 'high' ? 'contacted' : 'new') + '">' + t.priority + '</span></div><div class="time">' + (t.due_at ? 'Due: ' + toDate(t.due_at).toLocaleString() : 'No due date') + '</div></div>';
       }).join('');
     } catch(e) {}
   }
@@ -611,7 +613,7 @@ function renderMain(lead, messages, notes, tasks, drafts) {
   var intentBadge = lead.intent ? '<span class="badge" style="background:#f3f4f6;color:#6b7280">' + lead.intent.replace(/_/g,' ') + '</span>' : '';
 
   var html = '<div class="detail-header"><div><h2>' + (lead.name || 'Anonymous') + ' ' + urgencyBadge + '</h2>' +
-    '<div class="meta">' + (lead.email || '') + (lead.phone ? ' · ' + lead.phone : '') + ' · ID #' + lead.id + ' · ' + new Date(lead.created_at).toLocaleString() + '</div>' +
+    '<div class="meta">' + (lead.email || '') + (lead.phone ? ' · ' + lead.phone : '') + ' · ID #' + lead.id + ' · ' + toDate(lead.created_at).toLocaleString() + '</div>' +
     '<div class="badges">' + intentBadge + (lead.service ? '<span class="badge" style="background:#f3f4f6;color:#6b7280">' + lead.service + '</span>' : '') + '</div></div>' +
     '<div class="detail-actions">' +
     '<select id="status-select" onchange="updateStatus(' + lead.id + ',this.value)"><option value="">Change status…</option><option value="new">New</option><option value="contacted">Contacted</option><option value="qualified">Qualified</option><option value="booked">Booked</option><option value="closed">Closed</option><option value="spam">Spam</option></select>' +
@@ -640,14 +642,14 @@ function renderMain(lead, messages, notes, tasks, drafts) {
   if (messages.length) {
     messages.forEach(function(m) {
       var cls = m.role === 'user' ? 'msg-visitor' : (m.role === 'assistant' ? 'msg-system' : 'msg-system');
-      html += '<div class="msg ' + cls + '"><div class="who">' + (m.role === 'user' ? 'Visitor' : 'Concierge') + '</div><div class="text">' + esc(m.body) + '</div><div class="ts">' + new Date(m.created_at).toLocaleString() + '</div></div>';
+      html += '<div class="msg ' + cls + '"><div class="who">' + (m.role === 'user' ? 'Visitor' : 'Concierge') + '</div><div class="text">' + esc(m.body) + '</div><div class="ts">' + toDate(m.created_at).toLocaleString() + '</div></div>';
     });
   } else {
     html += '<div style="color:var(--muted);font-size:13px;padding:6px 0">No website chat for this request</div>';
   }
   if (notes.length) {
     notes.forEach(function(n) {
-      html += '<div class="msg" style="background:#fffbeb;border:1px solid #fde68a;margin-left:auto;text-align:right"><div class="who" style="color:var(--amber)">Internal Note</div><div class="text">' + esc(n.note) + '</div><div class="ts">' + new Date(n.created_at).toLocaleString() + '</div></div>';
+      html += '<div class="msg" style="background:#fffbeb;border:1px solid #fde68a;margin-left:auto;text-align:right"><div class="who" style="color:var(--amber)">Internal Note</div><div class="text">' + esc(n.note) + '</div><div class="ts">' + toDate(n.created_at).toLocaleString() + '</div></div>';
     });
   }
   html += renderEmails(mail.messages || []);
@@ -693,7 +695,7 @@ function renderRightPanel(lead, notes, tasks) {
     {label:'Service', val: lead.service}, {label:'Date', val: lead.preferred_date}, {label:'Time', val: lead.preferred_time},
     {label:'Insurance', val: lead.insurance}, {label:'Financing', val: lead.financing}, {label:'Urgency', val: lead.urgency},
     {label:'Status', val: lead.status}, {label:'Source', val: lead.page_url ? lead.page_url.substring(0,40) : 'Widget'},
-    {label:'Created', val: new Date(lead.created_at).toLocaleString()},
+    {label:'Created', val: toDate(lead.created_at).toLocaleString()},
   ];
   fields.forEach(function(f) {
     html += '<div class="context-row"><span class="cl">' + f.label + '</span><span class="cv">' + (f.val || '<span style="color:#d1d5db">—</span>') + '</span></div>';
@@ -716,7 +718,7 @@ function renderRightPanel(lead, notes, tasks) {
   html += '<div class="notes-section"><h3 style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:8px;font-weight:600">Internal Notes (' + notes.length + ')</h3>';
   if (notes.length) {
     notes.forEach(function(n) {
-      html += '<div class="note"><div class="note-meta">' + new Date(n.created_at).toLocaleString() + '</div>' + esc(n.note) + '</div>';
+      html += '<div class="note"><div class="note-meta">' + toDate(n.created_at).toLocaleString() + '</div>' + esc(n.note) + '</div>';
     });
   } else {
     html += '<div style="color:var(--muted);font-size:12px">No notes yet</div>';
@@ -1001,13 +1003,14 @@ async function retryNotify(lid) {
 function showAiResult(text, where) {
   var el = document.getElementById(where || 'ai-result');
   if (!el) return;
-  el.innerHTML = '<div class="ai-result"><div class="label">AI Generated</div>' + escapeHtml(text) + '<div class="draft-actions"><button onclick="useAiText(\'' + escapeAttr(text) + '\')">Use this text</button><button onclick="copyAiText(\'' + escapeAttr(text) + '\')">Copy</button></div></div>';
+  var n = aiTexts.push(text) - 1;  // referenced by index: AI text never goes inside an inline handler
+  el.innerHTML = '<div class="ai-result"><div class="label">AI Generated</div>' + escapeHtml(text) + '<div class="draft-actions"><button onclick="useAiText(aiTexts[' + n + '])">Use this text</button><button onclick="copyAiText(aiTexts[' + n + '])">Copy</button></div></div>';
   // Also show in side panel
   var side = document.getElementById('ai-result-side');
   if (side) side.innerHTML = '<div class="ai-result"><div class="label">AI Result</div>' + escapeHtml(text) + '</div>';
 }
 
-function escapeAttr(s) { return escapeHtml(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n'); }
+var aiTexts = [];
 
 function useAiText(text) {
   var ta = document.getElementById('reply-text');
@@ -1154,9 +1157,8 @@ async function completeTask(tid) {
 // ── Utilities ────────────────────────────────────────────────────────────────
 
 function escapeHtml(text) {
-  var div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+  // Escapes quotes too, so values are safe inside attributes as well as element text.
+  return String(text == null ? '' : text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // ── Theme & Sound & Clipboard ────────────────────────────────────────────────
@@ -1222,7 +1224,7 @@ function copyPatientSummary(leadId) {
     "Service: " + (lead.service || 'N/A') + "\n" +
     "Intent: " + (lead.intent || 'N/A') + "\n" +
     "Status: " + (lead.status || 'new') + "\n" +
-    "Created: " + new Date(lead.created_at).toLocaleString() + "\n" +
+    "Created: " + toDate(lead.created_at).toLocaleString() + "\n" +
     "Message: " + (lead.message || 'N/A');
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(function() {

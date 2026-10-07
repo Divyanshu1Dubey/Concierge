@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from saas import cadence, mailbox
-from saas.database import connect, rows
+from saas.database import connect, rows, utcnow
 from saas.repositories import create_api_key, create_lead, create_tenant, create_user
 
 CLINIC = "frontdesk@clinic.test"
@@ -119,7 +119,7 @@ def test_send_draft_goes_from_clinic_to_patient(clinic):
 def test_follow_up_stays_in_same_thread(clinic):
     tid, lid = clinic
     first = mailbox.send_draft(tid, _first_draft(tid, lid))
-    later = datetime.now() + timedelta(hours=25)
+    later = utcnow() + timedelta(hours=25)
     [did] = cadence.run_due(tid, now=later)
     mailbox.send_draft(tid, did)
     msg = FakeSMTP.sent[-1]
@@ -164,15 +164,15 @@ def test_first_draft_is_created_once_and_waits_for_approval(clinic):
 def test_follow_up_waits_for_delay(clinic):
     tid, lid = clinic
     mailbox.send_draft(tid, _first_draft(tid, lid))
-    assert cadence.run_due(tid, now=datetime.now() + timedelta(hours=23)) == []
-    assert len(cadence.run_due(tid, now=datetime.now() + timedelta(hours=25))) == 1
+    assert cadence.run_due(tid, now=utcnow() + timedelta(hours=23)) == []
+    assert len(cadence.run_due(tid, now=utcnow() + timedelta(hours=25))) == 1
 
 
 def test_discarding_a_step_skips_it(clinic):
     tid, lid = clinic
     from saas.main import app
     mailbox.send_draft(tid, _first_draft(tid, lid))
-    [did] = cadence.run_due(tid, now=datetime.now() + timedelta(hours=25))
+    [did] = cadence.run_due(tid, now=utcnow() + timedelta(hours=25))
     with connect() as c:
         c.execute("UPDATE ai_drafts SET status='discarded' WHERE id = ?", (did,))
     cadence.on_discard(tid, lid, "follow_up_1")
@@ -181,7 +181,7 @@ def test_discarding_a_step_skips_it(clinic):
 
 def test_cadence_completes_after_last_step(clinic):
     tid, lid = clinic
-    t = datetime.now()
+    t = utcnow()
     mailbox.send_draft(tid, _first_draft(tid, lid))
     for hours in (25, 25 + 73, 25 + 73 + 169):
         [did] = cadence.run_due(tid, now=t + timedelta(hours=hours))
@@ -249,7 +249,7 @@ def test_sync_is_incremental(clinic, monkeypatch):
 def test_any_other_reply_pauses_and_queues_ai_reply_and_task(clinic, monkeypatch):
     tid, lid = clinic
     first = mailbox.send_draft(tid, _first_draft(tid, lid))
-    later = datetime.now() + timedelta(hours=25)
+    later = utcnow() + timedelta(hours=25)
     cadence.run_due(tid, now=later)  # a follow-up draft is waiting
     _sync_with(monkeypatch, tid, [_reply(first["message_id"], "Tuesday at 3pm works for me")])
     enr = cadence.get_enrollment(tid, lid)

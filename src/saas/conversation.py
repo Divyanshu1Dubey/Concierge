@@ -57,12 +57,19 @@ WELCOME_BY_INTENT = {
 _INTAKE_KEYS = {"name", "email", "phone", "service", "intent", "preferred_date", "preferred_time", "insurance"}
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
 _PHONE = re.compile(r"(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}")
-_NAME_INTRO = re.compile(r"\b(?:my name is|name's|i am|i'm|im|this is)\s+([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+)?)", re.I)
+# "my name is X" anywhere; "I'm X" / "this is X" only at the start of the message (after an optional greeting),
+# so sentences like "this is urgent" or "I'm thinking about implants" mid-message aren't read as names.
+_NAME_INTRO = re.compile(r"(?:\bmy name is|\bname's|^\s*(?:(?:hi|hello|hey)\b[\s,!.]*)?(?:i am|i'm|im|this is|it's))\s+"
+                         r"([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+)?)", re.I)
 # Words that follow "I'm" / "I am" but are not names ("I'm in pain", "I am looking for ...").
 _NOT_NAMES = {"in", "having", "looking", "a", "an", "not", "so", "very", "interested", "calling", "wondering", "new",
               "here", "trying", "just", "the", "sorry", "good", "fine", "ok", "okay", "still", "available", "free",
               "hoping", "needing", "experiencing", "currently", "also", "really", "on", "at", "with", "from",
-              "scared", "worried", "nervous", "due", "going", "getting", "feeling", "bleeding", "swollen"}
+              "scared", "worried", "nervous", "due", "going", "getting", "feeling", "bleeding", "swollen",
+              "my", "and", "for", "about", "but", "or", "missing", "thinking", "urgent", "emergency", "asking",
+              "reaching", "writing", "contacting", "your", "their", "our", "this", "that", "it", "is", "was", "be",
+              "need", "needs", "want", "wanting", "planning", "considering", "having", "booking", "requesting",
+              "email", "phone", "number", "patient", "new", "existing", "back", "ready", "done", "all", "set"}
 
 
 _SERVICES = ["cleaning", "checkup", "check-up", "exam", "whitening", "crown", "filling", "implant", "root canal",
@@ -81,7 +88,11 @@ def _rule_fields(body: str, asked: str | None) -> dict[str, Any]:
         out["phone"] = m.group(0).strip()
     m = _NAME_INTRO.search(text)
     if m and m.group(1).split()[0].lower() not in _NOT_NAMES:
-        words = [w for w in m.group(1).split() if w.lower() not in _NOT_NAMES]
+        words = []
+        for w in m.group(1).split():
+            if w.lower() in _NOT_NAMES:
+                break
+            words.append(w)
         out["name"] = " ".join(w[:1].upper() + w[1:] for w in words)
     elif asked == "name" and re.fullmatch(r"[A-Za-z][A-Za-z'\-]*(\s+[A-Za-z][A-Za-z'\-]*){0,2}", text):
         out["name"] = " ".join(w[:1].upper() + w[1:] for w in text.split())
@@ -181,6 +192,9 @@ class ConversationEngine:
                 logger.exception("AI intake extraction failed; using rules")
         for key, value in _rule_fields(body, asked).items():
             out.setdefault(key, value)
+        explicit_name = re.search(r"\bmy name is\b|\bname's\b", body, re.I)
+        if existing.get("name") and "name" in out and asked != "name" and not explicit_name:
+            out.pop("name")  # never overwrite a name the patient already gave
         if existing.get("service") and "service" in out and asked != "service":
             out.pop("service")  # keep what the patient already chose
         # A tapped choice is the patient's exact answer: store the label they picked.

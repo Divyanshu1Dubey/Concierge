@@ -152,9 +152,9 @@ def _provider_chain():
     if not GEMINI_API_KEY:
         log.warning("GEMINI_API_KEY is not set; skipping Gemini")
     for model in dict.fromkeys(m for m in (MODEL, FALLBACK_MODEL) if m and GEMINI_API_KEY):
-        yield "gemini", lambda req, emit, m=model: _call_gemini(req, m, emit=emit)
+        yield "gemini", lambda req, emit, m=model, **kw: _call_gemini(req, m, emit=emit, **kw)
     if os.environ.get("GROQ_API_KEY"):
-        yield "groq", lambda req, emit: _call_groq(req, emit=emit)
+        yield "groq", lambda req, emit, **kw: _call_groq(req, emit=emit, **kw)
 
 
 def _noop(kind: str, **data) -> None:

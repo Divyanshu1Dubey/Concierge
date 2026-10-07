@@ -45,10 +45,16 @@ def redirect_uri() -> str:
     return get_settings().app_url.rstrip("/") + "/oauth/google/callback"
 
 
-def start_url(tenant_id: int, user_id: int, login_hint: str | None = None, from_name: str | None = None) -> str:
+STATE_COOKIE = "hj_goauth"
+
+
+def start_url(tenant_id: int, user_id: int, login_hint: str | None = None, from_name: str | None = None,
+              nonce: str | None = None) -> str:
+    """Consent URL. `nonce` is also set as a cookie on the starting browser; the callback requires both to match,
+    so a link sent to someone else can't attach their mailbox to this clinic."""
     if not available():
         raise OAuthError("Google sign-in is not configured on this server (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).")
-    state = jwt.encode({"tid": tenant_id, "uid": user_id, "n": secrets.token_urlsafe(8), "purpose": "google_mailbox", "fn": (from_name or "")[:120],
+    state = jwt.encode({"tid": tenant_id, "uid": user_id, "n": nonce or secrets.token_urlsafe(16), "purpose": "google_mailbox", "fn": (from_name or "")[:120],
                         "exp": datetime.now(timezone.utc) + timedelta(minutes=10)},
                        get_settings().jwt_secret, algorithm="HS256")
     params = {"client_id": client_id(), "redirect_uri": redirect_uri(), "response_type": "code", "scope": SCOPES,

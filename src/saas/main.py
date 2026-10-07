@@ -120,7 +120,8 @@ def widget_js() -> FileResponse:
 
 
 @app.get("/oauth/google/callback")
-def google_callback(code: str | None = None, state: str | None = None, error: str | None = None) -> RedirectResponse:
+def google_callback(request: Request, code: str | None = None, state: str | None = None,
+                    error: str | None = None) -> RedirectResponse:
     """Google sends the clinic back here after the consent screen."""
     from urllib.parse import quote
 
@@ -128,13 +129,18 @@ def google_callback(code: str | None = None, state: str | None = None, error: st
     from saas.repositories import audit, get_user
 
     def back(msg: str | None) -> RedirectResponse:
-        return RedirectResponse("/frontdesk/settings" + (f"?mailbox_error={quote(msg)}" if msg else "?mailbox=connected"),
+        resp = RedirectResponse("/frontdesk/settings" + (f"?mailbox_error={quote(msg)}" if msg else "?mailbox=connected"),
                                 status_code=303)
+        resp.delete_cookie(google_oauth.STATE_COOKIE, path="/oauth/google")  # single use
+        return resp
 
     if error or not code or not state:
         return back("Google sign-in was cancelled." if error == "access_denied" else "Google sign-in did not finish.")
     try:
         claims = google_oauth.read_state(state)
+        import hmac
+        if not hmac.compare_digest(request.cookies.get(google_oauth.STATE_COOKIE, ""), str(claims.get("n", ""))):
+            return back("This sign-in link was started in a different browser. Start again from Settings.")
         user = get_user(int(claims["uid"]))
         if not user or user.tenant_id != int(claims["tid"]) or user.role not in ("owner", "admin"):
             return back("Only a clinic owner or admin can connect the mailbox.")
@@ -192,7 +198,10 @@ def hosted_concierge(tenant_slug: str) -> HTMLResponse:
     if not tenant:
         raise HTTPException(status_code=404, detail="tenant not found")
     path = ROOT / "src" / "saas" / "templates" / "hosted.html"
-    html = path.read_text(encoding="utf-8").replace("{tenant_name}", tenant.name).replace("{client_key}", _public_key(tenant.id))
+    import html as _html
+    # Clinic names are editable by clinic staff: escape before putting them into the patient-facing page.
+    html = path.read_text(encoding="utf-8").replace("{tenant_name}", _html.escape(tenant.name, quote=True)) \
+        .replace("{client_key}", _html.escape(_public_key(tenant.id), quote=True))
     return HTMLResponse(html)
 
 

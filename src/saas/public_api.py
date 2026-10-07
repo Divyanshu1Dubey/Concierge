@@ -312,10 +312,7 @@ def public_conversation_message(conversation_id: int, body: dict[str, Any], clie
             "page_url": conv[0].get("metadata", {}).get("page_url") if isinstance(conv[0].get("metadata"), dict) else None,
             **ctx.fields,
         })
-        try:
-            send_lead_notification(key.tenant_id, lead["id"], intent=ctx.fields.get("intent", "default"))
-        except Exception as e:
-            log.exception("lead notification failed for tenant %s lead %s", key.tenant_id, lead["id"])
+        _alert_team_new_lead(key.tenant_id, lead["id"])
         cadence.enroll(key.tenant_id, lead["id"])
         track_event(key.tenant_id, "lead_created", {"lead_id": lead["id"], "conversation_id": conversation_id})
     return result
@@ -348,7 +345,7 @@ def public_lead_create(body: dict[str, Any], client_key: str, request: Request) 
     lead = create_lead(key.tenant_id, {
         "name": body.get("name"),
         "email": body.get("email"),
-        "phone": body.get("phone"),
+        "phone": re.sub(r"[^0-9+().\-\s#x]", "", str(body.get("phone") or ""))[:40] or None,
         "service": body.get("service") or body.get("intent"),
         "intent": body.get("intent"),
         "urgency": body.get("urgency"),
@@ -362,13 +359,50 @@ def public_lead_create(body: dict[str, Any], client_key: str, request: Request) 
         "pageUrl": body.get("page_url"),
         "conversationId": body.get("conversationId") or body.get("conversation_id"),
     })
-    try:
-        send_lead_notification(key.tenant_id, lead["id"], intent=body.get("intent", "default"))
-    except Exception:
-        log.exception("lead notification failed for tenant %s lead %s", key.tenant_id, lead["id"])
+    _alert_team_new_lead(key.tenant_id, lead["id"])
     cadence.enroll(key.tenant_id, lead["id"])
     track_event(key.tenant_id, "lead_created", {"lead_id": lead["id"]})
     return {"ok": True, "lead_id": lead["id"]}
+
+
+def _alert_team_new_lead(tenant_id: int, lead_id: int) -> None:
+    """Email the clinic team that a new request is waiting (HeyJarvis sender, background thread).
+
+    Only the name and what they asked for: details stay behind the front desk login."""
+    import threading
+
+    def run() -> None:
+        from saas import login_codes
+        from saas.repositories import create_notification, get_lead, get_tenant
+        try:
+            lead, tenant = get_lead(lead_id), get_tenant(tenant_id)
+            with connect() as c:
+                team = [r["email"] for r in rows(c, "SELECT email FROM users WHERE tenant_id = ? AND role IN "
+                                                    "('owner', 'admin', 'member', 'agent')", tenant_id)]
+            if not lead or not tenant or not team:
+                return
+            urgent = lead.get("intent") == "emergency"
+            what = lead.get("service") or (lead.get("intent") or "appointment request").replace("_", " ")
+            subject = f"{'URGENT: ' if urgent else ''}New patient request: {lead.get('name') or 'website visitor'}"
+            body = (f"{lead.get('name') or 'A patient'} asked about: {what}.\n\n"
+                    f"{'This was flagged as an emergency. ' if urgent else ''}"
+                    f"A reply is drafted and waiting for your approval:\n"
+                    f"{settings.app_url.rstrip('/')}/frontdesk?clinic={tenant.slug}\n")
+            sent = 0
+            for to in team:
+                try:
+                    sent += bool(login_codes.send_system_email(to, subject, body, dev_note=f"New-lead alert to {to}"))
+                except Exception:
+                    log.exception("new-lead alert to %s failed", to)
+            create_notification(tenant_id, lead_id, "email", "sent" if sent else "skipped",
+                                {"to": team, "subject": subject})
+        except Exception:
+            log.exception("new-lead alert failed for tenant %s lead %s", tenant_id, lead_id)
+
+    if os.environ.get("CONCIERGE_SYNC_ALERTS") == "1":  # tests
+        run()
+    else:
+        threading.Thread(target=run, daemon=True, name="new-lead-alert").start()
 
 
 @public_app.get("/widget.js")
@@ -509,6 +543,7 @@ async def fd_update_lead_status(request: Request, lead_id: int, body: dict[str, 
         raise HTTPException(status_code=422, detail=f"invalid status: {new_status}")
     with connect() as c:
         c.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", (new_status, now_iso(), lead_id))
+    cadence.stop_for_status(auth["tenant_id"], lead_id, new_status)
     # Return the full updated lead so the frontend can update its state
     updated = get_lead(lead_id)
     return updated
@@ -526,7 +561,7 @@ async def fd_reply_lead(request: Request, lead_id: int, body: dict[str, Any]):
         raise HTTPException(status_code=422, detail="body is required")
     draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id, conversation_id=lead.get("conversation_id"),
                             subject=body.get("subject") or "Re: your appointment request", body=text)
-    return _send_draft_or_http(auth["tenant_id"], draft["id"], {})
+    return await _send_draft_or_http(auth["tenant_id"], draft["id"], {})
 
 
 @frontdesk_app.post("/leads/{lead_id}/retry")
@@ -537,7 +572,7 @@ async def fd_retry_lead(request: Request, lead_id: int):
     if not lead or lead["tenant_id"] != auth["tenant_id"]:
         raise HTTPException(status_code=404, detail="lead not found")
     from saas.emailer import send_lead_notification
-    send_lead_notification(auth["tenant_id"], lead_id, intent="retry")
+    await run_in_threadpool(send_lead_notification, auth["tenant_id"], lead_id, "retry")
     return {"ok": True, "status": "queued"}
 
 
@@ -549,7 +584,7 @@ async def fd_resend_lead(request: Request, lead_id: int):
     if not lead or lead["tenant_id"] != auth["tenant_id"]:
         raise HTTPException(status_code=404, detail="lead not found")
     from saas.emailer import send_lead_notification
-    send_lead_notification(auth["tenant_id"], lead_id, intent="resend")
+    await run_in_threadpool(send_lead_notification, auth["tenant_id"], lead_id, "resend")
     return {"ok": True, "status": "sent"}
 
 
@@ -653,10 +688,15 @@ async def fd_create_draft(request: Request, body: dict[str, Any]):
     return JSONResponse(content=draft, status_code=201)
 
 
-def _send_draft_or_http(tenant_id: int, draft_id: int, edits: dict[str, Any]) -> dict:
+async def _ai(fn, *args, **kwargs):
+    """AI calls take seconds: run them off the event loop so one request can't freeze every clinic."""
+    return await run_in_threadpool(lambda: fn(*args, **kwargs))
+
+
+async def _send_draft_or_http(tenant_id: int, draft_id: int, edits: dict[str, Any]) -> dict:
     try:
-        return mailbox.send_draft(tenant_id, draft_id, subject=edits.get("subject"), body=edits.get("body"),
-                                  to=edits.get("to"))
+        return await run_in_threadpool(lambda: mailbox.send_draft(
+            tenant_id, draft_id, subject=edits.get("subject"), body=edits.get("body"), to=edits.get("to")))
     except LookupError:
         raise HTTPException(status_code=404, detail="draft not found")
     except mailbox.MailboxError as e:
@@ -667,7 +707,7 @@ def _send_draft_or_http(tenant_id: int, draft_id: int, edits: dict[str, Any]) ->
 async def fd_send_draft(request: Request, draft_id: int, body: dict[str, Any] = Body(default_factory=dict)):
     """Approve and send a draft to the patient from the clinic mailbox. Optional edits: subject, body, to."""
     auth = await _fd_auth(request)
-    return _send_draft_or_http(auth["tenant_id"], draft_id, body or {})
+    return await _send_draft_or_http(auth["tenant_id"], draft_id, body or {})
 
 
 @frontdesk_app.patch("/drafts/{draft_id}")
@@ -909,12 +949,20 @@ async def fd_google_start(request: Request, body: dict[str, Any] = Body(default_
     """Returns Google's consent URL; the browser goes there and comes back to /oauth/google/callback."""
     auth = await _fd_auth(request)
     _fd_require_manager(auth)
+    import secrets as _secrets
+
     from saas import google_oauth
+    nonce = _secrets.token_urlsafe(16)
     try:
-        return {"url": google_oauth.start_url(auth["tenant_id"], auth["user_id"], (body or {}).get("address"),
-                                             (body or {}).get("from_name"))}
+        url = google_oauth.start_url(auth["tenant_id"], auth["user_id"], (body or {}).get("address"),
+                                     (body or {}).get("from_name"), nonce=nonce)
     except google_oauth.OAuthError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    from starlette.responses import JSONResponse
+    resp = JSONResponse({"url": url})
+    resp.set_cookie(google_oauth.STATE_COOKIE, nonce, max_age=600, httponly=True, samesite="lax",
+                    secure=settings.is_production, path="/oauth/google")
+    return resp
 
 
 @frontdesk_app.delete("/mailbox")
@@ -1036,7 +1084,7 @@ async def fd_ai_draft(request: Request, body: dict[str, Any]):
     ctx = _lead_context(lead_id, auth["tenant_id"])
     lead = ctx.get("lead") or {}
     history = cadence._history(auth["tenant_id"], lead) if lead else ctx.get("conv_text", "")
-    result = _ai_engine.draft_reply(history, cadence._patient(lead) if lead else {},
+    result = await _ai(_ai_engine.draft_reply, history, cadence._patient(lead) if lead else {},
                                     cadence._practice(auth["tenant_id"]), instruction=instruction)
     subject = result.get("subject") or "Re: " + (lead.get("service") or "your inquiry")
     draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id, conversation_id=lead.get("conversation_id"),
@@ -1050,7 +1098,7 @@ async def fd_ai_summarize(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     lead_id = body.get("lead_id")
     ctx = _lead_context(lead_id, auth["tenant_id"])
-    result = _ai_engine.summarize_conversation(ctx.get("conv_text", ""))
+    result = await _ai(_ai_engine.summarize_conversation, ctx.get("conv_text", ""))
     return result
 
 
@@ -1060,7 +1108,7 @@ async def fd_ai_next_action(request: Request, body: dict[str, Any]):
     lead_id = body.get("lead_id")
     conversation_state = body.get("conversation_state", "open")
     ctx = _lead_context(lead_id, auth["tenant_id"])
-    result = _ai_engine.next_best_action(ctx.get("conv_text", ""), ctx.get("lead") or {}, conversation_state)
+    result = await _ai(_ai_engine.next_best_action, ctx.get("conv_text", ""), ctx.get("lead") or {}, conversation_state)
     return result
 
 
@@ -1070,7 +1118,7 @@ async def fd_ai_followup(request: Request, body: dict[str, Any]):
     lead_id = body.get("lead_id")
     hours = body.get("hours", 24)
     ctx = _lead_context(lead_id, auth["tenant_id"])
-    result = _ai_engine.generate_follow_up(ctx.get("lead") or {}, hours_passed=hours)
+    result = await _ai(_ai_engine.generate_follow_up, ctx.get("lead") or {}, hours_passed=hours)
     subject = result.get("subject", "Following up on your inquiry")
     draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
                              subject=subject, body=result.get("body", ""))
@@ -1084,7 +1132,7 @@ async def fd_ai_confirm(request: Request, body: dict[str, Any]):
     lead_id = body.get("lead_id")
     appointment_time = body.get("appointment_time", "")
     ctx = _lead_context(lead_id, auth["tenant_id"])
-    result = _ai_engine.generate_confirmation(ctx.get("lead") or {}, appointment_time)
+    result = await _ai(_ai_engine.generate_confirmation, ctx.get("lead") or {}, appointment_time)
     subject = result.get("subject", "Appointment Confirmation")
     draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
                              subject=subject, body=result.get("body", ""))
@@ -1099,7 +1147,7 @@ async def fd_ai_reschedule(request: Request, body: dict[str, Any]):
     new_time = body.get("new_time", "")
     reason = body.get("reason", "")
     ctx = _lead_context(lead_id, auth["tenant_id"])
-    result = _ai_engine.generate_reschedule(ctx.get("lead") or {}, new_time, reason=reason)
+    result = await _ai(_ai_engine.generate_reschedule, ctx.get("lead") or {}, new_time, reason=reason)
     subject = result.get("subject", "Rescheduling Your Appointment")
     draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
                              subject=subject, body=result.get("body", ""))
@@ -1132,7 +1180,7 @@ async def fd_ai_classify(request: Request, body: dict[str, Any]):
     ctx = _lead_context(lead_id, auth["tenant_id"])
     lead = ctx.get("lead") or {}
     message = lead.get("message", "")
-    result = _ai_engine.classify_message(message, existing_fields={
+    result = await _ai(_ai_engine.classify_message, message, existing_fields={
         "intent": lead.get("intent", ""),
         "urgency": lead.get("urgency", ""),
         "service": lead.get("service", ""),
@@ -1149,7 +1197,7 @@ async def fd_ai_classify(request: Request, body: dict[str, Any]):
 async def fd_ai_parse_time(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     instruction = body.get("instruction", "")
-    result = _ai_engine.parse_time_instruction(instruction)
+    result = await _ai(_ai_engine.parse_time_instruction, instruction)
     return result
 
 
@@ -1169,23 +1217,23 @@ async def fd_ai_action(request: Request, body: dict[str, Any]):
 
     if action == "draft":
         history = cadence._history(auth["tenant_id"], lead) if lead else conv_text
-        result = _ai_engine.draft_reply(history, cadence._patient(lead) if lead else {},
+        result = await _ai(_ai_engine.draft_reply, history, cadence._patient(lead) if lead else {},
                                         cadence._practice(auth["tenant_id"]), instruction=instruction)
         return {"result": result.get("body", ""), "model": result.get("provider", "unknown")}
     elif action == "summarize":
-        result = _ai_engine.summarize_conversation(conv_text)
+        result = await _ai(_ai_engine.summarize_conversation, conv_text)
         return {"result": result.get("summary", "")}
     elif action == "next-action" or action == "next_action":
-        result = _ai_engine.next_best_action(conv_text, lead, "open")
+        result = await _ai(_ai_engine.next_best_action, conv_text, lead, "open")
         return {"result": result.get("action", "") or result.get("recommendation", "")}
     elif action == "follow-up" or action == "follow_up":
-        result = _ai_engine.generate_follow_up(lead, hours_passed=24)
+        result = await _ai(_ai_engine.generate_follow_up, lead, hours_passed=24)
         return {"result": result.get("body", "")}
     elif action == "confirm":
-        result = _ai_engine.generate_confirmation(lead, instruction or "")
+        result = await _ai(_ai_engine.generate_confirmation, lead, instruction or "")
         return {"result": result.get("body", "")}
     elif action == "classify":
-        result = _ai_engine.classify_message(lead.get("message", ""), existing_fields={
+        result = await _ai(_ai_engine.classify_message, lead.get("message", ""), existing_fields={
             "intent": lead.get("intent", ""), "urgency": lead.get("urgency", ""), "service": lead.get("service", ""),
         })
         if lead_id and result:
@@ -1350,7 +1398,7 @@ def admin_get_tenant(tenant_id: int, cu: CurrentUser = Depends(get_current)) -> 
 
 
 @admin_app.patch("/tenants/{tenant_id}")
-def admin_update_tenant(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(get_current)) -> dict:
+def admin_update_tenant(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     _check_tenant(cu, tenant_id)
     from saas.repositories import update_tenant
     allowed = {"name", "enabled", "plan"}
@@ -1402,7 +1450,7 @@ def admin_get_integration(tenant_id: int, cu: Any = Depends(get_current)) -> dic
 
 
 @admin_app.post("/tenants/{tenant_id}/integration/domains")
-def admin_add_integration_domain(tenant_id: int, body: dict[str, Any], cu: Any = Depends(get_current)) -> dict:
+def admin_add_integration_domain(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     if cu.user.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="forbidden")
     domain = (body.get("domain") or "").strip().lower().replace("https://", "").replace("http://", "").split("/")[0]
@@ -1421,7 +1469,7 @@ def admin_add_integration_domain(tenant_id: int, body: dict[str, Any], cu: Any =
 
 
 @admin_app.delete("/tenants/{tenant_id}/integration/domains/{domain_id}")
-def admin_remove_integration_domain(tenant_id: int, domain_id: int, cu: Any = Depends(get_current)) -> dict:
+def admin_remove_integration_domain(tenant_id: int, domain_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     if cu.user.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="forbidden")
     with connect() as c:
@@ -1436,7 +1484,7 @@ def admin_remove_integration_domain(tenant_id: int, domain_id: int, cu: Any = De
 
 
 @admin_app.post("/tenants/{tenant_id}/integration/domains/{domain_id}/verify")
-def admin_verify_integration_domain(tenant_id: int, domain_id: int, cu: Any = Depends(get_current)) -> dict:
+def admin_verify_integration_domain(tenant_id: int, domain_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     if cu.user.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="forbidden")
     with connect() as c:
@@ -1450,7 +1498,7 @@ def admin_verify_integration_domain(tenant_id: int, domain_id: int, cu: Any = De
 
 
 @admin_app.post("/tenants/{tenant_id}/integration/regenerate-key")
-def admin_regenerate_client_key(tenant_id: int, cu: Any = Depends(get_current)) -> dict:
+def admin_regenerate_client_key(tenant_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     if cu.user.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="forbidden")
     with connect() as c:
@@ -1520,6 +1568,8 @@ def admin_update_lead(lead_id: int, body: dict[str, Any], cu: CurrentUser = Depe
     if not fields:
         raise HTTPException(status_code=400, detail="no valid fields")
     repo_update_lead(lead_id, **fields)
+    if fields.get("status"):
+        cadence.stop_for_status(existing["tenant_id"], lead_id, fields["status"])
     lead = get_lead(lead_id)
     return lead
 
@@ -1600,7 +1650,8 @@ def admin_analytics(tenant_id: int, days: int = 7, cu: CurrentUser = Depends(req
 
 def _days_ago(n: int) -> str:
     from datetime import datetime, timedelta
-    return (datetime.now() - timedelta(days=n)).isoformat(timespec="seconds")
+    from saas.database import utcnow
+    return (utcnow() - timedelta(days=n)).isoformat(timespec="seconds")
 
 
 # ── Widget Settings Admin ────────────────────────────────────────────────────
@@ -1690,15 +1741,12 @@ def admin_get_email(tenant_id: int, cu: CurrentUser = Depends(require_roles("own
 @admin_app.put("/tenants/{tenant_id}/email")
 def admin_update_email(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     _check_tenant(cu, tenant_id)
-    from saas.security import encrypt_value
-    allowed = {"provider", "smtp_host", "smtp_port", "smtp_user", "smtp_password",
-               "from_name", "from_email", "reply_to", "front_desk_email", "backup_email",
-               "delivery_mode", "smtp_security"}
+    # Mailbox servers and passwords are set only through Settings -> Email (PUT /fd/mailbox), which validates
+    # hosts and ports. Accepting them here would bypass that and could send the stored password elsewhere.
+    allowed = {"from_name", "from_email", "reply_to", "front_desk_email", "backup_email", "delivery_mode"}
     fields = {k: v for k, v in body.items() if k in allowed}
-    if "smtp_password" in fields and fields["smtp_password"]:
-        fields["smtp_password_enc"] = encrypt_value(fields.pop("smtp_password"))
-    elif "smtp_password" in fields:
-        fields.pop("smtp_password")
+    if not fields:
+        return {"ok": True, "note": "Connect the clinic mailbox in Settings -> Email."}
 
     with connect() as c:
         existing = rows(c, "SELECT id FROM email_settings WHERE tenant_id = ?", (tenant_id,))

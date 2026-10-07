@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from saas.config import get_settings
@@ -391,6 +391,12 @@ def _ensure_columns(conn) -> None:
         for col in cols:
             if col.split()[0] not in have:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col}")
+    # At most one pending draft per cadence step and patient, even if two schedulers race.
+    try:
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_one_pending_step ON ai_drafts(lead_id, cadence_step) "
+                     "WHERE status = 'pending' AND cadence_step IS NOT NULL")
+    except sqlite3.IntegrityError:
+        pass  # existing duplicates (pre-index data); run_due's lock still prevents new ones
 
 
 def reset_database() -> None:
@@ -506,8 +512,13 @@ def migrate() -> None:
             pass
 
 
+def utcnow() -> datetime:
+    """Naive UTC 'now'. All stored timestamps are UTC; pages convert to the viewer's local time."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    return utcnow().isoformat(timespec="seconds")
 
 
 def insert(conn, table: str, **cols) -> int:

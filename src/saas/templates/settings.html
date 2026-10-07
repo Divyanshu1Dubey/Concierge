@@ -169,11 +169,14 @@ details.adv summary{cursor:pointer;color:var(--muted);font-size:14px}
 var API = location.origin + '/api/admin';
 var mb = {}, provider = 'einstein', cadence = null, replyTypes = [], isManager = false;
 
-function esc(v) { var d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
+// Escapes quotes too: values also land inside attributes (value="...", href="...").
+function esc(v) { return v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 function $(id) { return document.getElementById(id); }
 function toast(m) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 2600); }
 function say(id, text, ok) { var el = $(id); el.className = 'msg ' + (ok ? 'ok' : 'err'); el.innerHTML = text; }
-function when(ts) { return ts ? new Date(ts).toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) : ''; }
+// Server timestamps are UTC without a zone suffix; read them as UTC so times show in the viewer's local time.
+function toDate(ts) { if (!ts) return new Date(NaN); var s = String(ts); if (/^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(s)) s += 'Z'; return new Date(s); }
+function when(ts) { return ts ? toDate(ts).toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) : ''; }
 
 async function api(path, opts) {
   opts = opts || {};
@@ -200,7 +203,7 @@ async function saveClinic() {
 }
 
 // ── Email ──────────────────────────────────────────────────────────────────
-var ORDER = ['einstein', 'gmail', 'microsoft', 'custom'];
+var ORDER = ['einstein', 'gmail', 'custom'];
 async function loadMailbox() {
   mb = await api('/fd/mailbox');
   var st = $('mb-status');
@@ -237,7 +240,6 @@ function pickProvider(k, keepFields) {
   var labels = {
     gmail: ['Google app password', 'Google Account → Security → 2-Step Verification → App passwords. Not your normal Google password.'],
     einstein: ['Mailbox password', 'The password for this email address in Einstein Mail. Einstein Medical support can reset it if you don\'t have it.'],
-    microsoft: ['Mailbox password', 'If your organization uses multi-factor sign-in, an admin may need to allow IMAP/SMTP access for this mailbox.'],
     custom: ['Mailbox password', 'Your email provider lists the incoming (IMAP) and outgoing (SMTP) server settings in its help pages.']
   }[k];
   $('mb-pass-label').textContent = labels[0];
@@ -277,13 +279,15 @@ async function loadTeam() {
   var me = d.team.filter(function (p) { return p.you; })[0] || {};
   isManager = me.role === 'owner' || me.role === 'admin';
   var roleName = {owner: 'Owner', admin: 'Admin', member: 'Front desk', viewer: 'View only', agent: 'Front desk'};
+  teamEmails = {};
+  d.team.forEach(function (p) { teamEmails[p.id] = p.email; });
   $('people').innerHTML = d.team.map(function (p) {
     var name = p.display_name || p.email.split('@')[0];
     var initials = name.split(/[\s.]+/).filter(Boolean).slice(0, 2).map(function (w) { return w[0].toUpperCase(); }).join('');
     var canRemove = isManager && !p.you && p.role !== 'owner' && !(p.role === 'admin' && me.role !== 'owner');
     return '<div class="person"><span class="avatar">' + esc(initials) + '</span><div class="who"><div class="n">' + esc(name) + (p.you ? ' <span class="hint">(you)</span>' : '') +
       '</div><div class="e">' + esc(p.email) + '</div></div><span class="pill">' + esc(roleName[p.role] || p.role) + '</span>' +
-      (canRemove ? '<button class="btn link" onclick="removeTeammate(' + p.id + ', \'' + esc(p.email).replace(/'/g, '') + '\')">Remove</button>' : '') + '</div>';
+      (canRemove ? '<button class="btn link" onclick="removeTeammate(' + p.id + ')">Remove</button>' : '') + '</div>';
   }).join('');
   if (me.role !== 'owner') { var adm = document.querySelector('#t-role option[value="admin"]'); if (adm) adm.remove(); }
   applyRole();
@@ -295,7 +299,9 @@ async function addTeammate() {
     $('t-email').value = ''; $('t-name').value = ''; await loadTeam();
   } catch (e) { say('t-msg', esc(e.detail || e.message)); }
 }
-async function removeTeammate(id, email) {
+var teamEmails = {};
+async function removeTeammate(id) {
+  var email = teamEmails[id] || 'this teammate';
   if (!confirm('Remove ' + email + '? They will be signed out and can no longer see patient requests.')) return;
   try { await api('/fd/team/' + id, {method: 'DELETE'}); toast('Removed ' + email); await loadTeam(); } catch (e) { say('t-msg', esc(e.detail || e.message)); }
 }

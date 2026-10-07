@@ -14,5 +14,6 @@ if "PYTEST_KEEP_DATABASE_URL" not in os.environ:
     os.environ["CONCIERGE_DB"] = os.environ["DATABASE_URL"]
     os.environ.setdefault("CONCIERGE_USE_LLM", "0")
     os.environ["CONCIERGE_SCHEDULER"] = "0"
+    os.environ["CONCIERGE_SYNC_ALERTS"] = "1"
     for _k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "SMTP_PASSWORD", "DEFAULT_SMTP_PASSWORD"):
         os.environ.pop(_k, None)

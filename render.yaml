@@ -11,7 +11,7 @@ services:
     plan: starter
     numInstances: 1
     buildCommand: pip install -r requirements.txt
-    startCommand: PYTHONPATH=src uvicorn saas.main:app --host 0.0.0.0 --port $PORT --workers 1
+    startCommand: PYTHONPATH=src uvicorn saas.main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers --forwarded-allow-ips '*'
     healthCheckPath: /health
     autoDeploy: true
     disk:

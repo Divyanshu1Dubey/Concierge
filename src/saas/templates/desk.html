@@ -141,18 +141,21 @@ var SHIELD = '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"
 var CHECK = '<svg width="42" height="42" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#7c8c6e"/><path d="M7.5 12.3l3 3 6-6.3" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 var STOPPED = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#a39890" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M6 18L18 6"/></svg>';
 
-function esc(v) { var d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
+// Escapes quotes too: values also land inside attributes (value="...", href="...").
+function esc(v) { return v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 function toast(m) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 2600); }
 function list(d, k) { return Array.isArray(d) ? d : ((d && d[k]) || []); }
+// Server timestamps are UTC without a zone suffix; read them as UTC so times show in the viewer's local time.
+function toDate(ts) { if (!ts) return new Date(NaN); var s = String(ts); if (/^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(s)) s += 'Z'; return new Date(s); }
 function when(ts) {
   if (!ts) return '';
-  var d = new Date(ts), now = new Date();
+  var d = toDate(ts), now = new Date();
   var t = d.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
   return (d.toDateString() === now.toDateString() ? 'Today' : d.toLocaleDateString([], {month: 'short', day: 'numeric'})) + ', ' + t;
 }
 function ago(ts) {
   if (!ts) return '';
-  var h = (Date.now() - new Date(ts).getTime()) / 36e5;
+  var h = (Date.now() - toDate(ts).getTime()) / 36e5;
   if (h < 1) return 'just now';
   if (h < 24) return Math.round(h) + 'h ago';
   if (h < 48) return 'yesterday';
@@ -166,9 +169,9 @@ async function api(path, opts) {
   var h = {'Authorization': 'Bearer ' + localStorage.getItem('fd_jwt')};
   if (opts.body) h['Content-Type'] = 'application/json';
   var r = await fetch(API + path, {method: opts.method || 'GET', headers: h, body: opts.body ? JSON.stringify(opts.body) : undefined});
-  if (r.status === 401) { localStorage.removeItem('fd_jwt'); showLogin(); throw new Error('signed out'); }
+  if (r.status === 401) { localStorage.removeItem('fd_jwt'); if (!signedOut) showLogin(); throw new Error('signed out'); }
   var data = await r.json().catch(function () { return {}; });
-  if (!r.ok) { toast(data.detail || 'Something went wrong'); throw new Error(data.detail); }
+  if (!r.ok) { if (!opts.quiet) toast(data.detail || 'Something went wrong'); throw new Error(data.detail); }
   return data;
 }
 
@@ -193,7 +196,7 @@ function statusLine(l) {
 }
 
 async function load() {
-  await api('/fd/cadence/run', {method: 'POST'}).catch(function () {});
+  await api('/fd/cadence/run', {method: 'POST', quiet: true}).catch(function () {});
   leads = list(await api('/fd/inbox'), 'leads');
   var rank = {reply: 0, waiting: 1, booked: 2, visited: 3};
   leads.sort(function (a, b) {
@@ -321,13 +324,13 @@ async function sendNew(id) {
 
 async function setStatus(id, status, msg) {
   await api('/fd/leads/' + id + '/status', {method: 'PATCH', body: {status: status}});
-  if (status === 'booked' || status === 'completed') await api('/fd/leads/' + id + '/cadence', {method: 'POST', body: {action: 'stop'}}).catch(function () {});
+  if (status === 'booked' || status === 'completed') await api('/fd/leads/' + id + '/cadence', {method: 'POST', body: {action: 'stop'}, quiet: true}).catch(function () {});
   toast(msg); await load(); openLead(id);
 }
 
 async function resolve(id) {
   await api('/fd/leads/' + id + '/status', {method: 'PATCH', body: {status: 'closed'}});
-  await api('/fd/leads/' + id + '/cadence', {method: 'POST', body: {action: 'stop'}}).catch(function () {});
+  await api('/fd/leads/' + id + '/cadence', {method: 'POST', body: {action: 'stop'}, quiet: true}).catch(function () {});
   toast('Marked resolved'); current = null; await load();
 }
 
@@ -345,7 +348,10 @@ async function skipDay() {
 
 // ── Sign-in (code by email; one click on local demos) ─────────────────────
 function logout() { localStorage.removeItem('fd_jwt'); showLogin(); }
+var pollTimer = null, signedOut = false;
 function showLogin() {
+  signedOut = true;
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }  // don't redraw the form while someone signs in
   document.getElementById('root').innerHTML = '<div class="login" style="flex:1"><h3 style="margin:0 0 6px">Sign in</h3>' +
     '<input id="l-slug" placeholder="Clinic ID" value="' + esc(localStorage.getItem('fd_slug') || new URLSearchParams(location.search).get('clinic') || '') + '">' +
     '<input id="l-email" type="email" placeholder="Work email"><input id="l-code" placeholder="6-digit code" style="display:none" inputmode="numeric" autocomplete="one-time-code">' +
@@ -375,13 +381,13 @@ async function init() {
     var m = await api('/fd/mailbox'); demo = !!m.demo_mode;
     var mode = document.getElementById('mode');
     if (demo || !m.connected) { mode.style.display = ''; mode.textContent = demo ? 'Demo · emails are not really sent' : 'Mailbox not connected'; }
-    var t = list(await api('/tenants').catch(function () { return []; }), 'tenants')[0];
+    var t = await api('/fd/clinic', {quiet: true}).catch(function () { return null; });
     if (t && t.name) {
       document.getElementById('clinic').textContent = t.name;
       document.getElementById('initials').textContent = t.name.split(/\s+/).filter(function (w) { return /^[A-Za-z]/.test(w); }).slice(0, 2).map(function (w) { return w[0].toUpperCase(); }).join('');
     }
     await load();
-    setInterval(function () { var a = document.activeElement; if (!a || (a.tagName !== 'TEXTAREA' && a.tagName !== 'INPUT')) load(); }, 30000);
+    pollTimer = setInterval(function () { var a = document.activeElement; if (!signedOut && (!a || (a.tagName !== 'TEXTAREA' && a.tagName !== 'INPUT'))) load().catch(function () {}); }, 30000);
   } catch (e) {}
 }
 init();
