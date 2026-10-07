@@ -1,6 +1,6 @@
 # Handoff: get Concierge live for Raleigh Dentistry
 
-For: Divyanshu and Arpan · From: Avi · Branch: **`integrate-production-readiness`** (open a PR into `main`)
+For: Avi, Divyanshu and Arpan · Branch: **`integrate-production-readiness`** (open a PR into `main`)
 
 This branch is the latest `main` (including Arpan's Oct 7 commit) plus everything needed for launch.
 All tests pass: `.venv/bin/python -m pytest -q`, or `uv run pytest -q`.
@@ -22,39 +22,42 @@ All tests pass: `.venv/bin/python -m pytest -q`, or `uv run pytest -q`.
 **Still needed:** `main`'s history contains a real Gmail address and app password (from the old
 `ensure_demo_data`). Revoke that app password in that Google account if it hasn't been done yet.
 
-## 1. Deploy (≈20 min) — Divyanshu
+## 1. Deploy — done on Railway (project `heyjarvis-concierge`, service `concierge`)
 
-1. Merge the PR into `main`.
-2. Render → New → Blueprint → this repo. It reads `render.yaml`: **Starter plan, 1 instance,
-   1 GB disk at `/data`**, `DATABASE_URL=/data/saas.db`, `APP_ENV=production`, current Gemini models,
-   and auto-generated `JWT_SECRET` and `ENCRYPTION_KEY`. **Never change `ENCRYPTION_KEY` after launch:**
-   clinic mailbox passwords are encrypted with it.
-3. Set these secrets in the Render dashboard:
+Deployed from this branch with `railway up` (no GitHub link needed). `railway.toml` builds the `Dockerfile`:
+1 replica, a volume at `/data`, `DATABASE_URL=/data/saas.db`, `APP_ENV=production`, current Gemini models,
+and generated `JWT_SECRET`/`ENCRYPTION_KEY`. **Never change `ENCRYPTION_KEY` after launch:** clinic mailbox
+passwords are encrypted with it. To redeploy after changes: `railway up -s concierge`.
+(`render.yaml` still works if we ever move to Render.)
+
+Still to set in Railway → concierge → Variables (secrets, never commit them):
 
 | Variable | Value |
 |---|---|
-| `APP_URL` | `https://concierge.heyjarvis.ai` |
 | `GEMINI_API_KEY` | from https://aistudio.google.com/apikey |
-| `DEFAULT_SMTP_HOST` / `DEFAULT_SMTP_PORT` / `DEFAULT_SMTP_USER` / `DEFAULT_SMTP_PASSWORD` / `DEFAULT_SMTP_FROM` | a HeyJarvis sending address (e.g. `noreply@heyjarvis.ai`). **Required:** staff login codes and teammate invites come from it. Without it nobody can sign in. |
+| `DEFAULT_SMTP_USER` / `DEFAULT_SMTP_PASSWORD` | a heyjarvis.ai Google Workspace address + its app password (myaccount.google.com/apppasswords). **Required:** staff login codes and teammate invites come from it. Host/port are already `smtp.gmail.com:465`. |
+| `DEFAULT_SMTP_FROM` | optional, e.g. `HeyJarvis <avi@heyjarvis.ai>` (defaults to the user) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | optional; only for clinics on Google Workspace (see the end of this doc) |
 
-4. Custom domain `concierge.heyjarvis.ai` in Render, then add the CNAME it shows in heyjarvis.ai's DNS.
-   heyjarvis.ai itself stays on Vercel.
-5. Check: `https://concierge.heyjarvis.ai/health` returns `{"ok": true}`, and `/` redirects to `/frontdesk`.
+Domain: Railway → concierge → Settings → Networking → Custom Domain `concierge.heyjarvis.ai` (port 8080),
+then add the CNAME (and TXT, if shown) in **GoDaddy** DNS, where heyjarvis.ai's DNS lives.
+Check: `https://concierge.heyjarvis.ai/health` returns `{"ok": true}`, and `/` redirects to `/frontdesk`.
 
-## 2. Create the clinic (≈2 min) — Divyanshu
+`railway.toml` is deprecated by Railway after 2026-12-01; the root `Dockerfile` is still picked up without it.
 
-In the Render shell:
+## 2. Create the clinic (≈2 min)
+
+`railway ssh -s concierge`, then:
 
 ```bash
-PYTHONPATH=src python -m saas.cli onboard --slug raleigh-dentistry \
+python -m saas.cli onboard --slug raleigh-dentistry \
   --name "Raleigh Comprehensive and Cosmetic Dentistry" \
-  --owner-email <Avi's email> --domain raleighdentistry.com \
-  --phone "<clinic phone>" --hours "<office hours>"
+  --owner-email <owner email> --domain raleighdentistry.com \
+  --phone "(919) 828-3775" --address "119 North Boylan Avenue, Raleigh, NC 27603" \
+  --hours "Mon-Thu 8am-5pm, every other Friday 8am-5pm"
 ```
 
-It prints the front desk link and the website snippet. Send both to Avi. Sign-in uses emailed
-codes, so there's no password to hand out.
+It prints the front desk link and the website snippet. Sign-in uses emailed codes, so there's no password to hand out.
 
 ## 3. Production test — Avi
 
