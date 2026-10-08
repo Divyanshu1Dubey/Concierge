@@ -93,25 +93,33 @@ def ensure_practice(slug: str):
     from apps.practices.models import Practice, BookingRules, PracticeSettings
     data = DEMO_PRACTICES.get(slug, DEMO_PRACTICES['raleigh-dentistry'])
     practice, _ = Practice.objects.get_or_create(slug=slug, defaults=data)
-    BookingRules.objects.get_or_create(
-        practice=practice,
-        defaults={
-            'new_patient_duration': 90,
-            'doctor_duration': 30,
-            'hygiene_duration': 60,
-            'emergency_duration': 60,
-            'confirmation_hours': 48,
-            'no_show_fee': 65.00,
-            'financing_options': ['Cherry', 'CareCredit'],
-        }
-    )
-    PracticeSettings.objects.get_or_create(
-        practice=practice,
-        defaults={
-            'default_from_name': practice.name,
-            'default_from_email': practice.email,
-        }
-    )
+    try:
+        BookingRules.objects.get_or_create(
+            practice=practice,
+            defaults={
+                'new_patient_duration': 90,
+                'doctor_duration': 30,
+                'hygiene_duration': 60,
+                'emergency_duration': 60,
+                'confirmation_hours': 48,
+                'no_show_fee': 65.00,
+                'financing_options': ['Cherry', 'CareCredit'],
+            }
+        )
+    except Exception as e:
+        print(f"Notice: BookingRules creation skipped/failed: {e}")
+
+    try:
+        PracticeSettings.objects.get_or_create(
+            practice=practice,
+            defaults={
+                'default_from_name': practice.name,
+                'default_from_email': practice.email,
+            }
+        )
+    except Exception as e:
+        print(f"Notice: PracticeSettings creation skipped/failed: {e}")
+
     return practice
 
 

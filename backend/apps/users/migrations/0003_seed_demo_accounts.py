@@ -14,7 +14,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("users", "0002_user_user_type_alter_user_role"),
-        ("practices", "0001_initial"),
     ]
 
     operations = [
