@@ -184,6 +184,7 @@ class PracticeSettings(models.Model):
     notify_on_reschedule = models.BooleanField(default=True)
     notify_on_cancel = models.BooleanField(default=True)
     notify_on_handoff = models.BooleanField(default=True)
+    notify_on_patient_reply = models.BooleanField(default=True)
 
     notification_emails = models.JSONField(
         default=dict,
