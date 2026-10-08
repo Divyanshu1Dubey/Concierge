@@ -8,7 +8,19 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-produ
 
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,testserver,*').split(',')
+_raw_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS') or os.environ.get('ALLOWED_HOSTS') or 'localhost,127.0.0.1,testserver,*'
+ALLOWED_HOSTS = [h.strip() for h in _raw_hosts.split(',') if h.strip()]
+_app_public = os.environ.get('APP_PUBLIC_URL', '')
+if _app_public:
+    try:
+        from urllib.parse import urlparse
+        _host = urlparse(_app_public).netloc
+        if _host and _host not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(_host)
+    except Exception:
+        pass
+if '*' not in ALLOWED_HOSTS and not any('.up.railway.app' in h for h in ALLOWED_HOSTS):
+    ALLOWED_HOSTS.append('.up.railway.app')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -167,8 +179,42 @@ SOCIALACCOUNT_PROVIDERS = {
     },
 }
 
-# CORS
-CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
+# CORS & CSRF
+_cors_env = os.environ.get('CORS_ALLOWED_ORIGINS', '')
+if _cors_env:
+    CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_env.split(',') if o.strip()]
+else:
+    CORS_ALLOWED_ORIGINS = [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:5173',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:5173',
+    ]
+
+_csrf_env = os.environ.get('CSRF_TRUSTED_ORIGINS', '')
+if _csrf_env:
+    CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_env.split(',') if o.strip()]
+else:
+    CSRF_TRUSTED_ORIGINS = [
+        'http://localhost:3000',
+        'http://localhost:8000',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:8000',
+    ]
+
+for _public_url in [os.environ.get('APP_PUBLIC_URL'), os.environ.get('FRONTEND_URL')]:
+    if _public_url:
+        _clean_url = _public_url.rstrip('/')
+        if _clean_url not in CORS_ALLOWED_ORIGINS:
+            CORS_ALLOWED_ORIGINS.append(_clean_url)
+        if _clean_url not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(_clean_url)
+
+# Always trust Railway domains for CSRF in production
+if not any('*.up.railway.app' in u for u in CSRF_TRUSTED_ORIGINS):
+    CSRF_TRUSTED_ORIGINS.append('https://*.up.railway.app')
+
 CORS_ALLOW_CREDENTIALS = True
 
 # Cache — local memory by default so Redis is optional for local demo
@@ -232,8 +278,9 @@ ANTHROPIC_BASE_URL = os.environ.get('ANTHROPIC_BASE_URL', 'https://api.anthropic
 ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-5-haiku-20241022')
 
 # Centralized Public URL Configuration
-APP_PUBLIC_URL = os.environ.get('APP_PUBLIC_URL', 'https://web-production-21c4f.up.railway.app').rstrip('/')
-WIDGET_URL = f"{APP_PUBLIC_URL}/widget.js"
-CONCIERGE_URL = f"{APP_PUBLIC_URL}/concierge"
-API_URL = f"{APP_PUBLIC_URL}/api"
+APP_PUBLIC_URL = os.environ.get('APP_PUBLIC_URL', '').rstrip('/')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', '').rstrip('/')
+WIDGET_URL = f"{APP_PUBLIC_URL}/widget.js" if APP_PUBLIC_URL else "/widget.js"
+CONCIERGE_URL = f"{FRONTEND_URL}/concierge" if FRONTEND_URL else "/dashboard/concierge"
+API_URL = f"{APP_PUBLIC_URL}/api" if APP_PUBLIC_URL else "/api"
 

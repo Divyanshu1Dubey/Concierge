@@ -381,8 +381,8 @@ class AgencyPracticeIntegrationView(APIView):
         else:
             return Response({'error': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
 
-        backend_url = request.build_absolute_uri('/').rstrip('/')
-        frontend_url = 'http://localhost:3000'
+        backend_url = getattr(settings, 'APP_PUBLIC_URL', None) or request.build_absolute_uri('/').rstrip('/')
+        frontend_url = getattr(settings, 'FRONTEND_URL', None) or os.environ.get('FRONTEND_URL') or backend_url
 
         script_tag = f'<script async src="{backend_url}/widget.js" data-api-url="{backend_url}" data-practice="{practice.slug}" data-heyjarvis-client="{practice.api_key}"></script>'
         iframe_tag = f'<iframe src="{frontend_url}/concierge/{practice.slug}" width="100%" height="700" frameborder="0" style="border:none;border-radius:16px;"></iframe>'

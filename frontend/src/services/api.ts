@@ -8,8 +8,9 @@ export const authApi = {
     apiClient.post('/auth/login/', credentials).then((r) => r.data),
   logout: () => apiClient.post('/auth/logout/').then((r) => r.data),
   google: () => {
-    const apiBase = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000';
-    window.location.href = `${apiBase}/auth/google/`;
+    const isRemote = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+    const apiBase = isRemote ? window.location.origin : (import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000');
+    window.location.href = `${apiBase}/api/auth/google/`;
     return Promise.resolve(null);
   },
 };

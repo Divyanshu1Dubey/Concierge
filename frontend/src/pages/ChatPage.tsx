@@ -24,7 +24,9 @@ export default function ChatPage() {
     setSending(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/v1/concierge/chat/', {
+      const isRemote = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+      const apiBase = isRemote ? '' : (import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000');
+      const response = await fetch(`${apiBase}/api/v1/concierge/chat/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userMessage }),

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import type { User } from '@/types';
 
-const API_URL = 'http://localhost:8000';
+const isRemote = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+const API_URL = isRemote ? '' : (import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000');
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);

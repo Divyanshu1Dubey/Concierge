@@ -83,11 +83,45 @@ def serve_demo_html(request):
     return HttpResponse("<h1>Demo page not found</h1>", status=404)
 
 
+def serve_spa(request, *args, **kwargs):
+    """Serve the single-page React application for all dashboard & client routes."""
+    candidates = [
+        os.path.join(settings.BASE_DIR, 'frontend', 'dist', 'index.html'),
+        os.path.join(settings.BASE_DIR, 'dist', 'index.html'),
+        os.path.join(settings.BASE_DIR, 'static', 'dist', 'index.html'),
+        os.path.join(settings.BASE_DIR, 'backend', 'static', 'dist', 'index.html'),
+        os.path.join(settings.BASE_DIR, '..', 'frontend', 'dist', 'index.html'),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            with open(c, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return HttpResponse(content, content_type='text/html')
+    return HttpResponse(
+        "<h1>HeyJarvis: Frontend build not found</h1><p>Please run <code>npm run build</code> in the frontend folder.</p>",
+        status=404
+    )
+
+
 class RootIndexView(View):
     """Platform Gateway Root View: provides dashboard links, API docs, and service status."""
     def get(self, request):
+        frontend_url = os.environ.get('FRONTEND_URL') or getattr(settings, 'FRONTEND_URL', '')
+        current_host = request.get_host().split(':')[0]
+        current_origin = request.build_absolute_uri('/').rstrip('/')
+
+        # Use relative paths if hosted on the same domain or FRONTEND_URL is not set
+        if not frontend_url or current_host in frontend_url or frontend_url.startswith('/'):
+            dashboard_link = "/dashboard"
+            concierge_link = "/dashboard/concierge"
+            portal_link = "/portal"
+        else:
+            dashboard_link = f"{frontend_url.rstrip('/')}/dashboard"
+            concierge_link = f"{frontend_url.rstrip('/')}/dashboard/concierge"
+            portal_link = f"{frontend_url.rstrip('/')}/portal"
+
         if 'text/html' in request.META.get('HTTP_ACCEPT', ''):
-            html = """<!DOCTYPE html>
+            html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -96,20 +130,20 @@ class RootIndexView(View):
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Inter', sans-serif; background: #0B0F19; color: #E2E8F0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
-    .card { background: #131B2E; border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; max-width: 720px; width: 100%; padding: 40px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
-    .badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(20,184,166,0.12); color: #2DD4BF; border: 1px solid rgba(20,184,166,0.3); padding: 6px 14px; border-radius: 9999px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 20px; }
-    .pulse { width: 8px; height: 8px; background: #2DD4BF; border-radius: 50%; box-shadow: 0 0 10px #2DD4BF; }
-    h1 { font-size: 30px; font-weight: 800; color: #FFF; margin-bottom: 10px; letter-spacing: -0.02em; }
-    p.lead { color: #94A3B8; font-size: 15px; margin-bottom: 28px; line-height: 1.6; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 30px; }
-    .link-card { display: block; text-decoration: none; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 18px; border-radius: 12px; transition: all 0.2s; }
-    .link-card:hover { background: rgba(45,212,191,0.08); border-color: rgba(45,212,191,0.4); transform: translateY(-2px); }
-    .link-title { color: #FFF; font-weight: 700; font-size: 14px; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; }
-    .link-desc { color: #64748B; font-size: 12px; }
-    .tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #1E293B; color: #38BDF8; font-family: 'JetBrains Mono', monospace; }
-    .footer { border-top: 1px solid rgba(255,255,255,0.06); padding-top: 18px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #64748B; }
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: 'Inter', sans-serif; background: #0B0F19; color: #E2E8F0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }}
+    .card {{ background: #131B2E; border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; max-width: 760px; width: 100%; padding: 40px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }}
+    .badge {{ display: inline-flex; align-items: center; gap: 8px; background: rgba(20,184,166,0.12); color: #2DD4BF; border: 1px solid rgba(20,184,166,0.3); padding: 6px 14px; border-radius: 9999px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 20px; }}
+    .pulse {{ width: 8px; height: 8px; background: #2DD4BF; border-radius: 50%; box-shadow: 0 0 10px #2DD4BF; }}
+    h1 {{ font-size: 30px; font-weight: 800; color: #FFF; margin-bottom: 10px; letter-spacing: -0.02em; }}
+    p.lead {{ color: #94A3B8; font-size: 15px; margin-bottom: 28px; line-height: 1.6; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 30px; }}
+    .link-card {{ display: block; text-decoration: none; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 18px; border-radius: 12px; transition: all 0.2s; }}
+    .link-card:hover {{ background: rgba(45,212,191,0.08); border-color: rgba(45,212,191,0.4); transform: translateY(-2px); }}
+    .link-title {{ color: #FFF; font-weight: 700; font-size: 14px; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; }}
+    .link-desc {{ color: #64748B; font-size: 12px; }}
+    .tag {{ font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #1E293B; color: #38BDF8; font-family: 'JetBrains Mono', monospace; }}
+    .footer {{ border-top: 1px solid rgba(255,255,255,0.06); padding-top: 18px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #64748B; }}
   </style>
 </head>
 <body>
@@ -118,13 +152,17 @@ class RootIndexView(View):
     <h1>HeyJarvis™ AI Dental Concierge</h1>
     <p class="lead">AI-Powered Dental Front Desk &amp; Patient Communication: 24/7 inbound appointment triage, smart message composer, and automated practice scheduling.</p>
     <div class="grid">
-      <a href="http://localhost:3000/dashboard" class="link-card" target="_blank">
+      <a href="{dashboard_link}" class="link-card">
         <div class="link-title">Front Desk Workspace <span class="tag">Portal</span></div>
         <div class="link-desc">Appointment requests, live conversations, and patient records</div>
       </a>
-      <a href="http://localhost:3000/dashboard/concierge" class="link-card" target="_blank">
+      <a href="{concierge_link}" class="link-card">
         <div class="link-title">Inbound Concierge <span class="tag">24/7 AI</span></div>
         <div class="link-desc">Website receptionist, emergency triage, and appointment booking</div>
+      </a>
+      <a href="{portal_link}" class="link-card">
+        <div class="link-title">Patient Portal <span class="tag">Live App</span></div>
+        <div class="link-desc">Interactive landing page, practice sign-in &amp; showcase</div>
       </a>
       <a href="/api/docs/" class="link-card">
         <div class="link-title">Swagger UI <span class="tag">/api/docs</span></div>
@@ -158,6 +196,6 @@ class RootIndexView(View):
             },
             'docs': '/api/docs/',
             'health': '/api/health/',
-            'frontend_url': 'http://localhost:3000',
+            'frontend_url': frontend_url or current_origin,
         })
 

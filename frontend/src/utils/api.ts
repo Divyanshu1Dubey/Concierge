@@ -1,6 +1,13 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+const envApiUrl = import.meta.env.VITE_API_URL;
+const isLocalhostInRemoteBrowser =
+  typeof window !== 'undefined' &&
+  window.location.hostname !== 'localhost' &&
+  window.location.hostname !== '127.0.0.1' &&
+  Boolean(envApiUrl && envApiUrl.includes('localhost'));
+
+export const API_BASE = (isLocalhostInRemoteBrowser || !envApiUrl) ? '/api' : envApiUrl;
 
 export const apiClient = axios.create({
   baseURL: API_BASE,

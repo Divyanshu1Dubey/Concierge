@@ -103,6 +103,8 @@ function App() {
     <Routes>
       {/* Public routes */}
       <Route path="/" element={<LandingPage />} />
+      <Route path="/portal" element={<LandingPage />} />
+      <Route path="/landing" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/chat" element={<ChatPage />} />
       <Route path="/widget" element={<WidgetPreview />} />

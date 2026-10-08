@@ -112,9 +112,13 @@ export default function WidgetPreview() {
     toast.success('Widget conversation refreshed');
   };
 
+  const widgetOrigin = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+    ? window.location.origin
+    : 'http://localhost:8000';
+
   const embedCode = `<!-- HeyJarvis Universal Dental AI Concierge Widget -->
 <script
-  src="http://localhost:8000/widget.js"
+  src="${widgetOrigin}/widget.js"
   data-heyjarvis-client="raleigh-dentistry-pro"
   data-theme="light"
   data-color="${primaryColor}"

@@ -1048,9 +1048,12 @@
 
   // ─── API Communication ────────────────────────────────────────────
   async function apiRequest(endpoint, data) {
+    const defaultApi = (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
+      ? window.location.origin
+      : 'http://localhost:8000';
     const url = state.apiUrl
       ? `${state.apiUrl}${endpoint}`
-      : `http://localhost:8000${endpoint}`;
+      : `${defaultApi}${endpoint}`;
 
     const headers = {
       'Content-Type': 'application/json',
@@ -1295,15 +1298,15 @@
         } catch (e) {}
       }
 
-      // If loaded from Vite port 3000 or file:// protocol, route API requests to backend port 8000
+      // If loaded from Vite port 3000 or file:// protocol on localhost, route API requests to backend port 8000
       if (!state.apiUrl || window.location.protocol === 'file:' || (state.apiUrl && state.apiUrl.includes(':3000'))) {
-        if (!state.apiUrl || state.apiUrl.includes(':3000')) {
-          if (state.apiUrl && state.apiUrl.includes(':3000')) {
-            state.apiUrl = state.apiUrl.replace(':3000', ':8000');
-          } else {
-            state.apiUrl = 'http://localhost:8000';
-          }
+        if (state.apiUrl && state.apiUrl.includes(':3000')) {
+          state.apiUrl = state.apiUrl.replace(':3000', ':8000');
         } else if (window.location.protocol === 'file:') {
+          state.apiUrl = 'http://localhost:8000';
+        } else if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+          state.apiUrl = window.location.origin;
+        } else {
           state.apiUrl = 'http://localhost:8000';
         }
       }

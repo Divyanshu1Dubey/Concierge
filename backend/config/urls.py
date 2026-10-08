@@ -6,8 +6,16 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 from django.http import JsonResponse
 
-from apps.core.views import HealthCheckView, ReadyCheckView, VersionCheckView, serve_widget_js, serve_demo_html, RootIndexView
+import os
+from django.views.static import serve
+from apps.core.views import (
+    HealthCheckView, ReadyCheckView, VersionCheckView,
+    serve_widget_js, serve_demo_html, RootIndexView, serve_spa
+)
 from apps.users.views import LoginView
+
+frontend_dist_dir = os.path.join(settings.BASE_DIR, 'frontend', 'dist')
+frontend_assets_dir = os.path.join(frontend_dist_dir, 'assets')
 
 def mock_api_view(request, *args, **kwargs):
     return JsonResponse({"count": 0, "next": None, "previous": None, "results": []})
@@ -65,8 +73,31 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/docs/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 
-    # Fallback for undefined endpoints
+    # Fallback for undefined API endpoints
     re_path(r'^api/.*$', mock_api_view),
+
+    # Frontend SPA Static Assets
+    re_path(r'^assets/(?P<path>.*)$', serve, {'document_root': frontend_assets_dir}),
+    path('favicon.svg', serve, {'document_root': frontend_dist_dir, 'path': 'favicon.svg'}),
+
+    # Frontend SPA Routes
+    path('dashboard', serve_spa, name='spa-dashboard-no-slash'),
+    path('dashboard/', serve_spa, name='spa-dashboard'),
+    re_path(r'^dashboard/.*$', serve_spa, name='spa-dashboard-subpath'),
+    path('login', serve_spa, name='spa-login-no-slash'),
+    path('login/', serve_spa, name='spa-login'),
+    path('chat', serve_spa, name='spa-chat-no-slash'),
+    path('chat/', serve_spa, name='spa-chat'),
+    path('widget', serve_spa, name='spa-widget-no-slash'),
+    path('widget/', serve_spa, name='spa-widget'),
+    path('portal', serve_spa, name='spa-portal-no-slash'),
+    path('portal/', serve_spa, name='spa-portal'),
+    path('landing', serve_spa, name='spa-landing-no-slash'),
+    path('landing/', serve_spa, name='spa-landing'),
+    re_path(r'^concierge/.*$', serve_spa, name='spa-concierge'),
+
+    # SPA Fallback for any client-side routes (except Django admin, static, media, health, etc.)
+    re_path(r'^(?!api/|admin/|static/|media/|health|ready|version|demo|test-widget|widget\.js).*$', serve_spa, name='spa-fallback'),
 ]
 
 if settings.DEBUG:
