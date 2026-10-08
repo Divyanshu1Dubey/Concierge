@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import logging
 import os
 import zipfile
@@ -18,7 +19,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from starlette import status
 from pydantic import BaseModel
 
-from saas.auth import get_current, require_roles, login_for_token, TokenOut, CurrentUser
+from saas.auth import get_current, oauth2, require_roles, login_for_token, TokenOut, CurrentUser
+from saas.rate_limit import check_rate_limit
 from saas.config import get_settings
 from saas.conversation import ConversationEngine, DEFAULT_GREETING, State
 from saas.database import connect, now_iso, row, rows
@@ -35,6 +37,8 @@ from saas.repositories import (
     complete_conversation,
     create_conversation,
     create_lead,
+    get_conversation,
+    list_leads,
     get_lead,
     get_conversation,
     get_tenant_by_slug,
@@ -58,8 +62,27 @@ from saas.repositories import (
     get_api_key_by_public,
 )
 from saas import ai_engine as _ai_engine
+from saas import cadence, mailbox
+from starlette.concurrency import run_in_threadpool
 
 log = logging.getLogger(__name__)
+
+
+def _limit(request: Request, bucket: str, limit: int, window: int = 60) -> None:
+    """Per-IP rate limit for unauthenticated endpoints (lead spam, login guessing)."""
+    ip = request.client.host if request.client else "unknown"
+    allowed, _ = check_rate_limit(f"rl:{bucket}:{ip}", limit, window)
+    if not allowed:
+        raise HTTPException(status_code=429, detail="Too many requests. Please try again shortly.",
+                            headers={"Retry-After": str(window)})
+
+
+def _own(cu: CurrentUser, tenant_id: int | None) -> None:
+    """403 unless the logged-in user belongs to tenant_id. 404 when the record has no tenant (not found)."""
+    if tenant_id is None:
+        raise HTTPException(status_code=404, detail="not found")
+    if cu.user.tenant_id != int(tenant_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="wrong tenant")
 settings = get_settings()
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -113,6 +136,7 @@ async def public_tenant_login(
     request: Request,
     tenant_slug: str | None = None,
 ) -> TokenOut:
+    _limit(request, "login", 10)
     data = await _extract_auth_payload(request)
     slug = str(tenant_slug or data.get("tenant_slug") or "raleigh-dental-demo").strip()
     username = str(data.get("username") or data.get("email") or "").strip()
@@ -121,17 +145,11 @@ async def public_tenant_login(
     if not username or not password:
         raise HTTPException(status_code=422, detail="Username/email and password are required")
 
+    # get_tenant_by_slug creates the demo clinic on demand outside production only.
+    # Never fall back to "the only clinic": a typo'd clinic ID must not log into someone else's.
     tenant = get_tenant_by_slug(slug)
     if not tenant:
-        from saas.repositories import ensure_demo_data, list_tenants
-        if slug in ("raleigh-dental-demo", "demo"):
-            tenant = ensure_demo_data()
-        else:
-            all_t = list_tenants(limit=2)
-            if len(all_t) == 1:
-                tenant = all_t[0]
-            else:
-                raise HTTPException(status_code=404, detail="tenant not found")
+        raise HTTPException(status_code=404, detail="tenant not found")
 
     return login_for_token(tenant.id, OAuth2PasswordRequestForm(username=username, password=password))
 
@@ -239,6 +257,7 @@ def public_config(client_key: str, request: Request) -> dict:
 @public_app.post("/v1/public/conversations")
 @public_app.post("/api/v1/public/conversations")
 def public_conversation_start(client_key: str, request: Request) -> dict:
+    _limit(request, "conv_start", 20)
     key = get_api_key_by_public(client_key)
     if not key or key.revoked_at:
         raise HTTPException(status_code=401, detail="invalid client key")
@@ -260,7 +279,8 @@ def public_conversation_start(client_key: str, request: Request) -> dict:
 
 @public_app.post("/v1/public/conversations/{conversation_id}/messages")
 @public_app.post("/api/v1/public/conversations/{conversation_id}/messages")
-def public_conversation_message(conversation_id: int, body: dict[str, Any], client_key: str) -> dict:
+def public_conversation_message(conversation_id: int, body: dict[str, Any], client_key: str, request: Request) -> dict:
+    _limit(request, "conv_msg", 60)
     key = get_api_key_by_public(client_key)
     if not key or key.revoked_at:
         raise HTTPException(status_code=401, detail="invalid client key")
@@ -292,10 +312,8 @@ def public_conversation_message(conversation_id: int, body: dict[str, Any], clie
             "page_url": conv[0].get("metadata", {}).get("page_url") if isinstance(conv[0].get("metadata"), dict) else None,
             **ctx.fields,
         })
-        try:
-            send_lead_notification(key.tenant_id, lead["id"], intent=ctx.fields.get("intent", "default"))
-        except Exception as e:
-            log.exception("lead notification failed for tenant %s lead %s", key.tenant_id, lead["id"])
+        _alert_team_new_lead(key.tenant_id, lead["id"])
+        cadence.enroll(key.tenant_id, lead["id"])
         track_event(key.tenant_id, "lead_created", {"lead_id": lead["id"], "conversation_id": conversation_id})
     return result
 
@@ -314,7 +332,8 @@ def public_lead_status(client_key: str, lead_id: int) -> dict:
 
 @public_app.post("/v1/public/leads")
 @public_app.post("/api/v1/public/leads")
-def public_lead_create(body: dict[str, Any], client_key: str) -> dict:
+def public_lead_create(body: dict[str, Any], client_key: str, request: Request) -> dict:
+    _limit(request, "lead_create", 5)
     key = get_api_key_by_public(client_key)
     if not key or key.revoked_at:
         raise HTTPException(status_code=401, detail="invalid client key")
@@ -326,7 +345,7 @@ def public_lead_create(body: dict[str, Any], client_key: str) -> dict:
     lead = create_lead(key.tenant_id, {
         "name": body.get("name"),
         "email": body.get("email"),
-        "phone": body.get("phone"),
+        "phone": re.sub(r"[^0-9+().\-\s#x]", "", str(body.get("phone") or ""))[:40] or None,
         "service": body.get("service") or body.get("intent"),
         "intent": body.get("intent"),
         "urgency": body.get("urgency"),
@@ -340,12 +359,50 @@ def public_lead_create(body: dict[str, Any], client_key: str) -> dict:
         "pageUrl": body.get("page_url"),
         "conversationId": body.get("conversationId") or body.get("conversation_id"),
     })
-    try:
-        send_lead_notification(key.tenant_id, lead["id"], intent=body.get("intent", "default"))
-    except Exception:
-        log.exception("lead notification failed for tenant %s lead %s", key.tenant_id, lead["id"])
+    _alert_team_new_lead(key.tenant_id, lead["id"])
+    cadence.enroll(key.tenant_id, lead["id"])
     track_event(key.tenant_id, "lead_created", {"lead_id": lead["id"]})
     return {"ok": True, "lead_id": lead["id"]}
+
+
+def _alert_team_new_lead(tenant_id: int, lead_id: int) -> None:
+    """Email the clinic team that a new request is waiting (HeyJarvis sender, background thread).
+
+    Only the name and what they asked for: details stay behind the front desk login."""
+    import threading
+
+    def run() -> None:
+        from saas import login_codes
+        from saas.repositories import create_notification, get_lead, get_tenant
+        try:
+            lead, tenant = get_lead(lead_id), get_tenant(tenant_id)
+            with connect() as c:
+                team = [r["email"] for r in rows(c, "SELECT email FROM users WHERE tenant_id = ? AND role IN "
+                                                    "('owner', 'admin', 'member', 'agent')", tenant_id)]
+            if not lead or not tenant or not team:
+                return
+            urgent = lead.get("intent") == "emergency"
+            what = lead.get("service") or (lead.get("intent") or "appointment request").replace("_", " ")
+            subject = f"{'URGENT: ' if urgent else ''}New patient request: {lead.get('name') or 'website visitor'}"
+            body = (f"{lead.get('name') or 'A patient'} asked about: {what}.\n\n"
+                    f"{'This was flagged as an emergency. ' if urgent else ''}"
+                    f"A reply is drafted and waiting for your approval:\n"
+                    f"{settings.app_url.rstrip('/')}/frontdesk?clinic={tenant.slug}\n")
+            sent = 0
+            for to in team:
+                try:
+                    sent += bool(login_codes.send_system_email(to, subject, body, dev_note=f"New-lead alert to {to}"))
+                except Exception:
+                    log.exception("new-lead alert to %s failed", to)
+            create_notification(tenant_id, lead_id, "email", "sent" if sent else "skipped",
+                                {"to": team, "subject": subject})
+        except Exception:
+            log.exception("new-lead alert failed for tenant %s lead %s", tenant_id, lead_id)
+
+    if os.environ.get("CONCIERGE_SYNC_ALERTS") == "1":  # tests
+        run()
+    else:
+        threading.Thread(target=run, daemon=True, name="new-lead-alert").start()
 
 
 @public_app.get("/widget.js")
@@ -360,23 +417,16 @@ frontdesk_app = FastAPI(title="HeyJarvis Front Desk", version="1.0.0")
 
 
 async def _fd_auth(request: Request) -> dict:
-    """Validate API key or JWT for front desk access."""
-    api_key = request.headers.get("X-API-Key", "")
-    if api_key:
-        key = get_api_key_by_public(api_key)
-        if key and not key.revoked_at:
-            return {"tenant_id": key.tenant_id, "user_id": None, "auth_type": "api_key"}
-        raise HTTPException(status_code=401, detail="invalid api key")
-    try:
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-            cu = await get_current(token)
-            if cu:
-                return {"tenant_id": cu.user.tenant_id, "user_id": cu.user.id, "auth_type": "jwt"}
-    except Exception:
-        pass
-    raise HTTPException(status_code=401, detail="authentication required")
+    """Front desk access requires a staff login (JWT).
+
+    The widget's public client key is embedded in customer websites, so it must
+    never grant access to leads or conversations.
+    """
+    token = await oauth2(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="authentication required")
+    cu = await get_current(token)
+    return {"tenant_id": cu.user.tenant_id, "user_id": cu.user.id, "auth_type": "jwt"}
 
 
 @frontdesk_app.get("/dashboard")
@@ -487,11 +537,13 @@ async def fd_update_lead_status(request: Request, lead_id: int, body: dict[str, 
     new_status = body.get("status")
     if not new_status:
         raise HTTPException(status_code=422, detail="status required")
-    valid_statuses = {"new", "contacted", "scheduled", "completed", "archived", "emergency", "appointment_request", "booked", "closed"}
+    valid_statuses = {"new", "contacted", "scheduled", "completed", "archived", "emergency", "appointment_request",
+                      "qualified", "booked", "closed", "spam"}
     if new_status not in valid_statuses:
         raise HTTPException(status_code=422, detail=f"invalid status: {new_status}")
     with connect() as c:
         c.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", (new_status, now_iso(), lead_id))
+    cadence.stop_for_status(auth["tenant_id"], lead_id, new_status)
     # Return the full updated lead so the frontend can update its state
     updated = get_lead(lead_id)
     return updated
@@ -499,29 +551,17 @@ async def fd_update_lead_status(request: Request, lead_id: int, body: dict[str, 
 
 @frontdesk_app.post("/leads/{lead_id}/reply")
 async def fd_reply_lead(request: Request, lead_id: int, body: dict[str, Any]):
+    """Email the patient now from the clinic mailbox (typed by the desk, no AI)."""
     auth = await _fd_auth(request)
     lead = get_lead(lead_id)
     if not lead or lead["tenant_id"] != auth["tenant_id"]:
         raise HTTPException(status_code=404, detail="lead not found")
-    text = body.get("body", "")
-    if not text or not text.strip():
-        raise HTTPException(status_code=422, detail="reply body cannot be empty")
-    conv_id = lead.get("conversation_id")
-    if conv_id:
-        with connect() as c:
-            c.execute("INSERT INTO messages (conversation_id, role, body, created_at, metadata) VALUES (?, 'agent', ?, ?, '{}')",
-                      (conv_id, text, now_iso()))
-    # Create a note for the frontdesk
-    create_frontdesk_note(
-        auth["tenant_id"],
-        note=f"Replied to lead: {text}",
-        lead_id=lead_id,
-        conversation_id=conv_id,
-        created_by=auth.get("user_id"),
-    )
-    from saas.emailer import send_lead_notification
-    send_lead_notification(auth["tenant_id"], lead_id, intent="agent_reply")
-    return {"ok": True}
+    text = (body.get("body") or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="body is required")
+    draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id, conversation_id=lead.get("conversation_id"),
+                            subject=body.get("subject") or "Re: your appointment request", body=text)
+    return await _send_draft_or_http(auth["tenant_id"], draft["id"], {})
 
 
 @frontdesk_app.post("/leads/{lead_id}/retry")
@@ -532,7 +572,7 @@ async def fd_retry_lead(request: Request, lead_id: int):
     if not lead or lead["tenant_id"] != auth["tenant_id"]:
         raise HTTPException(status_code=404, detail="lead not found")
     from saas.emailer import send_lead_notification
-    send_lead_notification(auth["tenant_id"], lead_id, intent="retry")
+    await run_in_threadpool(send_lead_notification, auth["tenant_id"], lead_id, "retry")
     return {"ok": True, "status": "queued"}
 
 
@@ -544,7 +584,7 @@ async def fd_resend_lead(request: Request, lead_id: int):
     if not lead or lead["tenant_id"] != auth["tenant_id"]:
         raise HTTPException(status_code=404, detail="lead not found")
     from saas.emailer import send_lead_notification
-    send_lead_notification(auth["tenant_id"], lead_id, intent="resend")
+    await run_in_threadpool(send_lead_notification, auth["tenant_id"], lead_id, "resend")
     return {"ok": True, "status": "sent"}
 
 
@@ -559,12 +599,12 @@ async def fd_list_notes(request: Request, lead_id: int | None = None):
 @frontdesk_app.post("/notes")
 async def fd_create_note(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
-    note_text = body.get("note", "")
-    if not note_text or not note_text.strip():
-        raise HTTPException(status_code=422, detail="note cannot be empty")
+    if not (body.get("note") or "").strip():
+        raise HTTPException(status_code=422, detail="note is required")
+    _fd_lead_owned(body.get("lead_id"), auth["tenant_id"])
     note = create_frontdesk_note(
         auth["tenant_id"],
-        note=note_text,
+        note=body.get("note", "").strip(),
         lead_id=body.get("lead_id"),
         conversation_id=body.get("conversation_id"),
         created_by=auth.get("user_id"),
@@ -598,12 +638,12 @@ async def fd_list_tasks(request: Request, status: str | None = None, lead_id: in
 @frontdesk_app.post("/tasks")
 async def fd_create_task(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
-    title = body.get("title", "")
-    if not title or not title.strip():
-        raise HTTPException(status_code=422, detail="title cannot be empty")
+    if not (body.get("title") or "").strip():
+        raise HTTPException(status_code=422, detail="title is required")
+    _fd_lead_owned(body.get("lead_id"), auth["tenant_id"])
     task = create_frontdesk_task(
         auth["tenant_id"],
-        title=title,
+        title=body.get("title", "").strip(),
         priority=body.get("priority", "medium"),
         lead_id=body.get("lead_id"),
         description=body.get("description"),
@@ -624,14 +664,19 @@ async def fd_complete_task(request: Request, task_id: int):
 
 
 @frontdesk_app.get("/drafts")
-async def fd_list_drafts(request: Request, lead_id: int | None = None):
+async def fd_list_drafts(request: Request, lead_id: int | None = None, status: str | None = None):
     auth = await _fd_auth(request)
-    return get_ai_drafts(auth["tenant_id"], lead_id=lead_id)
+    drafts = get_ai_drafts(auth["tenant_id"], lead_id=lead_id, status=status, limit=200)
+    names = {l["id"]: l["name"] for l in list_leads(auth["tenant_id"], limit=1000)}
+    for d in drafts:
+        d["lead_name"] = names.get(d.get("lead_id"))
+    return drafts
 
 
 @frontdesk_app.post("/drafts")
 async def fd_create_draft(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
+    _fd_lead_owned(body.get("lead_id"), auth["tenant_id"])
     draft = create_ai_draft(
         auth["tenant_id"],
         lead_id=body.get("lead_id"),
@@ -643,28 +688,377 @@ async def fd_create_draft(request: Request, body: dict[str, Any]):
     return JSONResponse(content=draft, status_code=201)
 
 
+async def _ai(fn, *args, **kwargs):
+    """AI calls take seconds: run them off the event loop so one request can't freeze every clinic."""
+    return await run_in_threadpool(lambda: fn(*args, **kwargs))
+
+
+async def _send_draft_or_http(tenant_id: int, draft_id: int, edits: dict[str, Any]) -> dict:
+    try:
+        return await run_in_threadpool(lambda: mailbox.send_draft(
+            tenant_id, draft_id, subject=edits.get("subject"), body=edits.get("body"), to=edits.get("to")))
+    except LookupError:
+        raise HTTPException(status_code=404, detail="draft not found")
+    except mailbox.MailboxError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
 @frontdesk_app.post("/drafts/{draft_id}/send")
-async def fd_send_draft(request: Request, draft_id: int):
+async def fd_send_draft(request: Request, draft_id: int, body: dict[str, Any] = Body(default_factory=dict)):
+    """Approve and send a draft to the patient from the clinic mailbox. Optional edits: subject, body, to."""
+    auth = await _fd_auth(request)
+    return await _send_draft_or_http(auth["tenant_id"], draft_id, body or {})
+
+
+@frontdesk_app.patch("/drafts/{draft_id}")
+async def fd_edit_draft(request: Request, draft_id: int, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    fields = {k: body[k] for k in ("subject", "body", "to_email") if k in body}
+    with connect() as c:
+        draft = row(c, "SELECT * FROM ai_drafts WHERE id = ? AND tenant_id = ?", draft_id, auth["tenant_id"])
+        if not draft or draft["status"] != "pending":
+            raise HTTPException(status_code=404, detail="pending draft not found")
+        if fields:
+            sets = ", ".join(f"{k} = ?" for k in fields)
+            c.execute(f"UPDATE ai_drafts SET {sets}, updated_at = ? WHERE id = ?", [*fields.values(), now_iso(), draft_id])
+        return row(c, "SELECT * FROM ai_drafts WHERE id = ?", draft_id)
+
+
+@frontdesk_app.post("/drafts/{draft_id}/discard")
+async def fd_discard_draft(request: Request, draft_id: int):
+    """Throw a draft away. A discarded cadence step counts as skipped."""
     auth = await _fd_auth(request)
     with connect() as c:
         draft = row(c, "SELECT * FROM ai_drafts WHERE id = ? AND tenant_id = ?", draft_id, auth["tenant_id"])
-        if not draft:
-            raise HTTPException(status_code=404, detail="draft not found")
-        c.execute("UPDATE ai_drafts SET status = 'sent', updated_at = ? WHERE id = ?", (now_iso(), draft_id))
-        updated = row(c, "SELECT * FROM ai_drafts WHERE id = ?", draft_id)
-    return updated or {"ok": True}
+        if not draft or draft["status"] != "pending":
+            raise HTTPException(status_code=404, detail="pending draft not found")
+        c.execute("UPDATE ai_drafts SET status = 'discarded', updated_at = ? WHERE id = ?", (now_iso(), draft_id))
+    if draft.get("lead_id"):
+        cadence.on_discard(auth["tenant_id"], draft["lead_id"], draft.get("cadence_step"))
+    return {"ok": True}
+
+
+# ── Email thread, mailbox, cadence ───────────────────────────────────────────
+
+@frontdesk_app.get("/leads/{lead_id}/emails")
+async def fd_lead_emails(request: Request, lead_id: int):
+    """Everything email for one patient: thread, pending drafts, cadence position."""
+    auth = await _fd_auth(request)
+    _fd_lead_owned(lead_id, auth["tenant_id"])
+    return {
+        "messages": mailbox.lead_thread(auth["tenant_id"], lead_id),
+        "drafts": get_ai_drafts(auth["tenant_id"], lead_id=lead_id, status="pending"),
+        "cadence": cadence.get_enrollment(auth["tenant_id"], lead_id),
+    }
+
+
+@frontdesk_app.post("/leads/{lead_id}/cadence")
+async def fd_lead_cadence(request: Request, lead_id: int, body: dict[str, Any]):
+    """action: enroll | restart | pause | resume | stop"""
+    auth = await _fd_auth(request)
+    _fd_lead_owned(lead_id, auth["tenant_id"])
+    action = body.get("action")
+    if action in ("enroll", "restart"):
+        enr = cadence.enroll(auth["tenant_id"], lead_id, restart=action == "restart")
+        if not enr:
+            raise HTTPException(status_code=409, detail="cannot enroll: lead has no email or cadence is disabled")
+        return enr
+    states = {"pause": "paused", "resume": "active", "stop": "stopped"}
+    if action not in states:
+        raise HTTPException(status_code=422, detail="action must be enroll, restart, pause, resume or stop")
+    if not cadence.get_enrollment(auth["tenant_id"], lead_id):
+        raise HTTPException(status_code=404, detail="lead is not in the cadence")
+    return cadence.set_state(auth["tenant_id"], lead_id, states[action], reason=f"{action} by front desk")
+
+
+@frontdesk_app.get("/cadence")
+async def fd_get_cadence(request: Request):
+    auth = await _fd_auth(request)
+    return {"cadence": cadence.get_cadence(auth["tenant_id"]), "reply_types": cadence.REPLY_INTENTS,
+            "lead_statuses": sorted(cadence.LEAD_STATUSES)}
+
+
+@frontdesk_app.put("/cadence")
+async def fd_put_cadence(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    _fd_require_manager(auth)
+    try:
+        return {"cadence": cadence.save_cadence(auth["tenant_id"], body)}
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@frontdesk_app.post("/cadence/run")
+async def fd_run_cadence(request: Request):
+    """Create any follow-up drafts that are due now (the background scheduler also does this)."""
+    auth = await _fd_auth(request)
+    ids = await run_in_threadpool(cadence.run_due, auth["tenant_id"])
+    return {"drafts_created": len(ids), "draft_ids": ids}
+
+
+@frontdesk_app.get("/mailbox")
+async def fd_mailbox_status(request: Request):
+    auth = await _fd_auth(request)
+    return mailbox.mailbox_status(auth["tenant_id"])
+
+
+@frontdesk_app.put("/mailbox")
+async def fd_connect_mailbox(request: Request, body: dict[str, Any]):
+    """Connect the clinic mailbox: Gmail (app password), Einstein Mail, Microsoft 365, or any IMAP/SMTP server."""
+    auth = await _fd_auth(request)
+    _fd_require_manager(auth)
+    provider = body.get("provider") or "gmail"
+    password = (body.get("password") or body.get("app_password") or "").strip()
+    try:
+        status_ = await run_in_threadpool(
+            lambda: mailbox.connect_mailbox(
+                auth["tenant_id"], provider, body.get("address") or "", password,
+                username=(body.get("username") or "").strip() or None,
+                smtp_host=body.get("smtp_host"), smtp_port=body.get("smtp_port"),
+                imap_host=body.get("imap_host"), imap_port=body.get("imap_port"),
+                from_name=body.get("from_name")))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    check = await run_in_threadpool(mailbox.test_mailbox, auth["tenant_id"])
+    from saas.repositories import audit
+    audit(auth["tenant_id"], auth.get("user_id"), "mailbox_connected",
+          {"address": status_.get("address"), "provider": provider, "ok": check["ok"]})
+    return {**mailbox.mailbox_status(auth["tenant_id"]), "test": check}
+
+
+@frontdesk_app.get("/clinic")
+async def fd_get_clinic(request: Request):
+    """Clinic name, phone, address, hours and website (used in patient emails and the chat)."""
+    auth = await _fd_auth(request)
+    from saas.repositories import get_clinic_profile
+    return get_clinic_profile(auth["tenant_id"])
+
+
+@frontdesk_app.put("/clinic")
+async def fd_put_clinic(request: Request, body: dict[str, Any]):
+    auth = await _fd_auth(request)
+    _fd_require_manager(auth)
+    from saas.repositories import audit, save_clinic_profile
+    if "name" in body and not str(body.get("name") or "").strip():
+        raise HTTPException(status_code=422, detail="Clinic name can't be empty")
+    profile = save_clinic_profile(auth["tenant_id"], body)
+    audit(auth["tenant_id"], auth.get("user_id"), "clinic_profile_updated", {})
+    return profile
+
+
+TEAM_ROLES = {"admin": "Can change settings", "member": "Replies to patients"}
+
+
+@frontdesk_app.get("/team")
+async def fd_list_team(request: Request):
+    auth = await _fd_auth(request)
+    with connect() as c:
+        people = rows(c, "SELECT id, email, display_name, role, created_at FROM users WHERE tenant_id = ? "
+                         "AND role != 'removed' ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, "
+                         "created_at", auth["tenant_id"])
+    for p in people:
+        p["you"] = p["id"] == auth.get("user_id")
+    return {"team": people, "roles": TEAM_ROLES}
+
+
+@frontdesk_app.post("/team")
+async def fd_add_teammate(request: Request, body: dict[str, Any]):
+    """Add a front desk teammate. They sign in with a code emailed to them (no password)."""
+    auth = await _fd_auth(request)
+    _fd_require_manager(auth)
+    from saas.repositories import audit, create_user, get_tenant, get_user, get_user_by_email
+    email = (body.get("email") or "").strip().lower()
+    name = (body.get("name") or "").strip()[:80] or None
+    role = body.get("role") or "member"
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(status_code=422, detail="Enter a valid email address")
+    if role not in TEAM_ROLES:
+        raise HTTPException(status_code=422, detail="Role must be admin or member")
+    me = get_user(auth["user_id"])
+    if role == "admin" and me.role != "owner":
+        raise HTTPException(status_code=403, detail="Only the clinic owner can add admins")
+    existing = get_user_by_email(auth["tenant_id"], email)
+    if existing and existing.role != "removed":
+        raise HTTPException(status_code=409, detail="That person is already on the team")
+    if existing:  # re-adding someone who was removed
+        with connect() as c:
+            c.execute("UPDATE users SET role = ?, display_name = COALESCE(?, display_name), updated_at = ? WHERE id = ?",
+                      (role, name, now_iso(), existing.id))
+            c.execute("INSERT OR IGNORE INTO memberships (tenant_id, user_id, role, created_at) VALUES (?, ?, ?, ?)",
+                      (auth["tenant_id"], existing.id, role, now_iso()))
+        user_id = existing.id
+    else:
+        user_id = create_user(auth["tenant_id"], email, display_name=name, password=None, role=role).id
+    tenant = get_tenant(auth["tenant_id"])
+    invited = await run_in_threadpool(_send_invite, email, tenant)
+    audit(auth["tenant_id"], auth.get("user_id"), "teammate_added", {"email": email, "role": role})
+    return {"id": user_id, "email": email, "role": role, "invite_sent": invited}
+
+
+def _send_invite(email: str, tenant: Any) -> bool:
+    from saas import login_codes
+    url = f"{settings.app_url.rstrip('/')}/frontdesk?clinic={tenant.slug}"
+    try:
+        return login_codes.send_system_email(
+            email, f"You've been added to the {tenant.name} front desk",
+            f"Hi,\n\nYou now have access to the {tenant.name} front desk on HeyJarvis, where patient requests "
+            f"from the website are answered.\n\nSign in here: {url}\nClinic ID: {tenant.slug}\n\n"
+            "Use this email address. We'll email you a 6-digit code each time you sign in, so there's no password "
+            "to remember.\n",
+            dev_note=f"Invite for {email}: {url}")
+    except Exception:
+        log.exception("invite email failed for %s", email)
+        return False
+
+
+@frontdesk_app.delete("/team/{user_id}")
+async def fd_remove_teammate(request: Request, user_id: int):
+    auth = await _fd_auth(request)
+    _fd_require_manager(auth)
+    from saas.repositories import audit, get_user
+    target = get_user(user_id)
+    if not target or target.tenant_id != auth["tenant_id"] or target.role == "removed":
+        raise HTTPException(status_code=404, detail="Teammate not found")
+    if target.id == auth.get("user_id"):
+        raise HTTPException(status_code=409, detail="You can't remove yourself")
+    if target.role == "owner":
+        raise HTTPException(status_code=403, detail="The clinic owner can't be removed here")
+    if target.role == "admin" and get_user(auth["user_id"]).role != "owner":
+        raise HTTPException(status_code=403, detail="Only the clinic owner can remove admins")
+    with connect() as c:
+        c.execute("UPDATE users SET role = 'removed', updated_at = ? WHERE id = ?", (now_iso(), user_id))
+        c.execute("DELETE FROM memberships WHERE user_id = ?", (user_id,))
+        c.execute("UPDATE login_codes SET used_at = ? WHERE user_id = ? AND used_at IS NULL", (now_iso(), user_id))
+    audit(auth["tenant_id"], auth.get("user_id"), "teammate_removed", {"email": target.email})
+    return {"ok": True}
+
+
+@frontdesk_app.post("/mailbox/test-send")
+async def fd_mailbox_test_send(request: Request):
+    """Send a test email from the clinic mailbox to itself."""
+    auth = await _fd_auth(request)
+    _fd_require_manager(auth)
+    try:
+        return await run_in_threadpool(mailbox.send_test_email, auth["tenant_id"])
+    except mailbox.MailboxError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@frontdesk_app.post("/mailbox/google/start")
+async def fd_google_start(request: Request, body: dict[str, Any] = Body(default_factory=dict)):
+    """Returns Google's consent URL; the browser goes there and comes back to /oauth/google/callback."""
+    auth = await _fd_auth(request)
+    _fd_require_manager(auth)
+    import secrets as _secrets
+
+    from saas import google_oauth
+    nonce = _secrets.token_urlsafe(16)
+    try:
+        url = google_oauth.start_url(auth["tenant_id"], auth["user_id"], (body or {}).get("address"),
+                                     (body or {}).get("from_name"), nonce=nonce)
+    except google_oauth.OAuthError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    from starlette.responses import JSONResponse
+    resp = JSONResponse({"url": url})
+    resp.set_cookie(google_oauth.STATE_COOKIE, nonce, max_age=600, httponly=True, samesite="lax",
+                    secure=settings.is_production, path="/oauth/google")
+    return resp
+
+
+@frontdesk_app.delete("/mailbox")
+async def fd_disconnect_mailbox(request: Request):
+    auth = await _fd_auth(request)
+    _fd_require_manager(auth)
+    from saas.repositories import audit
+    audit(auth["tenant_id"], auth.get("user_id"), "mailbox_disconnected", {})
+    return mailbox.disconnect(auth["tenant_id"])
+
+
+@frontdesk_app.get("/inbox")
+async def fd_inbox(request: Request):
+    """Every open patient request with what the front desk needs to sort it:
+    pending reply draft, last email direction/time, and follow-up status."""
+    auth = await _fd_auth(request)
+    tid = auth["tenant_id"]
+    with connect() as c:
+        leads = rows(c, """
+            SELECT l.*,
+              (SELECT direction FROM email_messages e WHERE e.tenant_id = l.tenant_id AND e.lead_id = l.id
+                 ORDER BY e.sent_at DESC, e.id DESC LIMIT 1) AS last_direction,
+              (SELECT sent_at FROM email_messages e WHERE e.tenant_id = l.tenant_id AND e.lead_id = l.id
+                 ORDER BY e.sent_at DESC, e.id DESC LIMIT 1) AS last_email_at,
+              (SELECT status FROM cadence_enrollments ce WHERE ce.lead_id = l.id) AS followup_status
+            FROM leads l WHERE l.tenant_id = ? AND l.status NOT IN ('spam', 'archived', 'closed')
+            ORDER BY l.created_at DESC LIMIT 300""", tid)
+        drafts = rows(c, "SELECT * FROM ai_drafts WHERE tenant_id = ? AND status = 'pending' ORDER BY id DESC", tid)
+    first = {}
+    for d in drafts:
+        first.setdefault(d["lead_id"], d)
+    for l in leads:
+        l["draft"] = first.get(l["id"])
+    return leads
+
+
+@frontdesk_app.post("/demo/leads/{lead_id}/reply")
+async def fd_demo_reply(request: Request, lead_id: int, body: dict[str, Any]):
+    """Demo mode: simulate the patient answering by email."""
+    auth = await _fd_auth(request)
+    _fd_lead_owned(lead_id, auth["tenant_id"])
+    text = (body.get("body") or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="body is required")
+    try:
+        return await run_in_threadpool(mailbox.simulate_reply, auth["tenant_id"], lead_id, text)
+    except mailbox.MailboxError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@frontdesk_app.post("/demo/fast-forward")
+async def fd_demo_fast_forward(request: Request, body: dict[str, Any] = Body(default_factory=dict)):
+    """Demo mode: pretend time passed so the next follow-ups come due."""
+    auth = await _fd_auth(request)
+    if not mailbox.demo_mode(auth["tenant_id"]):
+        raise HTTPException(status_code=409, detail="Only available in demo mode.")
+    hours = float((body or {}).get("hours", 24))
+    ids = await run_in_threadpool(cadence.fast_forward, auth["tenant_id"], hours)
+    return {"drafts_created": len(ids)}
+
+
+@frontdesk_app.post("/mailbox/sync")
+async def fd_sync_mailbox(request: Request):
+    """Pull patient replies now (the background scheduler also does this every few minutes)."""
+    auth = await _fd_auth(request)
+    try:
+        stats = await run_in_threadpool(mailbox.sync_mailbox, auth["tenant_id"])
+    except mailbox.MailboxError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return stats
+
+
+def _fd_require_manager(auth: dict) -> None:
+    from saas.repositories import get_user
+    user = get_user(auth["user_id"]) if auth.get("user_id") else None
+    if not user or user.role not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="only owners and admins can change this")
 
 
 # ── AI Endpoints ──────────────────────────────────────────────────────────────
 
-def _lead_context(lead_id: int | None = None, tenant_id: int | None = None) -> dict[str, Any]:
+def _fd_lead_owned(lead_id: Any, tenant_id: int) -> None:
+    """Reject notes/tasks/drafts that point at another tenant's lead."""
+    if lead_id in (None, ""):
+        return
+    lead = get_lead(int(lead_id))
+    if not lead or lead["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=404, detail="lead not found")
+
+
+def _lead_context(lead_id: int | None, tenant_id: int) -> dict[str, Any]:
     if not lead_id:
         return {}
     lead = get_lead(lead_id)
-    if not lead:
-        return {}
-    if tenant_id is not None and lead.get("tenant_id") != tenant_id:
-        raise HTTPException(status_code=403, detail="forbidden")
+    if not lead or lead["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=404, detail="lead not found")
     conv_text = ""
     cid = lead.get("conversation_id")
     if cid:
@@ -687,22 +1081,24 @@ async def fd_ai_draft(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     lead_id = body.get("lead_id")
     instruction = body.get("instruction", "")
-    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
+    ctx = _lead_context(lead_id, auth["tenant_id"])
     lead = ctx.get("lead") or {}
-    result = _ai_engine.draft_reply(ctx.get("conv_text", ""), lead, instruction)
-    subject = result.get("subject", "Re: " + (lead.get("service") or "Your inquiry"))
-    draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
-                             subject=subject, body=result.get("reply", ""), html_body=None)
-    return {"draft_id": draft["id"], "subject": subject, "body": result.get("reply", ""),
-            "tokens_used": result.get("tokens_used", 0), "model": result.get("model", "unknown")}
+    history = cadence._history(auth["tenant_id"], lead) if lead else ctx.get("conv_text", "")
+    result = await _ai(_ai_engine.draft_reply, history, cadence._patient(lead) if lead else {},
+                                    cadence._practice(auth["tenant_id"]), instruction=instruction)
+    subject = result.get("subject") or "Re: " + (lead.get("service") or "your inquiry")
+    draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id, conversation_id=lead.get("conversation_id"),
+                            subject=subject, body=result.get("body", ""), html_body=None)
+    return {"draft_id": draft["id"], "subject": subject, "body": result.get("body", ""),
+            "internal_note": result.get("internal_note"), "provider": result.get("provider")}
 
 
 @frontdesk_app.post("/ai/summarize")
 async def fd_ai_summarize(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     lead_id = body.get("lead_id")
-    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
-    result = _ai_engine.summarize_conversation(ctx.get("conv_text", ""))
+    ctx = _lead_context(lead_id, auth["tenant_id"])
+    result = await _ai(_ai_engine.summarize_conversation, ctx.get("conv_text", ""))
     return result
 
 
@@ -711,8 +1107,8 @@ async def fd_ai_next_action(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     lead_id = body.get("lead_id")
     conversation_state = body.get("conversation_state", "open")
-    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
-    result = _ai_engine.next_best_action(ctx.get("conv_text", ""), ctx.get("lead") or {}, conversation_state)
+    ctx = _lead_context(lead_id, auth["tenant_id"])
+    result = await _ai(_ai_engine.next_best_action, ctx.get("conv_text", ""), ctx.get("lead") or {}, conversation_state)
     return result
 
 
@@ -721,8 +1117,8 @@ async def fd_ai_followup(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     lead_id = body.get("lead_id")
     hours = body.get("hours", 24)
-    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
-    result = _ai_engine.generate_follow_up(ctx.get("lead") or {}, hours_passed=hours)
+    ctx = _lead_context(lead_id, auth["tenant_id"])
+    result = await _ai(_ai_engine.generate_follow_up, ctx.get("lead") or {}, hours_passed=hours)
     subject = result.get("subject", "Following up on your inquiry")
     draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
                              subject=subject, body=result.get("body", ""))
@@ -735,8 +1131,8 @@ async def fd_ai_confirm(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     lead_id = body.get("lead_id")
     appointment_time = body.get("appointment_time", "")
-    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
-    result = _ai_engine.generate_confirmation(ctx.get("lead") or {}, appointment_time)
+    ctx = _lead_context(lead_id, auth["tenant_id"])
+    result = await _ai(_ai_engine.generate_confirmation, ctx.get("lead") or {}, appointment_time)
     subject = result.get("subject", "Appointment Confirmation")
     draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
                              subject=subject, body=result.get("body", ""))
@@ -750,8 +1146,8 @@ async def fd_ai_reschedule(request: Request, body: dict[str, Any]):
     lead_id = body.get("lead_id")
     new_time = body.get("new_time", "")
     reason = body.get("reason", "")
-    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
-    result = _ai_engine.generate_reschedule(ctx.get("lead") or {}, new_time, reason=reason)
+    ctx = _lead_context(lead_id, auth["tenant_id"])
+    result = await _ai(_ai_engine.generate_reschedule, ctx.get("lead") or {}, new_time, reason=reason)
     subject = result.get("subject", "Rescheduling Your Appointment")
     draft = create_ai_draft(auth["tenant_id"], lead_id=lead_id,
                              subject=subject, body=result.get("body", ""))
@@ -765,9 +1161,7 @@ async def fd_ai_shorten(request: Request, body: dict[str, Any]):
     text = body.get("text", "")
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
-    prompt = "Shorten this text to 1-2 concise sentences while keeping the key information:\n\n" + text
-    result, _ = _ai_engine._llm(prompt)
-    return {"body": result.get("reply", text) if result else text}
+    return {"body": await run_in_threadpool(_ai_engine.rewrite_text, text, "shorten")}
 
 
 @frontdesk_app.post("/ai/warmer")
@@ -776,19 +1170,17 @@ async def fd_ai_warmer(request: Request, body: dict[str, Any]):
     text = body.get("text", "")
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
-    prompt = "Rewrite this text to be warmer and more personable, keeping it professional but friendly:\n\n" + text
-    result, _ = _ai_engine._llm(prompt)
-    return {"body": result.get("reply", text) if result else text}
+    return {"body": await run_in_threadpool(_ai_engine.rewrite_text, text, "warmer")}
 
 
 @frontdesk_app.post("/ai/classify")
 async def fd_ai_classify(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     lead_id = body.get("lead_id")
-    ctx = _lead_context(lead_id, tenant_id=auth["tenant_id"])
+    ctx = _lead_context(lead_id, auth["tenant_id"])
     lead = ctx.get("lead") or {}
     message = lead.get("message", "")
-    result = _ai_engine.classify_message(message, existing_fields={
+    result = await _ai(_ai_engine.classify_message, message, existing_fields={
         "intent": lead.get("intent", ""),
         "urgency": lead.get("urgency", ""),
         "service": lead.get("service", ""),
@@ -805,7 +1197,7 @@ async def fd_ai_classify(request: Request, body: dict[str, Any]):
 async def fd_ai_parse_time(request: Request, body: dict[str, Any]):
     auth = await _fd_auth(request)
     instruction = body.get("instruction", "")
-    result = _ai_engine.parse_time_instruction(instruction)
+    result = await _ai(_ai_engine.parse_time_instruction, instruction)
     return result
 
 
@@ -824,22 +1216,24 @@ async def fd_ai_action(request: Request, body: dict[str, Any]):
     conv_text = ctx.get("conv_text", "")
 
     if action == "draft":
-        result = _ai_engine.draft_reply(conv_text, lead, instruction)
-        return {"result": result.get("reply") or result.get("body", ""), "model": result.get("model", "unknown")}
+        history = cadence._history(auth["tenant_id"], lead) if lead else conv_text
+        result = await _ai(_ai_engine.draft_reply, history, cadence._patient(lead) if lead else {},
+                                        cadence._practice(auth["tenant_id"]), instruction=instruction)
+        return {"result": result.get("body", ""), "model": result.get("provider", "unknown")}
     elif action == "summarize":
-        result = _ai_engine.summarize_conversation(conv_text)
+        result = await _ai(_ai_engine.summarize_conversation, conv_text)
         return {"result": result.get("summary", "")}
     elif action == "next-action" or action == "next_action":
-        result = _ai_engine.next_best_action(conv_text, lead, "open")
+        result = await _ai(_ai_engine.next_best_action, conv_text, lead, "open")
         return {"result": result.get("action", "") or result.get("recommendation", "")}
     elif action == "follow-up" or action == "follow_up":
-        result = _ai_engine.generate_follow_up(lead, hours_passed=24)
+        result = await _ai(_ai_engine.generate_follow_up, lead, hours_passed=24)
         return {"result": result.get("body", "")}
     elif action == "confirm":
-        result = _ai_engine.generate_confirmation(lead, instruction or "")
+        result = await _ai(_ai_engine.generate_confirmation, lead, instruction or "")
         return {"result": result.get("body", "")}
     elif action == "classify":
-        result = _ai_engine.classify_message(lead.get("message", ""), existing_fields={
+        result = await _ai(_ai_engine.classify_message, lead.get("message", ""), existing_fields={
             "intent": lead.get("intent", ""), "urgency": lead.get("urgency", ""), "service": lead.get("service", ""),
         })
         if lead_id and result:
@@ -847,16 +1241,9 @@ async def fd_ai_action(request: Request, body: dict[str, Any]):
             if updates:
                 repo_update_lead(lead_id, **updates)
         return {"result": f"Classified: intent={result.get('intent','?')}, urgency={result.get('urgency','?')}"}
-    elif action == "shorten":
-        text = instruction or conv_text or lead.get("message", "")
-        prompt = "Shorten this text to 1-2 concise sentences while keeping the key information:\n\n" + text
-        result, _ = _ai_engine._llm(prompt)
-        return {"result": result.get("reply", text) if result else text}
-    elif action == "warmer":
-        text = instruction or conv_text or lead.get("message", "")
-        prompt = "Rewrite this text to be warmer and more personable, keeping it professional but friendly:\n\n" + text
-        result, _ = _ai_engine._llm(prompt)
-        return {"result": result.get("reply", text) if result else text}
+    elif action in ("shorten", "warmer"):
+        text = instruction or lead.get("message", "") or conv_text
+        return {"result": await run_in_threadpool(_ai_engine.rewrite_text, text, action)}
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
 
@@ -902,12 +1289,24 @@ async def fd_health() -> dict:
 
 # ── Admin Routes ─────────────────────────────────────────────────────────────
 
-admin_app = FastAPI(title="HeyJarvis Admin", version="1.0.0")
+async def _enforce_tenant_scope(request: Request) -> None:
+    """Every /tenants/{tenant_id}/... route is only usable by that tenant's own users."""
+    tid = request.path_params.get("tenant_id")
+    if tid is None:
+        return
+    token = await oauth2(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    _own(await get_current(token), tid)
+
+
+admin_app = FastAPI(title="HeyJarvis Admin", version="1.0.0", dependencies=[Depends(_enforce_tenant_scope)])
 
 
 @admin_app.post("/auth/login")
 @admin_app.post("/auth/token")
 async def admin_login(request: Request) -> TokenOut:
+    _limit(request, "login", 10)
     data = await _extract_auth_payload(request)
     slug = str(data.get("tenant_slug") or "raleigh-dental-demo").strip()
     email = str(data.get("email") or data.get("username") or "").strip()
@@ -916,17 +1315,11 @@ async def admin_login(request: Request) -> TokenOut:
     if not email or not password:
         raise HTTPException(status_code=422, detail="Email/username and password are required")
 
+    # get_tenant_by_slug creates the demo clinic on demand outside production only.
+    # Never fall back to "the only clinic": a typo'd clinic ID must not log into someone else's.
     tenant = get_tenant_by_slug(slug)
     if not tenant:
-        from saas.repositories import ensure_demo_data, list_tenants
-        if slug in ("raleigh-dental-demo", "demo"):
-            tenant = ensure_demo_data()
-        else:
-            all_t = list_tenants(limit=2)
-            if len(all_t) == 1:
-                tenant = all_t[0]
-            else:
-                raise HTTPException(status_code=404, detail="tenant not found")
+        raise HTTPException(status_code=404, detail="tenant not found")
 
     return login_for_token(tenant.id, OAuth2PasswordRequestForm(username=email, password=password))
 
@@ -939,14 +1332,63 @@ def _check_tenant(cu: CurrentUser, tenant_id: int) -> None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
 
 
+@admin_app.get("/auth/demo")
+def admin_demo_available() -> dict:
+    from saas.repositories import _demo_allowed
+    return {"available": _demo_allowed()}
+
+
+@admin_app.post("/auth/demo")
+def admin_demo_login(request: Request) -> TokenOut:
+    """One-click login to the demo clinic. Local/dev only; refused on production servers."""
+    from saas.auth import _user_payload
+    from saas.repositories import _demo_allowed, ensure_demo_data, get_user_by_email
+    from saas.security import create_access_token
+    if not _demo_allowed():
+        raise HTTPException(status_code=404, detail="not found")
+    tenant = ensure_demo_data()
+    user = get_user_by_email(tenant.id, "admin@raleighdentistry.com")
+    return TokenOut(access_token=create_access_token(subject=str(user.id), tenant_id=tenant.id), user=_user_payload(user))
+
+
+@admin_app.post("/auth/code/request")
+def admin_request_code(body: dict[str, Any], request: Request) -> dict:
+    """Email a 6-digit login code. Same answer whether or not the account exists."""
+    _limit(request, "login_code", 5)
+    from saas import login_codes
+    from saas.repositories import get_user_by_email
+    tenant = get_tenant_by_slug((body.get("tenant_slug") or "").strip())
+    email = (body.get("email") or "").strip().lower()
+    user = get_user_by_email(tenant.id, email) if tenant and email else None
+    if user and user.role != "removed":
+        try:
+            login_codes.issue(user.id, user.email, tenant.name)
+        except login_codes.LoginCodeError as e:
+            raise HTTPException(status_code=503, detail=str(e))
+        except Exception:
+            log.exception("login code email failed")
+            raise HTTPException(status_code=503, detail="Could not send the login email. Try again shortly.")
+    return {"ok": True, "message": "If that account exists, a login code is on its way."}
+
+
+@admin_app.post("/auth/code/verify")
+def admin_verify_code(body: dict[str, Any], request: Request) -> TokenOut:
+    _limit(request, "login", 10)
+    from saas import login_codes
+    from saas.auth import _user_payload
+    from saas.repositories import get_user_by_email
+    from saas.security import create_access_token
+    tenant = get_tenant_by_slug((body.get("tenant_slug") or "").strip())
+    user = get_user_by_email(tenant.id, (body.get("email") or "").strip().lower()) if tenant else None
+    if not user or user.role == "removed" or not login_codes.verify(user.id, str(body.get("code") or "")):
+        raise HTTPException(status_code=401, detail="That code is wrong or expired. Request a new one.")
+    return TokenOut(access_token=create_access_token(subject=str(user.id), tenant_id=tenant.id),
+                    user=_user_payload(user))
+
+
 @admin_app.get("/tenants")
 def admin_list_tenants(cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict[str, Any]]:
-    with connect() as c:
-        m_tids = [r["tenant_id"] for r in rows(c, "SELECT tenant_id FROM memberships WHERE user_id = ?", (cu.user.id,))]
-    allowed_tids = set(m_tids) | {cu.user.tenant_id}
-    all_tenants = list_tenants()
-    matching = [t.model_dump() for t in all_tenants if t.id in allowed_tids]
-    return matching if matching else [t.model_dump() for t in all_tenants]
+    return [t.model_dump() for t in list_tenants() if t.id == cu.user.tenant_id]
 
 
 @admin_app.get("/tenants/{tenant_id}")
@@ -956,7 +1398,7 @@ def admin_get_tenant(tenant_id: int, cu: CurrentUser = Depends(get_current)) -> 
 
 
 @admin_app.patch("/tenants/{tenant_id}")
-def admin_update_tenant(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(get_current)) -> dict:
+def admin_update_tenant(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     _check_tenant(cu, tenant_id)
     from saas.repositories import update_tenant
     allowed = {"name", "enabled", "plan"}
@@ -978,9 +1420,7 @@ def admin_add_domain(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Dep
 def admin_verify_domain(domain_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     from saas.repositories import get_domain
     dom = get_domain(domain_id)
-    if not dom:
-        raise HTTPException(status_code=404, detail="domain not found")
-    _check_tenant(cu, dom.tenant_id)
+    _own(cu, dom.tenant_id if dom else None)
     repo_verify_domain(domain_id)
     return {"ok": True}
 
@@ -989,9 +1429,7 @@ def admin_verify_domain(domain_id: int, cu: CurrentUser = Depends(require_roles(
 def admin_remove_domain(domain_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     from saas.repositories import get_domain
     dom = get_domain(domain_id)
-    if not dom:
-        raise HTTPException(status_code=404, detail="domain not found")
-    _check_tenant(cu, dom.tenant_id)
+    _own(cu, dom.tenant_id if dom else None)
     repo_remove_domain(domain_id)
     return {"ok": True}
 
@@ -1012,7 +1450,7 @@ def admin_get_integration(tenant_id: int, cu: Any = Depends(get_current)) -> dic
 
 
 @admin_app.post("/tenants/{tenant_id}/integration/domains")
-def admin_add_integration_domain(tenant_id: int, body: dict[str, Any], cu: Any = Depends(get_current)) -> dict:
+def admin_add_integration_domain(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     if cu.user.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="forbidden")
     domain = (body.get("domain") or "").strip().lower().replace("https://", "").replace("http://", "").split("/")[0]
@@ -1031,7 +1469,7 @@ def admin_add_integration_domain(tenant_id: int, body: dict[str, Any], cu: Any =
 
 
 @admin_app.delete("/tenants/{tenant_id}/integration/domains/{domain_id}")
-def admin_remove_integration_domain(tenant_id: int, domain_id: int, cu: Any = Depends(get_current)) -> dict:
+def admin_remove_integration_domain(tenant_id: int, domain_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     if cu.user.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="forbidden")
     with connect() as c:
@@ -1046,7 +1484,7 @@ def admin_remove_integration_domain(tenant_id: int, domain_id: int, cu: Any = De
 
 
 @admin_app.post("/tenants/{tenant_id}/integration/domains/{domain_id}/verify")
-def admin_verify_integration_domain(tenant_id: int, domain_id: int, cu: Any = Depends(get_current)) -> dict:
+def admin_verify_integration_domain(tenant_id: int, domain_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     if cu.user.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="forbidden")
     with connect() as c:
@@ -1060,7 +1498,7 @@ def admin_verify_integration_domain(tenant_id: int, domain_id: int, cu: Any = De
 
 
 @admin_app.post("/tenants/{tenant_id}/integration/regenerate-key")
-def admin_regenerate_client_key(tenant_id: int, cu: Any = Depends(get_current)) -> dict:
+def admin_regenerate_client_key(tenant_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     if cu.user.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="forbidden")
     with connect() as c:
@@ -1116,24 +1554,22 @@ def admin_list_leads(tenant_id: int, status: str | None = None, limit: int = 100
 @admin_app.get("/leads/{lead_id}")
 def admin_get_lead(lead_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> dict:
     lead = get_lead(lead_id)
-    if not lead:
-        raise HTTPException(status_code=404, detail="lead not found")
-    _check_tenant(cu, lead["tenant_id"])
+    _own(cu, lead["tenant_id"] if lead else None)
     return lead
 
 
 @admin_app.patch("/leads/{lead_id}")
 def admin_update_lead(lead_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin", "member"))) -> dict:
-    lead = get_lead(lead_id)
-    if not lead:
-        raise HTTPException(status_code=404, detail="lead not found")
-    _check_tenant(cu, lead["tenant_id"])
+    existing = get_lead(lead_id)
+    _own(cu, existing["tenant_id"] if existing else None)
     allowed = {"status", "name", "email", "phone", "intent", "service", "urgency",
                "preferred_date", "preferred_time", "insurance", "financing", "message"}
     fields = {k: v for k, v in body.items() if k in allowed}
     if not fields:
         raise HTTPException(status_code=400, detail="no valid fields")
     repo_update_lead(lead_id, **fields)
+    if fields.get("status"):
+        cadence.stop_for_status(existing["tenant_id"], lead_id, fields["status"])
     lead = get_lead(lead_id)
     return lead
 
@@ -1186,9 +1622,7 @@ def admin_create_conversation(tenant_id: int, body: dict = Body(default_factory=
 def admin_get_messages(conversation_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin", "viewer"))) -> list[dict]:
     with connect() as c:
         conv = rows(c, "SELECT tenant_id FROM conversations WHERE id = ?", (conversation_id,))
-    if not conv:
-        raise HTTPException(status_code=404, detail="conversation not found")
-    _check_tenant(cu, conv[0]["tenant_id"])
+    _own(cu, conv[0]["tenant_id"] if conv else None)
     with connect() as c:
         return rows(c, "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id", (conversation_id,))
 
@@ -1216,7 +1650,8 @@ def admin_analytics(tenant_id: int, days: int = 7, cu: CurrentUser = Depends(req
 
 def _days_ago(n: int) -> str:
     from datetime import datetime, timedelta
-    return (datetime.now() - timedelta(days=n)).isoformat(timespec="seconds")
+    from saas.database import utcnow
+    return (utcnow() - timedelta(days=n)).isoformat(timespec="seconds")
 
 
 # ── Widget Settings Admin ────────────────────────────────────────────────────
@@ -1256,11 +1691,14 @@ def admin_list_members(tenant_id: int, cu: CurrentUser = Depends(require_roles("
 
 @admin_app.post("/tenants/{tenant_id}/members")
 def admin_add_member(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
-    _check_tenant(cu, tenant_id)
     from saas.security import hash_password
     import secrets as _secrets
     email = body.get("email", "").strip()
     role = body.get("role", "member")
+    if role not in {"owner", "admin", "member", "viewer", "agent"}:
+        raise HTTPException(status_code=422, detail="invalid role")
+    if role in {"owner", "admin"} and cu.user.role != "owner":
+        raise HTTPException(status_code=403, detail="only an owner can add owners or admins")
     display_name = body.get("display_name", email.split("@")[0] if email else "")
     password = body.get("password")
     if not email:
@@ -1303,15 +1741,12 @@ def admin_get_email(tenant_id: int, cu: CurrentUser = Depends(require_roles("own
 @admin_app.put("/tenants/{tenant_id}/email")
 def admin_update_email(tenant_id: int, body: dict[str, Any], cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     _check_tenant(cu, tenant_id)
-    from saas.security import encrypt_value
-    allowed = {"provider", "smtp_host", "smtp_port", "smtp_user", "smtp_password",
-               "from_name", "from_email", "reply_to", "front_desk_email", "backup_email",
-               "delivery_mode", "smtp_security"}
+    # Mailbox servers and passwords are set only through Settings -> Email (PUT /fd/mailbox), which validates
+    # hosts and ports. Accepting them here would bypass that and could send the stored password elsewhere.
+    allowed = {"from_name", "from_email", "reply_to", "front_desk_email", "backup_email", "delivery_mode"}
     fields = {k: v for k, v in body.items() if k in allowed}
-    if "smtp_password" in fields and fields["smtp_password"]:
-        fields["smtp_password_enc"] = encrypt_value(fields.pop("smtp_password"))
-    elif "smtp_password" in fields:
-        fields.pop("smtp_password")
+    if not fields:
+        return {"ok": True, "note": "Connect the clinic mailbox in Settings -> Email."}
 
     with connect() as c:
         existing = rows(c, "SELECT id FROM email_settings WHERE tenant_id = ?", (tenant_id,))
@@ -1424,7 +1859,7 @@ def admin_update_settings(tenant_id: int, body: dict[str, Any], cu: CurrentUser 
         "email_enabled", "widget_enabled", "auto_open", "auto_open_delay",
         "mode", "max_turns", "conciergeEnabled", "aiEnabled",
         "emailEnabled", "leadCollectionEnabled", "widgetEnabled",
-        "autoOpenEnabled", "humanHandoffEnabled",
+        "autoOpenEnabled", "humanHandoffEnabled", "service_options",
     }
     flags = {k: v for k, v in body.items() if k in allowed_flags}
     ai_instructions = body.get("ai_instructions")
@@ -2384,9 +2819,7 @@ def admin_create_api_key(tenant_id: int, body: dict[str, Any], cu: CurrentUser =
 def admin_revoke_api_key(key_id: int, cu: CurrentUser = Depends(require_roles("owner", "admin"))) -> dict:
     from saas.repositories import revoke_api_key, get_api_key
     key = get_api_key(key_id)
-    if not key:
-        raise HTTPException(status_code=404, detail="key not found")
-    _check_tenant(cu, key.tenant_id)
+    _own(cu, key.tenant_id if key else None)
     revoke_api_key(key_id)
     return {"ok": True}
 

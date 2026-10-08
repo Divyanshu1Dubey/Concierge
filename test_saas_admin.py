@@ -139,7 +139,7 @@ class TestAdminAuthRequirements:
     def test_dashboard_requires_auth(self):
         tenant, _ = _make_tenant()
         client = TestClient(admin_app)
-        r = client.get(f"/admin/dashboard/{tenant.id}")
+        r = client.get(f"/dashboard/{tenant.id}")
         assert r.status_code == 401
 
 
@@ -504,7 +504,8 @@ class TestEmailSettingsCRUD:
             row_data = row(c, "SELECT * FROM email_settings WHERE tenant_id = ?", tenant.id)
         assert row_data is not None
         assert row_data["from_name"] == "First Clinic"
-        assert row_data["smtp_host"] == "smtp1.test.com"
+        # Mail servers are only set through Settings -> Email (validated); this legacy route ignores them.
+        assert row_data["smtp_host"] is None
 
     def test_get_persists_email_settings(self):
         tenant, _ = _make_tenant()
@@ -515,15 +516,14 @@ class TestEmailSettingsCRUD:
         r = client.put(
             f"/tenants/{tenant.id}/email",
             headers={**_headers(token), "Content-Type": "application/json"},
-            json={"smtp_host": "smtp.test.com"},
+            json={"smtp_host": "evil.internal", "smtp_password": "x", "reply_to": "desk@test.com"},
         )
         assert r.status_code == 200
 
-        # Verify via direct DB query
+        # Verify via direct DB query: allowed fields persist, server/password fields are ignored
         with connect() as c:
             c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             row_data = row(c, "SELECT * FROM email_settings WHERE tenant_id = ?", tenant.id)
         assert row_data is not None
-        assert row_data["smtp_host"] == "smtp.test.com"
-        # from_name was never set so returns None in DB
-        assert row_data.get("from_name") is None
+        assert row_data["reply_to"] == "desk@test.com"
+        assert row_data["smtp_host"] is None and row_data["smtp_password_enc"] is None

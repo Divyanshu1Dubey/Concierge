@@ -1,0 +1,5 @@
+# Skipped by `railway up` (on top of .gitignore): not part of the deployed app.
+/frontend/
+/tests/
+/Raleigh_Dentistry_*.html
+/bundle_raw.txt

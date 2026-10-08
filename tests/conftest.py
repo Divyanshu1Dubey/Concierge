@@ -17,6 +17,7 @@ os.environ["CONCIERGE_OUTBOX"] = os.path.join(_tmp, "outbox")
 os.environ["CONCIERGE_USE_LLM"] = "0"
 os.environ["CONCIERGE_SMTP_DRYRUN"] = "1"
 os.environ["CONCIERGE_DEMO"] = "1"
+os.environ["CONCIERGE_SCHEDULER"] = "0"
 
 import pytest  # noqa: E402
 from saas.config import get_settings  # noqa: E402

@@ -1,9 +1,13 @@
+# Railway deploy for concierge.heyjarvis.ai. Builds the Dockerfile (start command is its CMD).
+# Needs a volume mounted at /data with DATABASE_URL=/data/saas.db, and exactly one replica:
+# the mailbox/follow-up scheduler runs inside the web process.
 [build]
-builder = "nixpacks"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "uv run uvicorn saas.main:app --host 0.0.0.0 --port $PORT"
-restartPolicyType = "on-failure"
+numReplicas = 1
+restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
 healthcheckPath = "/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 60

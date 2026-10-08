@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 import pytest
 from fastapi.testclient import TestClient
+from saas.main import app as _main_app
 
 from saas.conversation import ConversationEngine, ConversationContext, FieldDef, State
 from saas.database import connect
@@ -75,7 +76,7 @@ def _make_tenant(name="Test Tenant", slug=None):
 class TestWidgetLoad:
     def test_widget_js_served(self):
         """GET /widget.js should return JavaScript content."""
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.get("/widget.js")
         assert r.status_code == 200
         assert "javascript" in r.headers.get("content-type", "")
@@ -85,7 +86,7 @@ class TestWidgetLoad:
 
     def test_widget_js_is_cacheable(self):
         """Widget JS should not require auth."""
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.get("/widget.js")
         assert r.status_code == 200
         assert r.status_code != 401
@@ -99,7 +100,7 @@ class TestConversationStart:
     def test_start_creates_conversation(self):
         """POST /api/v1/public/conversations should create a conversation and return greeting."""
         tenant, pub = _make_tenant()
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": pub})
         assert r.status_code == 200
         body = r.json()
@@ -112,7 +113,7 @@ class TestConversationStart:
     def test_start_tracks_analytics_event(self):
         """Starting a conversation should create a conversation_started analytics event."""
         tenant, pub = _make_tenant()
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": pub})
         assert r.status_code == 200
 
@@ -132,20 +133,20 @@ class TestConversationStart:
                 "INSERT INTO tenant_settings (tenant_id, flags, updated_at) VALUES (?, ?, ?)",
                 (tenant.id, json.dumps({"greeting": "Welcome! How can I help?"}), "2024-01-01T00:00:00Z")
             )
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": pub})
         assert r.status_code == 200
         assert r.json()["reply"] == "Welcome! How can I help?"
 
     def test_start_requires_valid_client_key(self):
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": "invalid"})
         assert r.status_code == 401
 
     def test_start_creates_message_record(self):
         """Starting a conversation should persist an assistant greeting message."""
         tenant, pub = _make_tenant()
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": pub})
         conv_id = r.json()["conversation_id"]
 
@@ -164,7 +165,7 @@ class TestMessageSending:
     def test_send_message_returns_reply(self):
         """Sending a message should return an assistant reply."""
         tenant, pub = _make_tenant()
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": pub})
         conv_id = r.json()["conversation_id"]
 
@@ -182,7 +183,7 @@ class TestMessageSending:
     def test_send_message_persists_both_messages(self):
         """Both user and assistant messages should be stored."""
         tenant, pub = _make_tenant()
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": pub})
         conv_id = r.json()["conversation_id"]
 
@@ -206,7 +207,7 @@ class TestMessageSending:
     def test_send_message_increments_turn_count(self):
         """Each message call should increment the turn count for that interaction."""
         tenant, pub = _make_tenant()
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": pub})
         conv_id = r.json()["conversation_id"]
 
@@ -231,7 +232,7 @@ class TestMessageSending:
         """A different tenant should not be able to message another's conversation."""
         t1, k1 = _make_tenant("A")
         t2, k2 = _make_tenant("B")
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": k1})
         conv_id = r.json()["conversation_id"]
 
@@ -245,7 +246,7 @@ class TestMessageSending:
     def test_message_nonexistent_conversation(self):
         """Messaging a non-existent conversation should 404."""
         tenant, pub = _make_tenant()
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.post(
             "/api/v1/public/conversations/99999/messages",
             params={"client_key": pub},
@@ -262,7 +263,7 @@ class TestFieldExtraction:
         engine = ConversationEngine({"fields": [FieldDef(key="name", label="Name", required=True)]})
         ctx = ConversationContext(conversation_id=1, tenant_id=1, turn_count=1)
         engine._reply_for(ctx, "My name is Alice")
-        assert ctx.fields.get("name") == "My name is Alice"
+        assert ctx.fields.get("name") == "Alice"
 
     def test_extract_email(self):
         engine = ConversationEngine({"fields": [
@@ -316,7 +317,7 @@ class TestFieldExtraction:
 class TestErrorHandling:
     def test_invalid_client_key_rejected(self):
         """Requests with an invalid client key should return 401."""
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.get("/api/v1/public/config", params={"client_key": "nonexistent"})
         assert r.status_code == 401
 
@@ -328,7 +329,7 @@ class TestErrorHandling:
             if key_row:
                 revoke_api_key(key_row[0])
 
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": pub})
         assert r.status_code == 401
 
@@ -348,7 +349,7 @@ class TestErrorHandling:
                 c.execute("INSERT INTO tenant_settings (tenant_id, flags, updated_at) VALUES (?, ?, ?)",
                           (tenant.id, json.dumps({}), "2024-01-01T00:00:00Z"))
 
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": pub})
         assert r.status_code in (403, 404)
 
@@ -356,7 +357,7 @@ class TestErrorHandling:
         """Messages across tenant boundaries should be rejected."""
         t1, k1 = _make_tenant("T1")
         t2, k2 = _make_tenant("T2")
-        client = TestClient(public_app)
+        client = TestClient(_main_app)
 
         r = client.post("/api/v1/public/conversations", params={"client_key": k1})
         conv_id = r.json()["conversation_id"]

@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings</title>
+<style>
+:root{
+  --page:#ede3d8; --frame:#faf7f3; --card:#fdfbf8; --soft:#f3eee8; --sel:#e9e6dc; --line:#e7e0d7;
+  --text:#2a211d; --muted:#7d726b; --ink:#3a2a24; --sage:#7c8c6e; --sage-soft:#e6eadf; --danger:#b5463a; --ok:#4f6b3e;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--page);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;padding:20px}
+.app{height:calc(100vh - 40px);background:var(--frame);border-radius:16px;box-shadow:0 10px 40px rgba(80,55,35,.10);display:flex;flex-direction:column;overflow:hidden}
+button,input,select,textarea{font:inherit;color:inherit}
+.bar{display:flex;align-items:center;gap:18px;padding:16px 28px;border-bottom:1px solid var(--line)}
+.logo{display:flex;align-items:center;gap:8px;font-family:Georgia,"Times New Roman",serif;font-size:24px;color:inherit;text-decoration:none}
+.sep{width:1px;height:28px;background:var(--line)}
+.grow{flex:1}
+.back{color:var(--text);text-decoration:none;display:flex;align-items:center;gap:6px;font-size:15px;padding:7px 12px;border-radius:9px}
+.back:hover{background:var(--soft)}
+h1{font-size:30px;font-weight:600;margin:22px 34px 16px;letter-spacing:-.01em}
+.body{flex:1;display:flex;gap:10px;padding:0 18px 18px;min-height:0}
+nav{width:240px;flex-shrink:0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;align-self:flex-start}
+nav a{display:block;padding:10px 14px;border-radius:10px;color:var(--text);text-decoration:none;font-weight:500}
+nav a:hover{background:var(--soft)}
+nav a.sel{background:var(--sel)}
+main{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow-y:auto;padding:8px 34px 40px;scroll-behavior:smooth}
+section{padding:26px 0;border-bottom:1px solid var(--line)}
+section:last-child{border-bottom:0}
+h2{font-size:22px;font-weight:600;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 18px;max-width:640px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px;max-width:760px}
+.grid .full{grid-column:1/-1}
+label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:6px}
+input,select,textarea{width:100%;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 13px;font-size:15px}
+textarea{min-height:90px;line-height:1.55;resize:vertical}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#cdbfb2}
+input:disabled,select:disabled,textarea:disabled{background:var(--soft);color:var(--muted)}
+.btn{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 18px;cursor:pointer;font-weight:500;box-shadow:0 1px 2px rgba(60,40,25,.05)}
+.btn:hover{background:var(--soft)}
+.btn.dark{background:var(--ink);border-color:var(--ink);color:#fff;padding:11px 24px}
+.btn.dark:hover{opacity:.9;background:var(--ink)}
+.btn.link{border:0;box-shadow:none;background:none;color:var(--danger);padding:6px 10px}
+.btn:disabled{opacity:.55;cursor:default}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:18px}
+.hint{font-size:14px;color:var(--muted)}
+.status{display:flex;align-items:center;gap:10px;background:var(--soft);border-radius:12px;padding:14px 16px;margin-bottom:18px;max-width:760px;flex-wrap:wrap}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--muted);flex-shrink:0}
+.dot.on{background:var(--sage)}
+.status .grow{min-width:10px}
+.seg{display:inline-flex;background:var(--soft);border-radius:12px;padding:4px;gap:4px;flex-wrap:wrap;margin-bottom:18px}
+.seg button{border:0;background:none;padding:8px 14px;border-radius:9px;cursor:pointer;font-weight:500;color:var(--muted)}
+.seg button.on{background:#fff;color:var(--text);box-shadow:0 1px 3px rgba(60,40,25,.12)}
+details.adv{max-width:760px;margin-top:14px}
+details.adv summary{cursor:pointer;color:var(--muted);font-size:14px}
+.msg{margin-top:12px;font-size:14px;max-width:760px}
+.msg.ok{color:var(--ok)} .msg.err{color:var(--danger)}
+.people{max-width:760px;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:18px}
+.person{display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--line);background:#fff}
+.person:last-child{border-bottom:0}
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--sage-soft);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;flex-shrink:0}
+.person .who{flex:1;min-width:0}
+.person .n{font-weight:500}
+.person .e{font-size:14px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.pill{font-size:12px;padding:3px 10px;border-radius:999px;background:var(--soft);color:var(--muted);white-space:nowrap}
+.step{max-width:760px;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px;background:#fff}
+.step .top{display:grid;grid-template-columns:1fr 150px 150px auto;gap:10px;align-items:end}
+.step details{margin-top:10px}
+.step summary{cursor:pointer;font-size:14px;color:var(--muted)}
+.rule{max-width:760px;display:grid;grid-template-columns:1fr 2fr auto;gap:10px;align-items:end;margin-bottom:10px}
+.toggle{display:flex;align-items:center;gap:10px;font-weight:500;margin-bottom:14px}
+.toggle input{width:auto}
+.toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 20px;border-radius:10px;font-size:14px;z-index:10}
+.readonly-note{background:var(--soft);border-radius:10px;padding:10px 14px;color:var(--muted);font-size:14px;margin-bottom:16px;max-width:760px;display:none}
+@media (max-width:860px){body{padding:0}.app{height:100vh;border-radius:0}nav{display:none}main{padding:8px 20px 30px}.grid{grid-template-columns:1fr}.step .top{grid-template-columns:1fr 1fr}.rule{grid-template-columns:1fr}h1{margin:16px 20px 10px;font-size:24px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="bar">
+    <a class="logo" href="/frontdesk"><svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14z" fill="#8a9a7b"/><path d="M5 19c3-5 6-8 10-10" stroke="#fdfbf8" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>HeyJarvis</a>
+    <div class="sep"></div>
+    <div id="clinic-name" style="opacity:.85"></div>
+    <div class="grow"></div>
+    <a class="back" href="/frontdesk"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Patient requests</a>
+  </div>
+  <h1>Settings</h1>
+  <div class="body">
+    <nav id="nav">
+      <a href="#clinic" class="sel">Clinic details</a>
+      <a href="#email">Email</a>
+      <a href="#team">Team</a>
+      <a href="#followups">Follow-ups</a>
+    </nav>
+    <main id="main">
+      <div class="readonly-note" id="readonly">You can view these settings. Ask the clinic owner or an admin to change them.</div>
+
+      <section id="clinic">
+        <h2>Clinic details</h2>
+        <p class="sub">Shown to patients in emails and the website chat, for example in replies to emergencies. The AI only uses what you enter here.</p>
+        <div class="grid">
+          <div class="full"><label for="c-name">Clinic name</label><input id="c-name" class="mgr"></div>
+          <div><label for="c-phone">Phone</label><input id="c-phone" class="mgr" placeholder="(919) 555-0100"></div>
+          <div><label for="c-website">Website</label><input id="c-website" class="mgr" placeholder="https://www.yourclinic.com"></div>
+          <div class="full"><label for="c-address">Address</label><input id="c-address" class="mgr" placeholder="123 Main St, Raleigh, NC 27601"></div>
+          <div class="full"><label for="c-hours">Office hours</label><input id="c-hours" class="mgr" placeholder="Mon–Thu 8am–5pm, Fri 8am–1pm"></div>
+        </div>
+        <div class="row"><button class="btn dark mgr" onclick="saveClinic()">Save clinic details</button><span class="msg" id="c-msg"></span></div>
+      </section>
+
+      <section id="email">
+        <h2>Email</h2>
+        <p class="sub">Replies are sent from your clinic's own email address, and patient replies are read back into HeyJarvis. Nothing in your mailbox is marked read, moved or deleted, and only emails from patients are saved.</p>
+        <div class="status" id="mb-status"></div>
+        <div class="seg" id="mb-providers"></div>
+        <div class="grid">
+          <div><label for="mb-address">Clinic email address</label><input id="mb-address" type="email" class="mgr" placeholder="frontdesk@yourclinic.com"></div>
+          <div><label for="mb-name">Name patients see</label><input id="mb-name" class="mgr" placeholder="Raleigh Comprehensive Dentistry"></div>
+          <div class="full" id="mb-pass-wrap"><label for="mb-pass" id="mb-pass-label">Mailbox password</label><input id="mb-pass" type="password" class="mgr" autocomplete="new-password"><div class="hint" id="mb-pass-hint" style="margin-top:6px"></div></div>
+        </div>
+        <details class="adv" id="mb-adv">
+          <summary>Server settings</summary>
+          <div class="grid" style="margin-top:12px">
+            <div class="full"><label for="mb-user">Login username <span style="font-weight:400">(if different from the email address)</span></label><input id="mb-user" class="mgr" autocomplete="off"></div>
+            <div><label for="mb-smtp-host">Outgoing server (SMTP)</label><input id="mb-smtp-host" class="mgr" placeholder="smtp.yourprovider.com"></div>
+            <div><label for="mb-smtp-port">Port</label><select id="mb-smtp-port" class="mgr"><option>465</option><option>587</option><option>25</option><option>2525</option></select></div>
+            <div><label for="mb-imap-host">Incoming server (IMAP)</label><input id="mb-imap-host" class="mgr" placeholder="imap.yourprovider.com"></div>
+            <div><label for="mb-imap-port">Port</label><select id="mb-imap-port" class="mgr"><option>993</option><option>143</option></select></div>
+          </div>
+        </details>
+        <div class="row">
+          <button class="btn dark mgr" id="mb-connect" onclick="connectMailbox()">Connect &amp; test</button>
+          <button class="btn mgr" id="mb-google" style="display:none" onclick="connectGoogle()">Sign in with Google instead</button>
+        </div>
+        <div class="msg" id="mb-msg"></div>
+      </section>
+
+      <section id="team">
+        <h2>Team</h2>
+        <p class="sub">Everyone who answers patient requests. Teammates sign in with their email address and a 6-digit code we email them, so there are no passwords to share.</p>
+        <div class="people" id="people"></div>
+        <div class="grid">
+          <div><label for="t-email">Email</label><input id="t-email" type="email" class="mgr" placeholder="name@yourclinic.com"></div>
+          <div><label for="t-name">Name</label><input id="t-name" class="mgr" placeholder="Jamie Lee"></div>
+          <div><label for="t-role">Access</label><select id="t-role" class="mgr"><option value="member">Replies to patients</option><option value="admin">Replies and changes settings</option></select></div>
+        </div>
+        <div class="row"><button class="btn dark mgr" onclick="addTeammate()">Add &amp; send invite</button><span class="msg" id="t-msg"></span></div>
+      </section>
+
+      <section id="followups">
+        <h2>Follow-ups</h2>
+        <p class="sub">Every new request gets the same follow-up schedule. Each email is written for you and waits in <b>Patient requests</b> until someone clicks Approve &amp; send. Timing counts from the last email the patient received.</p>
+        <label class="toggle"><input type="checkbox" id="f-enabled" class="mgr"> Automatic follow-ups on</label>
+        <div id="f-steps"></div>
+        <button class="btn mgr" onclick="addStep()">+ Add follow-up</button>
+        <h3 style="margin:26px 0 4px;font-size:17px">When a patient replies</h3>
+        <p class="sub" style="margin-bottom:12px">The first matching rule runs. Reply types: <span id="f-types"></span>.<br>
+          Actions (comma separated): <code>stop</code>, <code>pause</code>, <code>resume</code>, <code>skip:&lt;step id&gt;</code>, <code>set_status:booked</code>, <code>task:Call the patient</code>, <code>draft_reply</code></p>
+        <div id="f-rules"></div>
+        <button class="btn mgr" onclick="addRule()">+ Add rule</button>
+        <div class="row"><button class="btn dark mgr" onclick="saveCadence()">Save follow-ups</button><span class="msg" id="f-msg"></span></div>
+      </section>
+    </main>
+  </div>
+</div>
+<script>
+var API = location.origin + '/api/admin';
+var mb = {}, provider = 'einstein', cadence = null, replyTypes = [], isManager = false;
+
+// Escapes quotes too: values also land inside attributes (value="...", href="...").
+function esc(v) { return v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+function $(id) { return document.getElementById(id); }
+function toast(m) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 2600); }
+function say(id, text, ok) { var el = $(id); el.className = 'msg ' + (ok ? 'ok' : 'err'); el.innerHTML = text; }
+// Server timestamps are UTC without a zone suffix; read them as UTC so times show in the viewer's local time.
+function toDate(ts) { if (!ts) return new Date(NaN); var s = String(ts); if (/^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(s)) s += 'Z'; return new Date(s); }
+function when(ts) { return ts ? toDate(ts).toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) : ''; }
+
+async function api(path, opts) {
+  opts = opts || {};
+  var h = {'Authorization': 'Bearer ' + localStorage.getItem('fd_jwt')};
+  if (opts.body) h['Content-Type'] = 'application/json';
+  var r = await fetch(API + path, {method: opts.method || 'GET', headers: h, body: opts.body ? JSON.stringify(opts.body) : undefined});
+  if (r.status === 401) { location.href = '/frontdesk'; throw new Error('signed out'); }
+  var data = await r.json().catch(function () { return {}; });
+  if (!r.ok) { var e = new Error(data.detail || 'Something went wrong'); e.detail = data.detail; throw e; }
+  return data;
+}
+
+// ── Clinic details ─────────────────────────────────────────────────────────
+async function loadClinic() {
+  var c = await api('/fd/clinic');
+  $('clinic-name').textContent = c.name || '';
+  ['name', 'phone', 'website', 'address', 'hours'].forEach(function (k) { $('c-' + k).value = c[k] || ''; });
+}
+async function saveClinic() {
+  var body = {};
+  ['name', 'phone', 'website', 'address', 'hours'].forEach(function (k) { body[k] = $('c-' + k).value.trim(); });
+  try { var c = await api('/fd/clinic', {method: 'PUT', body: body}); $('clinic-name').textContent = c.name; say('c-msg', 'Saved.', true); }
+  catch (e) { say('c-msg', esc(e.detail || e.message)); }
+}
+
+// ── Email ──────────────────────────────────────────────────────────────────
+var ORDER = ['einstein', 'gmail', 'custom'];
+async function loadMailbox() {
+  mb = await api('/fd/mailbox');
+  var st = $('mb-status');
+  if (mb.connected) {
+    var label = (mb.providers[mb.provider] || {}).label || 'Email';
+    st.innerHTML = '<span class="dot on"></span><div><b>Connected: ' + esc(mb.address) + '</b><div class="hint">' + esc(mb.method === 'oauth' ? 'Google sign-in' : label) +
+      (mb.last_sync_at ? ' · replies last checked ' + when(mb.last_sync_at) : '') + (mb.sent_folder ? ' · sent folder "' + esc(mb.sent_folder) + '"' : '') + '</div>' +
+      (mb.last_sync_error ? '<div class="hint" style="color:var(--danger)">' + esc(mb.last_sync_error) + '</div>' : '') + '</div><span class="grow"></span>' +
+      '<button class="btn mgr" onclick="testSend()">Send me a test email</button><button class="btn link mgr" onclick="disconnect()">Disconnect</button>';
+    provider = mb.provider || 'gmail';
+    $('mb-address').value = mb.address || '';
+  } else {
+    st.innerHTML = '<span class="dot"></span><div><b>Not connected</b><div class="hint">' +
+      (mb.demo_mode ? 'Demo mode: replies are recorded in HeyJarvis but not emailed until a mailbox is connected.' : 'Connect the address patients should get replies from.') + '</div></div>';
+  }
+  $('mb-name').value = mb.from_name || '';
+  $('mb-providers').innerHTML = ORDER.map(function (k) {
+    return '<button class="mgr' + (k === provider ? ' on' : '') + '" onclick="pickProvider(\'' + k + '\')">' + esc(mb.providers[k].label) + '</button>';
+  }).join('');
+  pickProvider(provider, true);
+  applyRole();
+}
+function pickProvider(k, keepFields) {
+  provider = k;
+  document.querySelectorAll('#mb-providers button').forEach(function (b, i) { b.classList.toggle('on', ORDER[i] === k); });
+  var p = mb.providers[k] || {};
+  var useCurrent = keepFields && mb.connected && mb.provider === k;
+  $('mb-smtp-host').value = useCurrent ? (mb.smtp_host || '') : (p.smtp_host || '');
+  $('mb-smtp-port').value = String(useCurrent ? mb.smtp_port : p.smtp_port);
+  $('mb-imap-host').value = useCurrent ? (mb.imap_host || '') : (p.imap_host || '');
+  $('mb-imap-port').value = String(useCurrent ? mb.imap_port : p.imap_port);
+  $('mb-user').value = useCurrent && mb.username !== mb.address ? (mb.username || '') : '';
+  $('mb-adv').open = k === 'custom';
+  var labels = {
+    gmail: ['Google app password', 'Google Account → Security → 2-Step Verification → App passwords. Not your normal Google password.'],
+    einstein: ['Mailbox password', 'The password for this email address in Einstein Mail. Einstein Medical support can reset it if you don\'t have it.'],
+    custom: ['Mailbox password', 'Your email provider lists the incoming (IMAP) and outgoing (SMTP) server settings in its help pages.']
+  }[k];
+  $('mb-pass-label').textContent = labels[0];
+  $('mb-pass-hint').textContent = labels[1];
+  $('mb-google').style.display = k === 'gmail' && mb.google_sign_in_available ? '' : 'none';
+}
+async function connectMailbox() {
+  var btn = $('mb-connect'); btn.disabled = true; btn.textContent = 'Connecting…'; $('mb-msg').innerHTML = '';
+  try {
+    var r = await api('/fd/mailbox', {method: 'PUT', body: {
+      provider: provider, address: $('mb-address').value.trim(), from_name: $('mb-name').value.trim(), password: $('mb-pass').value,
+      username: $('mb-user').value.trim(), smtp_host: $('mb-smtp-host').value.trim(), smtp_port: +$('mb-smtp-port').value,
+      imap_host: $('mb-imap-host').value.trim(), imap_port: +$('mb-imap-port').value}});
+    $('mb-pass').value = '';
+    if (r.test.ok) say('mb-msg', 'Connected. Sending works and patient replies will be tracked' + (r.test.sent_folder ? '' : ' (no Sent folder found, so emails you send outside HeyJarvis won\'t appear in the history)') + '.', true);
+    else say('mb-msg', (r.test.smtp !== 'ok' ? 'Sending: ' + esc(r.test.smtp) + '<br>' : '') + (r.test.imap !== 'ok' ? 'Reading replies: ' + esc(r.test.imap) : ''));
+    await loadMailbox();
+  } catch (e) { say('mb-msg', esc(e.detail || e.message)); }
+  btn.disabled = false; btn.textContent = 'Connect & test';
+}
+async function testSend() {
+  try { var r = await api('/fd/mailbox/test-send', {method: 'POST'}); say('mb-msg', 'Test email sent to ' + esc(r.to) + '. Check that inbox.', true); }
+  catch (e) { say('mb-msg', esc(e.detail || e.message)); }
+}
+async function disconnect() {
+  if (!confirm('Disconnect the clinic mailbox? Replies can\'t be sent or tracked until it\'s connected again.')) return;
+  try { await api('/fd/mailbox', {method: 'DELETE'}); toast('Mailbox disconnected'); await loadMailbox(); } catch (e) { say('mb-msg', esc(e.detail || e.message)); }
+}
+async function connectGoogle() {
+  try { var r = await api('/fd/mailbox/google/start', {method: 'POST', body: {address: $('mb-address').value.trim(), from_name: $('mb-name').value.trim()}}); location.href = r.url; }
+  catch (e) { say('mb-msg', esc(e.detail || e.message)); }
+}
+
+// ── Team ───────────────────────────────────────────────────────────────────
+async function loadTeam() {
+  var d = await api('/fd/team');
+  var me = d.team.filter(function (p) { return p.you; })[0] || {};
+  isManager = me.role === 'owner' || me.role === 'admin';
+  var roleName = {owner: 'Owner', admin: 'Admin', member: 'Front desk', viewer: 'View only', agent: 'Front desk'};
+  teamEmails = {};
+  d.team.forEach(function (p) { teamEmails[p.id] = p.email; });
+  $('people').innerHTML = d.team.map(function (p) {
+    var name = p.display_name || p.email.split('@')[0];
+    var initials = name.split(/[\s.]+/).filter(Boolean).slice(0, 2).map(function (w) { return w[0].toUpperCase(); }).join('');
+    var canRemove = isManager && !p.you && p.role !== 'owner' && !(p.role === 'admin' && me.role !== 'owner');
+    return '<div class="person"><span class="avatar">' + esc(initials) + '</span><div class="who"><div class="n">' + esc(name) + (p.you ? ' <span class="hint">(you)</span>' : '') +
+      '</div><div class="e">' + esc(p.email) + '</div></div><span class="pill">' + esc(roleName[p.role] || p.role) + '</span>' +
+      (canRemove ? '<button class="btn link" onclick="removeTeammate(' + p.id + ')">Remove</button>' : '') + '</div>';
+  }).join('');
+  if (me.role !== 'owner') { var adm = document.querySelector('#t-role option[value="admin"]'); if (adm) adm.remove(); }
+  applyRole();
+}
+async function addTeammate() {
+  try {
+    var r = await api('/fd/team', {method: 'POST', body: {email: $('t-email').value.trim(), name: $('t-name').value.trim(), role: $('t-role').value}});
+    say('t-msg', esc(r.email) + ' added.' + (r.invite_sent ? ' Invite emailed.' : ' Invite email not sent: share the sign-in link with them.'), true);
+    $('t-email').value = ''; $('t-name').value = ''; await loadTeam();
+  } catch (e) { say('t-msg', esc(e.detail || e.message)); }
+}
+var teamEmails = {};
+async function removeTeammate(id) {
+  var email = teamEmails[id] || 'this teammate';
+  if (!confirm('Remove ' + email + '? They will be signed out and can no longer see patient requests.')) return;
+  try { await api('/fd/team/' + id, {method: 'DELETE'}); toast('Removed ' + email); await loadTeam(); } catch (e) { say('t-msg', esc(e.detail || e.message)); }
+}
+
+// ── Follow-ups ─────────────────────────────────────────────────────────────
+async function loadCadence() {
+  var d = await api('/fd/cadence');
+  cadence = d.cadence; replyTypes = d.reply_types;
+  $('f-types').textContent = replyTypes.map(function (t) { return t.replace(/_/g, ' '); }).join(', ') + ', or * for anything';
+  renderCadence();
+}
+function renderCadence() {
+  $('f-enabled').checked = cadence.enabled !== false;
+  $('f-steps').innerHTML = cadence.steps.map(function (st, i) {
+    return '<div class="step"><div class="top">' +
+      '<div><label>Email ' + (i + 1) + '</label><input class="mgr" data-k="name" data-i="' + i + '" value="' + esc(st.name || '') + '"></div>' +
+      '<div><label>Hours after last email</label><input class="mgr" type="number" min="0" data-k="delay_hours" data-i="' + i + '" value="' + esc(st.delay_hours) + '"></div>' +
+      '<div><label>Written by</label><select class="mgr" data-k="mode" data-i="' + i + '"><option value="ai"' + (st.mode !== 'template' ? ' selected' : '') + '>AI</option><option value="template"' + (st.mode === 'template' ? ' selected' : '') + '>Your template</option></select></div>' +
+      '<button class="btn link mgr" onclick="removeStep(' + i + ')">Remove</button></div>' +
+      '<details><summary>Edit wording</summary><div style="margin-top:10px"><label>Instructions for the AI</label><textarea class="mgr" data-k="instruction" data-i="' + i + '">' + esc(st.instruction || '') + '</textarea>' +
+      '<label style="margin-top:10px">Template (used when "Your template" is chosen, or if AI is unavailable). You can use {{name}}, {{service}}, {{practice_name}}, {{clinic_phone}}, {{call_us_at}}, {{signature}}</label>' +
+      '<textarea class="mgr" data-k="template" data-i="' + i + '">' + esc(st.template || '') + '</textarea>' +
+      '<label style="margin-top:10px">Step id (for skip rules)</label><input class="mgr" data-k="id" data-i="' + i + '" value="' + esc(st.id) + '"></div></details></div>';
+  }).join('');
+  $('f-rules').innerHTML = (cadence.on_reply || []).map(function (r, i) {
+    return '<div class="rule"><div><label>If the reply is</label><input class="mgr" data-r="when" data-i="' + i + '" value="' + esc(r.when.join(', ')) + '"></div>' +
+      '<div><label>Then</label><input class="mgr" data-r="do" data-i="' + i + '" value="' + esc(r.do.join(', ')) + '"></div>' +
+      '<button class="btn link mgr" onclick="removeRule(' + i + ')">Remove</button></div>';
+  }).join('');
+  applyRole();
+}
+function splitActions(v) {
+  return v.split(/,\s*(?=(?:stop|pause|resume|draft_reply|skip:|set_status:|task:))/).map(function (x) { return x.trim(); }).filter(Boolean);
+}
+function readCadence() {
+  cadence.enabled = $('f-enabled').checked;
+  document.querySelectorAll('#f-steps [data-k]').forEach(function (el) {
+    cadence.steps[+el.dataset.i][el.dataset.k] = el.dataset.k === 'delay_hours' ? Number(el.value) : el.value;
+  });
+  document.querySelectorAll('#f-rules [data-r]').forEach(function (el) {
+    cadence.on_reply[+el.dataset.i][el.dataset.r] = el.dataset.r === 'do' ? splitActions(el.value)
+      : el.value.split(',').map(function (x) { return x.trim().replace(/ /g, '_'); }).filter(Boolean);
+  });
+}
+function addStep() { readCadence(); var n = cadence.steps.length + 1; cadence.steps.push({id: 'step_' + n, name: 'Follow-up ' + n, delay_hours: 48, mode: 'ai', instruction: '', template: ''}); renderCadence(); }
+function removeStep(i) { readCadence(); cadence.steps.splice(i, 1); renderCadence(); }
+function addRule() { readCadence(); cadence.on_reply.push({when: ['question'], do: ['pause', 'draft_reply']}); renderCadence(); }
+function removeRule(i) { readCadence(); cadence.on_reply.splice(i, 1); renderCadence(); }
+async function saveCadence() {
+  readCadence();
+  try { var d = await api('/fd/cadence', {method: 'PUT', body: cadence}); cadence = d.cadence; renderCadence(); say('f-msg', 'Saved.', true); }
+  catch (e) { say('f-msg', esc(e.detail || e.message)); }
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────
+function applyRole() {
+  document.querySelectorAll('.mgr').forEach(function (el) { el.disabled = !isManager; });
+  $('readonly').style.display = isManager ? 'none' : 'block';
+}
+document.querySelectorAll('#nav a').forEach(function (a) {
+  a.addEventListener('click', function () { document.querySelectorAll('#nav a').forEach(function (b) { b.classList.remove('sel'); }); a.classList.add('sel'); });
+});
+async function init() {
+  if (!localStorage.getItem('fd_jwt')) { location.href = '/frontdesk'; return; }
+  try {
+    await loadTeam();
+    await Promise.all([loadClinic(), loadMailbox(), loadCadence()]);
+    var q = new URLSearchParams(location.search);
+    if (q.has('mailbox') || q.has('mailbox_error')) {
+      history.replaceState(null, '', location.pathname + '#email');
+      document.getElementById('email').scrollIntoView();
+      if (q.get('mailbox') === 'connected') say('mb-msg', 'Connected with Google. Sending and reply tracking are on.', true);
+      else say('mb-msg', esc(q.get('mailbox_error')));
+    }
+  } catch (e) { toast(e.message); }
+}
+init();
+</script>
+</body>
+</html>

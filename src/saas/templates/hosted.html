@@ -18,22 +18,22 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --primary: #1f3b2e;
-    --accent: #2d6a4f;
-    --accent-light: #52b788;
-    --bg: #f3f4f6;
-    --surface: #ffffff;
-    --border: #e5e7eb;
-    --text: #111827;
-    --muted: #6b7280;
-    --user-bubble: linear-gradient(135deg, #1b4332 0%, #2d6a4f 100%);
-    --bot-bubble: #f0fdf4;
+    --primary: #3a2a24;
+    --accent: #3a2a24;
+    --accent-light: #7c8c6e;
+    --bg: #efe4d6;
+    --surface: #fbf8f3;
+    --border: #ece4d9;
+    --text: #2a211d;
+    --muted: #7d726b;
+    --user-bubble: #3a2a24;
+    --bot-bubble: #f0ebe5;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     height: 100%;
     font: 14px/1.5 'Inter', system-ui, -apple-system, sans-serif;
-    background: var(--bg);
+    background: radial-gradient(ellipse at 20% 30%, #fffdf9 0%, rgba(255,253,249,0) 55%), linear-gradient(135deg, #f7efe4 0%, #efe2d1 55%, #e8d6c1 100%);
     color: var(--text);
     -webkit-text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
@@ -50,8 +50,7 @@
   .header {
     flex-shrink: 0;
     padding: 16px 20px;
-    background: linear-gradient(135deg, #1a3c2a 0%, #2d6a4f 100%);
-    color: #fff;
+    background: #fbf8f3; color: #2a211d; border-bottom: 1px solid #ece4d9;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -59,7 +58,7 @@
   .header-brand {
     width: 38px; height: 38px;
     border-radius: 10px;
-    background: rgba(255,255,255,.15);
+    background: #efe6d2;
     display: flex; align-items: center; justify-content: center;
     font-size: 20px;
     flex-shrink: 0;
@@ -82,15 +81,15 @@
   .icon-btn {
     width: 34px; height: 34px;
     border-radius: 8px;
-    border: 1px solid rgba(255,255,255,.25);
-    background: rgba(255,255,255,.12);
-    color: #fff;
+    border: 1px solid #ece4d9;
+    background: transparent;
+    color: #2a211d;
     cursor: pointer;
     font-size: 16px;
     display: flex; align-items: center; justify-content: center;
     transition: background .15s;
   }
-  .icon-btn:hover { background: rgba(255,255,255,.22); }
+  .icon-btn:hover { background: #f1ebe3; }
   .body {
     flex: 1;
     overflow-y: auto;
@@ -144,8 +143,8 @@
     cursor: pointer;
     transition: all .15s;
   }
-  .chip:hover { border-color: var(--accent); background: #eaf5ee; }
-  .chip.picked { border-color: var(--accent); background: #d4ead9; }
+  .chip:hover { border-color: var(--accent); background: #e4ddd4; }
+  .chip.picked { border-color: var(--accent); background: #e4ddd4; }
   .footer {
     flex-shrink: 0;
     padding: 10px 12px;
@@ -171,7 +170,7 @@
   .send {
     border: none;
     border-radius: 12px;
-    background: linear-gradient(135deg, #1a3c2a, #2d6a4f);
+    background: #3a2a24;
     color: #fff;
     padding: 10px 16px;
     font-weight: 700;
@@ -235,7 +234,7 @@
 <body>
   <div class="app">
     <header class="header">
-      <div class="header-brand" aria-hidden="true">&#128172;</div>
+      <div class="header-brand" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
       <div class="header-text">
         <div class="header-title" id="title">{tenant_name} Concierge</div>
         <div class="header-sub">Front Desk Assistant</div>
@@ -245,16 +244,16 @@
       </div>
     </header>
 
-    <div class="body" id="body">
+    <div class="body" id="hj-body">
       <div class="empty-state" id="empty">
-        <div class="icon">&#128172;</div>
+        <div class="icon"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
         <div><strong style="font-size:16px">Welcome to {tenant_name}</strong></div>
         <div style="color:var(--muted);font-size:13px;margin-bottom:12px">How can our front desk team assist you today?</div>
         <div class="options" style="justify-content:center;margin-top:6px">
-          <button class="chip" type="button" onclick="quickSend('I would like to book an appointment')">📅 Book an appointment</button>
-          <button class="chip" type="button" onclick="quickSend('I have urgent tooth pain')">🚨 Emergency pain</button>
-          <button class="chip" type="button" onclick="quickSend('Do you accept dental insurance?')">💳 Insurance & pricing</button>
-          <button class="chip" type="button" onclick="quickSend('I need to reschedule an existing appointment')">🔄 Reschedule visit</button>
+          <button class="chip" type="button" onclick="quickSend('I would like to book an appointment')">Book an appointment</button>
+          <button class="chip" type="button" onclick="quickSend('I have urgent tooth pain')">Emergency pain</button>
+          <button class="chip" type="button" onclick="quickSend('Do you accept dental insurance?')">Insurance & pricing</button>
+          <button class="chip" type="button" onclick="quickSend('I need to reschedule an existing appointment')">Reschedule visit</button>
         </div>
       </div>
     </div>
@@ -270,14 +269,12 @@
     window.__HJ_CONFIG.clientKey = '{client_key}';
     window.__HJ_CONFIG.hosted = true;
     function quickSend(txt) {
+      if (window.__hjHostedSend) { window.__hjHostedSend(txt); return; }
       var m = document.getElementById('msg');
       var s = document.getElementById('send');
-      if (m && s) {
-        m.value = txt;
-        s.click();
-      }
+      if (m && s) { m.value = txt; s.click(); }
     }
   </script>
-  <script src="/static/widget.js" defer></script>
+  <script src="/widget.js?v=20261007" defer></script>
 </body>
 </html>

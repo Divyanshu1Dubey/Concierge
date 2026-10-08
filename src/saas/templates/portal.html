@@ -223,8 +223,8 @@
   </a>
 
   <nav class="nav-tabs">
-    <button class="tab-btn active" onclick="switchView('/desk', this)">
-      <span>🏥</span> AI Front Desk
+    <button class="tab-btn active" onclick="switchView('/frontdesk', this)">
+      <span>🏥</span> Front Desk
     </button>
     <button class="tab-btn" onclick="switchView('/concierge/raleigh-dental-demo', this)">
       <span>💬</span> Patient AI Chat
@@ -232,8 +232,8 @@
     <button class="tab-btn" onclick="switchView('/admin', this)">
       <span>⚙️</span> Admin Console
     </button>
-    <button class="tab-btn" onclick="switchView('/frontdesk', this)">
-      <span>📋</span> Classic Frontdesk
+    <button class="tab-btn" onclick="switchView('/frontdesk/full', this)">
+      <span>📋</span> Settings &amp; Detail View
     </button>
     <button class="tab-btn" onclick="switchView('/install', this)">
       <span>🚀</span> Widget Snippet
@@ -244,7 +244,7 @@
   </nav>
 
   <div class="header-actions">
-    <a id="external-link" href="/desk" target="_blank" class="btn-open" title="Open selected interface in new tab">
+    <a id="external-link" href="/frontdesk" target="_blank" class="btn-open" title="Open selected interface in new tab">
       <span>Open in New Tab</span> ↗
     </a>
   </div>
@@ -261,7 +261,7 @@
 </div>
 
 <main class="main-container">
-  <iframe id="view-frame" src="/desk" title="HeyJarvis Application View"></iframe>
+  <iframe id="view-frame" src="/frontdesk" title="HeyJarvis Application View"></iframe>
 </main>
 
 <script>

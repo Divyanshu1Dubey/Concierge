@@ -16,6 +16,12 @@
  */
 (function () {
   'use strict';
+  var LEAF_SVG = '<svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20c-1-8 3-14 13-16 1 9-4 15-13 16z" fill="#7c8c3e"/><path d="M6 20c2-5 5-9 9-12" stroke="#f3ead8" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>';
+  var SEND_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+  var CLOSE_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  var CHAT_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+  var CHECK_SVG = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7c8c6e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>';
+  var ALERT_SVG = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#b42318" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>';
   try {
     var script = document.currentScript;
     if (!script) return;
@@ -24,19 +30,10 @@
     var clientKey = (script.getAttribute('data-heyjarvis-client') || cfg.clientKey || '').trim();
     if (!clientKey) return;
 
-    var scriptSrc = (script.getAttribute('src') || '');
-    var apiBase = (window.__HJ_API_BASE__ || '').replace(/\/+$/, '');
-    if (!apiBase) {
-      if (scriptSrc.startsWith('http://') || scriptSrc.startsWith('https://')) {
-        try {
-          apiBase = new URL(scriptSrc).origin;
-        } catch (_) {
-          apiBase = scriptSrc.replace(/\/widget\.js\/?$/, '').replace(/\/static\/?$/, '');
-        }
-      } else if (typeof window !== 'undefined' && window.location && window.location.origin) {
-        apiBase = window.location.origin;
-      }
-    }
+    // API lives on the same host that serves widget.js (works for /widget.js and /static/widget.js).
+    var scriptOrigin = '';
+    try { scriptOrigin = new URL(script.src, location.href).origin; } catch (e) {}
+    var apiBase = (window.__HJ_API_BASE__ || scriptOrigin || '').replace(/\/+$/, '');
     if (!apiBase) return;
 
     var formMode = (script.getAttribute('data-heyjarvis-form') || '').toLowerCase() === 'true';
@@ -121,9 +118,7 @@
           .then(function (c) {
             config = c;
             if (titleEl && c.tenant_name) titleEl.textContent = c.tenant_name + ' — Concierge';
-            if (c.greeting) {
-              appendBubble(esc(c.greeting));
-            }
+            // The greeting arrives with the new conversation (startConversation); don't show it twice.
             if (c.form_mode === true || c.form_mode === 'true') {
               switchToForm();
             }
@@ -138,6 +133,7 @@
         }).then(function (data) {
           conversationId = data.conversation_id;
           if (data.reply) appendBubble(esc(data.reply));
+          hostedOptions(data.options);
           return data;
         });
       }
@@ -169,7 +165,7 @@
       }
 
       function resetChat() {
-        bodyEl.innerHTML = '<div class="empty-state" id="empty"><div class="icon">&#128172;</div><div><strong>Chat Reset</strong></div><div>Starting a new conversation...</div></div>';
+        bodyEl.innerHTML = '';
         submitted = false;
         conversationId = null;
         fields = {};
@@ -177,9 +173,28 @@
         initSession();
       }
 
-      sendEl.addEventListener('click', function () {
-        var text = msgEl.value.trim();
+      function hostedOptions(options) {
+        var old = bodyEl.querySelectorAll('.options.reply-options');
+        for (var i = 0; i < old.length; i++) old[i].remove();
+        if (!options || !options.length) return;
+        var wrap = document.createElement('div');
+        wrap.className = 'options reply-options';
+        options.forEach(function (label) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'chip';
+          b.textContent = label;
+          b.addEventListener('click', function () { sendText(label); });
+          wrap.appendChild(b);
+        });
+        bodyEl.appendChild(wrap);
+        bodyEl.scrollTop = bodyEl.scrollHeight;
+      }
+
+      function sendText(text) {
+        text = (text || '').trim();
         if (!text || submitted) return;
+        hostedOptions(null);
         appendBubble(esc(text), true);
         msgEl.value = '';
         showTyping();
@@ -187,6 +202,7 @@
           hideTyping();
           if (!data) return;
           if (data.reply) appendBubble(esc(data.reply));
+          hostedOptions(data.options);
           if (data.state === 'submitted' || data.state === 'complete') {
             markSubmitted(data);
           }
@@ -194,7 +210,10 @@
           hideTyping();
           appendBubble('Connection issue. Please try again or call us directly.');
         });
-      });
+      }
+      window.__hjHostedSend = sendText;
+
+      sendEl.addEventListener('click', function () { sendText(msgEl.value); });
 
       msgEl.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -213,12 +232,16 @@
         var tenant = config && config.tenant_name ? config.tenant_name : 'us';
         setTimeout(function () {
           clearEmpty();
-          bodyEl.innerHTML =
-            '<div class="empty-state">' +
-              '<div class="icon">&#9989;</div>' +
-              '<div><strong>Message Sent!</strong></div>' +
-              '<div>Thank you for reaching out to ' + esc(tenant) + '. We\'ll get back to you shortly.</div>' +
-            '</div>';
+          var el = document.createElement('div');
+          el.className = 'empty-state sent-state';
+          el.innerHTML =
+            '<div class="icon">' + CHECK_SVG + '</div>' +
+            '<div><strong>Request sent</strong></div>' +
+            '<div>Thank you for reaching out to ' + esc(tenant) + '. Our front desk will email you shortly.</div>' +
+            '<button type="button" class="chip" style="margin-top:10px">Start a new request</button>';
+          el.querySelector('button').addEventListener('click', resetChat);
+          bodyEl.appendChild(el);
+          bodyEl.scrollTop = bodyEl.scrollHeight;
         }, 400);
       }
 
@@ -242,6 +265,7 @@
       '  -webkit-text-size-adjust: 100%;',
       '}',
       '/* ── Launcher ── */',
+      '.hj-launcher, .hj-frame { pointer-events: auto; }',
       '.hj-launcher {',
       '  position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;',
       '  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;',
@@ -258,7 +282,7 @@
       '}',
       '.hj-launcher-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 28px rgba(0,0,0,.28); }',
       '.hj-launcher-btn:active { transform: translateY(0); }',
-      '.hj-launcher-icon { font-size: 20px; line-height: 1; }',
+      '.hj-launcher-icon { display: inline-flex; line-height: 1; }',
       '.hj-launcher-label { display: none; }',
       '@media (min-width: 400px) { .hj-launcher-label { display: inline; } }',
       '.hj-badge {',
@@ -376,6 +400,13 @@
       '.hj-success-icon { font-size: 36px; margin-bottom: 6px; }',
       '.hj-success-title { font-weight: 700; font-size: 16px; color: #1a3c2a; margin-bottom: 4px; }',
       '.hj-success-body { font-size: 13px; color: #555; line-height: 1.5; }',
+      '.hj-new-request { margin-top: 12px; border: 1px solid #1a3c2a; background: #fff; color: #1a3c2a; border-radius: 999px;',
+      '  padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }',
+      '.hj-new-request:hover { background: #1a3c2a; color: #fff; }',
+      '.hj-options { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }',
+      '.hj-option { border: 1px solid #2d6a4f; background: #fff; color: #1a3c2a; border-radius: 999px;',
+      '  padding: 7px 12px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; text-align: left; }',
+      '.hj-option:hover, .hj-option:focus-visible { background: #1a3c2a; color: #fff; outline: none; }',
       '/* ── Emergency banner ── */',
       '.hj-emergency {',
       '  background: #fff5f5; border: 2px solid #e74c3c; border-radius: 14px;',
@@ -451,6 +482,40 @@
       '/* ── Scrollbar ── */',
       '.hj-body::-webkit-scrollbar, .hj-form-panel::-webkit-scrollbar { width: 5px; }',
       '.hj-body::-webkit-scrollbar-thumb, .hj-form-panel::-webkit-scrollbar-thumb { background: #d0d0d0; border-radius: 3px; }',
+      /* ── Warm concierge theme ── */
+      '.hj-root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif; color: #2a211d; }',
+      '.hj-frame { background: #fbf8f3; border: 1px solid #ece4d9; border-radius: 22px; box-shadow: 0 18px 50px rgba(80,55,35,.18); width: 400px; max-width: calc(100vw - 32px); height: 620px; max-height: calc(100vh - 110px); overflow: hidden; }',
+      '.hj-head { background: transparent; color: #2a211d; padding: 22px 22px 8px; display: flex; align-items: center; gap: 14px; border: 0; }',
+      '.hj-avatar { width: 50px; height: 50px; border-radius: 50%; background: #efe6d2; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }',
+      '.hj-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }',
+      '.hj-head-title { font-size: 17px; font-weight: 600; color: #2a211d; }',
+      '.hj-head-sub { font-size: 14px; font-weight: 400; color: #8a7f77; }',
+      '.hj-mode-toggle { display: none !important; }',
+      '.hj-head-close { background: none; border: 0; color: #2a211d; cursor: pointer; padding: 6px; border-radius: 8px; display: flex; }',
+      '.hj-head-close:hover { background: #f1ebe3; }',
+      '.hj-body { background: transparent; padding: 14px 22px; gap: 10px; }',
+      '.hj-welcome { margin: 10px 0 6px; }',
+      '.hj-hello { font-size: 15px; color: #5b524c; }',
+      '.hj-big { font-size: 30px; font-weight: 500; letter-spacing: -.01em; margin: 6px 0 6px; color: #1f1915; line-height: 1.15; }',
+      '.hj-subtle { font-size: 15px; color: #7d726b; }',
+      '.hj-options { gap: 8px; margin: 6px 0 4px; }',
+      '.hj-option { border: 0; background: #efebe6; color: #2a211d; border-radius: 999px; padding: 10px 16px; font-size: 15px; font-weight: 400; }',
+      '.hj-option:hover, .hj-option:focus-visible { background: #e4ddd4; color: #2a211d; }',
+      '.hj-bubble { background: #f0ebe5; color: #2a211d; border-radius: 16px 16px 16px 4px; box-shadow: none; border: 0; font-size: 15px; }',
+      '.hj-user-bubble { background: #3a2a24; color: #fff; border-radius: 16px 16px 4px 16px; box-shadow: none; font-size: 15px; }',
+      '.hj-input-area { background: transparent; border-top: 0; padding: 10px 18px 12px; display: block; }',
+      '.hj-input-pill { display: flex; align-items: center; gap: 8px; background: #f1ede8; border: 1px solid #e7e0d7; border-radius: 999px; padding: 6px 6px 6px 18px; }',
+      '.hj-input-pill input { flex: 1; border: 0 !important; background: transparent !important; outline: none; font: inherit; font-size: 15px; color: #2a211d; padding: 8px 0 !important; box-shadow: none !important; min-width: 0; }',
+      '.hj-send-btn { width: 40px; height: 40px; min-width: 40px; border-radius: 50%; background: #3a2a24 !important; color: #fff !important; border: 0; padding: 0 !important; display: flex; align-items: center; justify-content: center; cursor: pointer; }',
+      '.hj-send-btn:disabled { opacity: .45; }',
+      '.hj-powered { text-align: center; font-size: 12px; color: #8a7f77; margin-top: 8px; }',
+      '.hj-powered b { color: #2a211d; font-weight: 600; }',
+      '.hj-launcher-btn { background: #3a2a24; color: #fff; box-shadow: 0 8px 24px rgba(58,42,36,.28); }',
+      '.hj-success { background: #f3efe6; border: 1px solid #e6dccb; border-radius: 16px; }',
+      '.hj-success-title { color: #2a211d; }',
+      '.hj-new-request { border-color: #3a2a24; color: #3a2a24; background: transparent; }',
+      '.hj-new-request:hover { background: #3a2a24; color: #fff; }',
+      '.hj-typing span { background: #b9ab9f; }',
     ].join('\n');
 
     // ── State ────────────────────────────────────────────────────────────────
@@ -471,7 +536,9 @@
 
     // ── DOM Construction ────────────────────────────────────────────────────
     var mount = document.createElement('div');
-    mount.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;pointer-events:none;z-index:-1;';
+    // The zero-size host lets clicks pass through to the page; the launcher and chat window opt back in.
+    // Max z-index so the clinic site's own headers/overlays can't cover the button.
+    mount.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;pointer-events:none;z-index:2147483647;';
     document.documentElement.appendChild(mount);
 
     var shadow = mount.attachShadow({ mode: 'open' });
@@ -487,17 +554,20 @@
     root.innerHTML =
       '<div class="hj-frame" id="hj-frame">' +
         '<div class="hj-head">' +
-          '<span class="hj-head-title" id="hj-title">Chat with us</span>' +
+          '<span class="hj-avatar">' + LEAF_SVG + '</span>' +
+          '<div class="hj-head-text"><span class="hj-head-title" id="hj-title">Chat with us</span>' +
+          '<span class="hj-head-sub">Your smile concierge</span></div>' +
           '<div class="hj-head-actions">' +
             '<button class="hj-mode-toggle" id="hj-mode-toggle" aria-label="Switch to form" title="Switch to form">Form</button>' +
-            '<button class="hj-head-close" id="hj-close" aria-label="Close chat">&times;</button>' +
+            '<button class="hj-head-close" id="hj-close" aria-label="Close chat">' + CLOSE_SVG + '</button>' +
           '</div>' +
         '</div>' +
         '<div class="hj-chat-panel active" id="hj-chat-panel">' +
           '<div class="hj-body" id="hj-body"></div>' +
           '<div class="hj-input-area" id="hj-input-area">' +
-            '<input id="hj-msg" type="text" autocomplete="off" placeholder="Type a message..." aria-label="Message" maxlength="2000"/>' +
-            '<button class="hj-send-btn" id="hj-send" aria-label="Send message">Send</button>' +
+            '<div class="hj-input-pill"><input id="hj-msg" type="text" autocomplete="off" placeholder="Type your message..." aria-label="Message" maxlength="2000"/>' +
+            '<button class="hj-send-btn" id="hj-send" aria-label="Send message">' + SEND_SVG + '</button></div>' +
+            '<div class="hj-powered">Powered by <b>HeyJarvis</b></div>' +
           '</div>' +
         '</div>' +
         '<div class="hj-form-panel" id="hj-form-panel">' +
@@ -506,7 +576,7 @@
       '</div>' +
       '<div class="hj-launcher">' +
         '<button class="hj-launcher-btn" id="hj-open" aria-label="Open chat">' +
-          '<span class="hj-launcher-icon">&#128172;</span>' +
+          '<span class="hj-launcher-icon">' + CHAT_SVG + '</span>' +
           '<span class="hj-launcher-label" id="hj-label">Chat with us</span>' +
           '<span class="hj-badge" id="hj-badge" style="display:none">1</span>' +
         '</button>' +
@@ -543,6 +613,22 @@
       el.innerHTML = html;
       body.appendChild(el);
       scrollToBottom();
+    }
+
+    function clinicPhone() {
+      var cfg = config && config.widget_config;
+      return (cfg && cfg.clinic && cfg.clinic.phone) || '';
+    }
+
+    function appendWelcome() {
+      var name = config && config.tenant_name ? config.tenant_name : '';
+      var short = name.split(/\s+/)[0] || 'us';
+      var el = document.createElement('div');
+      el.className = 'hj-welcome';
+      el.innerHTML = '<div class="hj-hello">Hello, welcome to ' + esc(short) + '.</div>' +
+        '<div class="hj-big">How can we help?</div>' +
+        '<div class="hj-subtle">We can help you plan a visit or answer a question.</div>';
+      appendRaw(el);
     }
 
     function appendRaw(node) {
@@ -823,16 +909,41 @@
       var el = document.createElement('div');
       el.className = 'hj-emergency';
       el.innerHTML =
-        '<div class="hj-emergency-icon">&#128680;</div>' +
+        '<div class="hj-emergency-icon">' + ALERT_SVG + '</div>' +
         '<div class="hj-emergency-title">Emergency Detected</div>' +
-        '<div class="hj-emergency-body">We\'ve noted this as urgent. For immediate assistance, please call us directly at the number on our website. We\'ll prioritize your request.</div>';
+        '<div class="hj-emergency-body">We\'ve noted this as urgent. For immediate help, please call us' +
+        (clinicPhone() ? ' at <a href="tel:' + esc(clinicPhone()) + '">' + esc(clinicPhone()) + '</a>' : ' directly') +
+        '. If you have trouble breathing or swallowing, call 911.</div>';
       appendRaw(el);
+    }
+
+    // Tap-to-answer choices under a question (e.g. "What are you looking to schedule?").
+    function showOptions(options) {
+      clearOptions();
+      if (!options || !options.length) return;
+      var wrap = document.createElement('div');
+      wrap.className = 'hj-options';
+      options.forEach(function (label) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'hj-option';
+        b.textContent = label;
+        b.addEventListener('click', function () { onConversationMessage(label); });
+        wrap.appendChild(b);
+      });
+      appendRaw(wrap);
+    }
+
+    function clearOptions() {
+      var old = body.querySelectorAll('.hj-options');
+      for (var i = 0; i < old.length; i++) old[i].remove();
     }
 
     function onConversationMessage(text) {
       if (submitted) return;
       if (!text || !text.trim()) return;
 
+      clearOptions();
       hideTyping();
       appendBubble(esc(text), true);
 
@@ -860,6 +971,7 @@
         if (data.reply) {
           appendBubble(esc(data.reply));
         }
+        showOptions(data.options);
         if (data.state === 'submitted' || data.state === 'complete') {
           markSubmitted();
         }
@@ -887,21 +999,36 @@
     function markSubmitted() {
       submitted = true;
       setDisabled(true);
-      // Show success confirmation
       hideTyping();
+      // Keep the conversation visible; confirm below it and let the visitor start over.
       setTimeout(function () {
-        body.innerHTML = '';
         var el = document.createElement('div');
         el.className = 'hj-success';
         var tenant = config && config.tenant_name ? config.tenant_name : 'us';
         el.innerHTML =
-          '<div class="hj-success-icon">&#9989;</div>' +
-          '<div class="hj-success-title">Message Sent!</div>' +
+          '<div class="hj-success-icon">' + CHECK_SVG + '</div>' +
+          '<div class="hj-success-title">Request sent</div>' +
           '<div class="hj-success-body">Thank you for reaching out to ' + esc(tenant) + '. ' +
-          'We\'ll get back to you shortly. Have a great day!</div>';
-        body.appendChild(el);
+          'Our front desk will email you shortly.</div>' +
+          '<button type="button" class="hj-new-request">Start a new request</button>';
+        el.querySelector('.hj-new-request').addEventListener('click', startNewRequest);
+        appendRaw(el);
         launcherLabel.textContent = 'Sent';
-      }, 600);
+      }, 400);
+    }
+
+    function startNewRequest() {
+      submitted = false;
+      conversationId = null;
+      fields = {};
+      errorCount = 0;
+      emergencyDetected = false;
+      body.innerHTML = '';
+      setDisabled(false);
+      launcherLabel.textContent = 'Chat with us';
+      started = true;
+      initSession();
+      msgInput.focus();
     }
 
     // ── Form Mode ────────────────────────────────────────────────────────────
@@ -909,7 +1036,7 @@
       formBody.innerHTML = '';
       if (submitted) {
         formBody.innerHTML =
-          '<div class="hj-success"><div class="hj-success-icon">&#9989;</div>' +
+          '<div class="hj-success"><div class="hj-success-icon">' + CHECK_SVG + '</div>' +
           '<div class="hj-success-title">Message Sent!</div>' +
           '<div class="hj-success-body">Thank you! We\'ll be in touch shortly.</div></div>';
         return;
@@ -1056,7 +1183,7 @@
       return api('/api/v1/public/config?client_key=' + encodeURIComponent(clientKey))
         .then(function (c) {
           config = c;
-          if (c.tenant_name) titleEl.textContent = c.tenant_name + ' — Concierge';
+          if (c.tenant_name) titleEl.textContent = c.tenant_name;
           if (c.greeting) fields._greeting = c.greeting;
           if (c.greeting) {
             appendBubble(esc(c.greeting));
@@ -1082,9 +1209,8 @@
             if (data.fields[keys[i]]) fields[keys[i]] = data.fields[keys[i]];
           }
         }
-        if (data.reply) {
-          appendBubble(esc(data.reply));
-        }
+        appendWelcome();
+        showOptions(data.options);
         return data;
       });
     }

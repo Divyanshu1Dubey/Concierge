@@ -108,14 +108,67 @@ def reset_db():
     print("Database reset complete.")
 
 
+def onboard():
+    """Create a clinic: tenant, owner login, widget key, allowed domains. Prints the snippet to paste."""
+    import argparse
+    import secrets as _secrets
+
+    from saas.config import get_settings
+    from saas.repositories import add_domain, create_api_key, create_tenant, create_user, get_tenant_by_slug, verify_domain
+
+    ap = argparse.ArgumentParser(prog="heyjarvis onboard")
+    ap.add_argument("--slug", required=True, help="clinic id used to log in, e.g. raleigh-dentistry")
+    ap.add_argument("--name", required=True, help="clinic name patients see")
+    ap.add_argument("--owner-email", required=True, help="front desk owner's login email")
+    ap.add_argument("--domain", action="append", default=[], help="website domain (repeatable), e.g. raleighdentistry.com")
+    ap.add_argument("--phone", default="", help="clinic phone shown to patients, e.g. '(919) 555-0100'")
+    ap.add_argument("--address", default="", help="clinic street address")
+    ap.add_argument("--hours", default="", help="office hours, e.g. 'Mon-Fri 8am-5pm'")
+    args = ap.parse_args(sys.argv[2:])
+
+    if get_tenant_by_slug(args.slug):
+        print(f"Clinic '{args.slug}' already exists. Nothing changed.")
+        sys.exit(1)
+    tenant = create_tenant(slug=args.slug, name=args.name)
+    # No password: staff log in with a code emailed to them.
+    create_user(tenant.id, args.owner_email.strip().lower(), display_name="Owner", password=None, role="owner")
+    key = create_api_key(tenant.id, "website", _secrets.token_urlsafe(24))
+    if args.phone or args.address or args.hours:
+        from saas.repositories import save_clinic_profile
+        save_clinic_profile(tenant.id, {"phone": args.phone, "address": args.address, "hours": args.hours})
+    domains = []
+    for d in args.domain:
+        d = d.strip().lower().replace("https://", "").replace("http://", "").split("/")[0]
+        for host in dict.fromkeys([d, d[4:] if d.startswith("www.") else "www." + d]):
+            dom = add_domain(tenant.id, host)
+            verify_domain(dom.id)
+            domains.append(host)
+
+    app_url = get_settings().app_url.rstrip("/")
+    print(f"""
+Clinic created: {args.name} (id {tenant.id})
+
+Front desk:   {app_url}/frontdesk?clinic={args.slug}
+  Clinic ID:  {args.slug}
+  Login:      {args.owner_email}  (click "Email me a login code"; no password)
+Domains:      {', '.join(domains) or '(none - add with --domain)'}
+Hosted chat:  {app_url}/concierge/{args.slug}
+
+Website snippet (paste before </body> on every page):
+
+<script async src="{app_url}/widget.js" data-heyjarvis-client="{key.public_key}"></script>
+""")
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: uv run python -m saas.cli <command>")
-        print("Commands: migrate, seed-demo, build-wordpress, reset-db")
+        print("Commands: onboard, migrate, seed-demo, build-wordpress, reset-db")
         sys.exit(1)
 
     command = sys.argv[1]
     commands = {
+        "onboard": onboard,
         "migrate": migrate,
         "seed-demo": seed_demo,
         "build-wordpress": build_wordpress,

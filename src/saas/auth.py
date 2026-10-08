@@ -29,9 +29,9 @@ class CurrentUser(BaseModel):
 
 def authenticate(tenant_id: int, email: str, password: str | None = None) -> User:
     user = get_user_by_email(tenant_id, email)
-    if not user:
+    if not user or user.role == "removed":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
-    if password is not None and user.hashed_password and not verify_password(password, user.hashed_password):
+    if not password or not user.hashed_password or not verify_password(password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
     return user
 
@@ -51,12 +51,15 @@ async def get_current(authorization: str | None = Depends(oauth2)) -> CurrentUse
     if not authorization:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
     token = authorization.strip()
-    claims = decode_token(token)
+    try:
+        claims = decode_token(token)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token")
     sub = claims.get("sub")
     if not sub:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token claims")
     user = get_user(int(sub))
-    if not user:
+    if not user or user.role == "removed":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="user not found")
     tid = claims.get("tid")
     if tid is not None and user.tenant_id != int(tid):

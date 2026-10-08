@@ -5,7 +5,7 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
-from saas.database import connect, insert, now_iso, row, rows
+from saas.database import connect, insert, now_iso, row, rows, utcnow
 from saas.result import Result
 from saas.models import ApiKey, Domain, Tenant, User
 from saas.security import hash_password
@@ -30,7 +30,7 @@ def get_tenant(tid: int) -> Tenant | None:
 def get_tenant_by_slug(slug: str) -> Tenant | None:
     with connect() as c:
         r = row(c, "SELECT * FROM tenants WHERE slug = ?", (slug,))
-    if not r and slug in ("raleigh-dental-demo", "demo"):
+    if not r and slug in ("raleigh-dental-demo", "demo") and _demo_allowed():
         return ensure_demo_data()
     return _tenant_from(r) if r else None
 
@@ -190,9 +190,11 @@ def create_lead(tenant_id: int, lead: dict[str, Any] | None = None, **kwargs) ->
     with connect() as c:
         lid = insert(c, "leads", tenant_id=tenant_id, conversation_id=data.get("conversation_id"), name=data.get("name"),
                      email=data.get("email"), phone=data.get("phone"), intent=data.get("intent"), service=data.get("service"),
-                     urgency=data.get("urgency"), preferred_date=data.get("preferredDate"), preferred_time=data.get("preferredTime"),
+                     urgency=data.get("urgency"), preferred_date=data.get("preferredDate") or data.get("preferred_date"),
+                     preferred_time=data.get("preferredTime") or data.get("preferred_time"),
                      insurance=data.get("insurance"), financing=data.get("financing"), message=data.get("message"),
-                     conversation_summary=data.get("conversationSummary"), source=data.get("source"), page_url=data.get("pageUrl"),
+                     conversation_summary=data.get("conversationSummary") or data.get("_summary"), source=data.get("source"),
+                     page_url=data.get("pageUrl") or data.get("page_url"),
                      status=data.get("status", "new"), created_at=now_iso(), updated_at=now_iso(), metadata=_json(data.get("metadata")))
     return Result({"id": lid, "tenant_id": tenant_id})
 
@@ -533,8 +535,17 @@ def _loads(raw: str) -> dict[str, Any]:
         return {}
 
 
+def _demo_allowed() -> bool:
+    """The demo clinic has well-known logins; it must never exist on a production server."""
+    import os
+    from saas.config import get_settings
+    return not get_settings().is_production or os.environ.get("CONCIERGE_DEMO") == "1"
+
+
 def ensure_demo_data() -> Tenant:
-    """Ensure the default demo tenant, admin credentials, and sample leads exist."""
+    """Ensure the default demo tenant, admin credentials, and sample leads exist (dev/demo only)."""
+    if not _demo_allowed():
+        raise RuntimeError("demo data is disabled in production")
     with connect() as c:
         r = row(c, "SELECT * FROM tenants WHERE slug = 'raleigh-dental-demo'", ())
     if not r:
@@ -567,29 +578,28 @@ def ensure_demo_data() -> Tenant:
         if ea not in existing_emails:
             create_user(tenant.id, ea, password="password", display_name="Clinic Staff", role="admin")
 
-    # Configure SMTP from environment variables only — no hardcoded credentials
-    smtp_host = os.getenv("SMTP_HOST") or os.getenv("DEFAULT_SMTP_HOST") or "smtp.gmail.com"
-    smtp_port = int(os.getenv("SMTP_PORT") or os.getenv("DEFAULT_SMTP_PORT") or 465)
-    smtp_user = os.getenv("SMTP_USER") or os.getenv("DEFAULT_SMTP_USER") or ""
-    smtp_pass = os.getenv("SMTP_PASSWORD") or os.getenv("DEFAULT_SMTP_PASSWORD") or ""
-    front_desk = os.getenv("FRONT_DESK_EMAIL") or smtp_user or ""
-    from saas.security import encrypt_value
-    enc = encrypt_value(smtp_pass) if smtp_pass else None
-
-    with connect() as c:
-        existing_es = rows(c, "SELECT id FROM email_settings WHERE tenant_id = ?", (tenant.id,))
-        if not existing_es and smtp_user:
-            c.execute(
-                """INSERT INTO email_settings (tenant_id, provider, smtp_host, smtp_port, smtp_user, smtp_password_enc, from_name, from_email, reply_to, updated_at)
-                   VALUES (?, 'smtp', ?, ?, ?, ?, 'Raleigh Dental Clinic', ?, ?, ?)""",
-                (tenant.id, smtp_host, smtp_port, smtp_user, enc, front_desk, front_desk, now_iso())
-            )
+    # Demo clinic mailbox: only when SMTP_USER/SMTP_PASSWORD are set on purpose. DEFAULT_SMTP_* is the
+    # HeyJarvis login-code sender and must not turn the demo clinic into a real sending mailbox.
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_pass = os.getenv("SMTP_PASSWORD")
+    if smtp_user and smtp_pass:
+        smtp_host = os.getenv("SMTP_HOST") or os.getenv("DEFAULT_SMTP_HOST") or "smtp.gmail.com"
+        smtp_port = int(os.getenv("SMTP_PORT") or os.getenv("DEFAULT_SMTP_PORT") or 465)
+        front_desk = os.getenv("FRONT_DESK_EMAIL") or smtp_user
+        from saas.security import encrypt_value
+        with connect() as c:
+            if not rows(c, "SELECT id FROM email_settings WHERE tenant_id = ?", (tenant.id,)):
+                c.execute(
+                    """INSERT INTO email_settings (tenant_id, provider, smtp_host, smtp_port, smtp_user, smtp_password_enc, from_name, from_email, reply_to, updated_at)
+                       VALUES (?, 'smtp', ?, ?, ?, ?, 'Raleigh Dental Clinic', ?, ?, ?)""",
+                    (tenant.id, smtp_host, smtp_port, smtp_user, encrypt_value(smtp_pass), front_desk, front_desk, now_iso())
+                )
 
     # Ensure domain allowances
     with connect() as c:
         dom_rows = rows(c, "SELECT domain FROM domains WHERE tenant_id = ?", tenant.id)
     existing_domains = {d["domain"] for d in dom_rows}
-    for d in ["localhost", "127.0.0.1", "*"]:
+    for d in ["localhost", "127.0.0.1"]:
         if d not in existing_domains:
             try:
                 add_domain(tenant.id, d)
@@ -605,34 +615,166 @@ def ensure_demo_data() -> Tenant:
         except Exception:
             pass
 
-    # Sample demo leads
+    # Sample patients at every stage, so the demo inbox looks like a real week at the front desk.
     with connect() as c:
-        lead_rows = rows(c, "SELECT id FROM leads WHERE tenant_id = ? LIMIT 1", tenant.id)
-    if not lead_rows:
-        now = now_iso()
-        with connect() as c:
-            c.execute(
-                """INSERT INTO leads (tenant_id, name, email, phone, intent, service, urgency, preferred_date, preferred_time, status, message, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (tenant.id, "Sarah Jenkins", "sarah.j@example.com", "(919) 555-0142", "appointment_request", "Teeth Cleaning & Exam", "normal", "Tomorrow", "10:00 AM", "new", "Hi, I would like to schedule a routine cleaning and dental checkup for this week.", now, now)
-            )
-            c.execute(
-                """INSERT INTO leads (tenant_id, name, email, phone, intent, service, urgency, preferred_date, preferred_time, status, message, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (tenant.id, "Michael Chang", "mchang@example.com", "(919) 555-0198", "emergency", "Tooth Extraction", "urgent", "Today", "ASAP", "new", "Severe molar pain started last night, need emergency appointment as soon as possible.", now, now)
-            )
-            c.execute(
-                """INSERT INTO leads (tenant_id, name, email, phone, intent, service, urgency, preferred_date, preferred_time, status, message, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (tenant.id, "Emily Rodriguez", "emily.r@example.com", "(919) 555-0177", "inquiry", "Dental Implants", "normal", "Next Week", "Afternoon", "contacted", "Interested in learning more about cosmetic veneers and consultation pricing.", now, now)
-            )
-            try:
-                c.execute(
-                    """INSERT INTO frontdesk_tasks (tenant_id, lead_id, title, priority, status, created_at, updated_at)
-                       VALUES (?, 2, ?, ?, 'open', ?, ?)""",
-                    (tenant.id, "Call Michael Chang regarding emergency dental slot", "high", now, now)
-                )
-            except Exception:
-                pass
+        has_leads = rows(c, "SELECT id FROM leads WHERE tenant_id = ? LIMIT 1", tenant.id)
+    if not has_leads:
+        _seed_demo_story(tenant.id, tenant.name)
 
     return tenant
+
+
+# (name, email, phone, intent, service, status, message, created_hours_ago,
+#  emails [(direction, hours_ago, body)], follow-up (status, step_index, anchor_hours_ago, reason) or None,
+#  pending draft (cadence_step or None, source, body) or None)
+_DEMO_PATIENTS = [
+    # Needs a reply from the practice
+    ("Michael Chang", "mchang@example.com", "(919) 555-0198", "emergency", "Tooth pain", "new",
+     "Severe molar pain started last night, my cheek is a little swollen. Can someone see me today?", 0.5, [],
+     ("active", 0, 0.5, None),
+     ("first_reply", "cadence", "Hi Michael,\n\nWe're sorry you're in pain. Please call our office right away so we can see you today.\n\n"
+      "If the swelling affects your breathing or swallowing, or you develop a high fever, call 911 or go to the nearest emergency room.\n\n{clinic}")),
+    ("Sarah Jenkins", "sarah.j@example.com", "(919) 555-0142", "appointment_request", "Checkup & cleaning", "new",
+     "Hi, I'd like to schedule a cleaning. Do you have anything on Friday morning?", 1.5, [],
+     ("active", 0, 1.5, None),
+     ("first_reply", "cadence", "Hi Sarah,\n\nThanks for reaching out! We'd be happy to get your cleaning scheduled. Is Friday your only "
+      "available day, or would another morning work as well?\n\n{clinic}")),
+    ("Priya Patel", "priya.patel@example.com", "(919) 555-0177", "appointment_request", "Implants", "contacted",
+     None, 52,
+     [("out", 50, "Hi Priya,\n\nThanks for your interest in implants. Could you reply with two or three days and times that work "
+       "for a consultation?\n\n{clinic}"),
+      ("in", 2, "Tuesday after 3pm or Wednesday morning both work for me. Is the consult covered by insurance?")],
+     ("paused", 1, 50, "patient replied: wants_appointment"),
+     (None, "reply", "Hi Priya,\n\nGreat, thank you! We'll confirm a consultation on Tuesday after 3pm or Wednesday morning shortly. "
+      "Coverage for the consult depends on your plan; if you send us your insurance details we'll check before your visit.\n\n{clinic}")),
+    ("Tom Becker", "tbecker@example.com", "(919) 555-0110", "appointment_request", "Restorative (fillings, crowns)", "contacted",
+     None, 30,
+     [("out", 27, "Hi Tom,\n\nThanks for reaching out about your filling. Could you reply with a few days and times that work?\n\n{clinic}")],
+     ("active", 1, 27, None),
+     ("follow_up_1", "cadence", "Hi Tom,\n\nJust following up on your request. Reply with a few times that work and we'll take care of "
+      "the rest.\n\n{clinic}")),
+    ("Grace Kim", "grace.kim@example.com", None, "new_patient", "New patient visit", "new",
+     "First time here! Looking for a new patient exam, ideally early next week.", 3, [],
+     ("active", 0, 3, None),
+     ("first_reply", "cadence", "Hi Grace,\n\nWelcome, and thanks for choosing us! We'd love to see you for a new patient exam. "
+      "Would Monday or Tuesday morning next week work?\n\n{clinic}")),
+
+    # Waiting on the patient
+    ("Emily Rodriguez", "emily.r@example.com", "(919) 555-0177", "appointment_request", "Cosmetic (whitening, veneers)", "contacted",
+     "Interested in veneers and what a consultation costs.", 28,
+     [("out", 24, "Hi Emily,\n\nThanks for asking about veneers! A cosmetic consultation is a great first step. "
+       "Could you reply with a few times that work for you?\n\n{clinic}")],
+     ("active", 1, 20, None), None),
+    ("Marcus Johnson", "marcus.j@example.com", "(919) 555-0133", "appointment_request", "Restorative (fillings, crowns)", "contacted",
+     "Cracked a crown, not painful but want it fixed.", 100,
+     [("out", 96, "Hi Marcus,\n\nSorry to hear about your crown. Could you reply with a few times that work?\n\n{clinic}"),
+      ("out", 72, "Hi Marcus,\n\nJust following up on your request. Reply with a few times that work and we'll take care of the rest.\n\n{clinic}")],
+     ("active", 2, 60, None), None),
+    ("Linda Chen", "linda.chen@example.com", None, "appointment_request", "Checkup & cleaning", "contacted",
+     None, 5,
+     [("out", 3, "Hi Linda,\n\nThanks for reaching out! Could you reply with two or three days and times that work for your cleaning?\n\n{clinic}")],
+     ("active", 1, 3, None), None),
+
+    # Booked
+    ("David Okafor", "d.okafor@example.com", "(919) 555-0161", "appointment_request", "Checkup & cleaning", "booked",
+     None, 75,
+     [("out", 72, "Hi David,\n\nThanks for reaching out! Could you reply with a few times that work for your cleaning?\n\n{clinic}"),
+      ("in", 48, "Thursday at 10am works great."),
+      ("out", 46, "Perfect, you're all set for {appt} at 10:00 AM. See you then!\n\n{clinic}")],
+     ("stopped", 1, 46, "booked by front desk"), None),
+    ("Aisha Rahman", "aisha.r@example.com", "(919) 555-0124", "new_patient", "New patient visit", "booked",
+     None, 50,
+     [("out", 48, "Hi Aisha,\n\nWelcome! Could you reply with a few times that work for your new patient exam?\n\n{clinic}"),
+      ("in", 30, "I called this morning and booked Monday at 2pm, thanks!")],
+     ("stopped", 1, 30, "patient replied: booked"), None),
+
+    # Visited
+    ("Robert Nguyen", "rnguyen@example.com", "(919) 555-0188", "appointment_request", "Checkup & cleaning", "completed",
+     None, 240,
+     [("out", 236, "Hi Robert,\n\nThanks for reaching out! Could you reply with a few times that work?\n\n{clinic}"),
+      ("in", 230, "Wednesday morning please."),
+      ("out", 228, "You're booked for Wednesday at 9:00 AM. See you then!\n\n{clinic}")],
+     ("stopped", 1, 228, "booked by front desk"), None),
+    ("Hannah Weiss", "hannah.w@example.com", None, "appointment_request", "Restorative (fillings, crowns)", "completed",
+     None, 170,
+     [("out", 168, "Hi Hannah,\n\nCould you reply with a few times that work for your filling?\n\n{clinic}"),
+      ("in", 150, "Booked by phone for Friday, thank you!")],
+     ("stopped", 1, 150, "patient replied: booked"), None),
+]
+
+
+def _seed_demo_story(tenant_id: int, clinic: str) -> None:
+    """Demo only: realistic patients at every stage (needs reply, waiting, booked, visited)."""
+    from datetime import datetime, timedelta
+    from email.utils import make_msgid
+
+    def ago(hours: float) -> str:
+        return (utcnow() - timedelta(hours=hours)).isoformat(timespec="seconds")
+
+    def next_weekday(weekday: int) -> datetime:
+        today = datetime.now()
+        return today + timedelta(days=(weekday - today.weekday()) % 7 or 7)
+
+    def label(d: datetime) -> str:
+        return d.strftime("%A, %B ") + str(d.day)
+
+    # Booked appointments land on upcoming days so the demo never shows stale dates.
+    appointments = {"David Okafor": (label(next_weekday(3)), "10:00 AM"),
+                    "Aisha Rahman": (label(next_weekday(0)), "2:00 PM"),
+                    "Robert Nguyen": (label(datetime.now() - timedelta(days=6)), "9:00 AM"),
+                    "Hannah Weiss": (label(datetime.now() - timedelta(days=4)), "11:30 AM")}
+
+    for (name, email, phone, intent, service, status, message, created, emails, follow, draft) in _DEMO_PATIENTS:
+        appt_date, appt_time = appointments.get(name, (None, None))
+        with connect() as c:
+            lid = insert(c, "leads", tenant_id=tenant_id, name=name, email=email, phone=phone, intent=intent,
+                         service=service, status=status, message=message, source="website_widget",
+                         preferred_date=appt_date, preferred_time=appt_time,
+                         created_at=ago(created), updated_at=ago(min([h for _, h, _ in emails] or [created])),
+                         metadata="{}")
+            for direction, hours, body in emails:
+                insert(c, "email_messages", tenant_id=tenant_id, lead_id=lid, direction=direction,
+                       message_id=make_msgid(domain="demo.heyjarvis"), subject="Your appointment request",
+                       body=body.format(clinic=clinic, appt=(appt_date or "").split(",")[0]),
+                       from_addr=email if direction == "in" else None,
+                       to_addr=None if direction == "in" else email, source="demo",
+                       sent_at=ago(hours), created_at=ago(hours))
+            if follow:
+                f_status, step, anchor, reason = follow
+                insert(c, "cadence_enrollments", tenant_id=tenant_id, lead_id=lid, status=f_status, step_index=step,
+                       skipped="[]", anchor_at=ago(anchor), reason=reason, created_at=ago(created), updated_at=ago(anchor))
+            if draft:
+                step_id, source, body = draft
+                insert(c, "ai_drafts", tenant_id=tenant_id, lead_id=lid, subject="Your appointment request",
+                       body=body.format(clinic=clinic), status="pending", cadence_step=step_id, to_email=email,
+                       source=source, created_at=ago(min(created, 1)), updated_at=ago(min(created, 1)))
+
+
+# --- clinic profile (phone, address, hours shown to patients) -------------------------
+
+CLINIC_FIELDS = ("phone", "address", "hours", "website")
+
+
+def get_clinic_profile(tenant_id: int) -> dict:
+    t = get_tenant(tenant_id)
+    with connect() as c:
+        r = row(c, "SELECT flags FROM tenant_settings WHERE tenant_id = ?", tenant_id)
+    clinic = _loads(r["flags"]).get("clinic", {}) if r else {}
+    return {"name": t.name if t else "", **{k: (clinic.get(k) or "") for k in CLINIC_FIELDS}}
+
+
+def save_clinic_profile(tenant_id: int, data: dict[str, Any]) -> dict:
+    clinic = {k: str(data.get(k) or "").strip()[:300] for k in CLINIC_FIELDS}
+    with connect() as c:
+        r = row(c, "SELECT id, flags FROM tenant_settings WHERE tenant_id = ?", tenant_id)
+        if r:
+            flags = _loads(r["flags"])
+            flags["clinic"] = clinic
+            c.execute("UPDATE tenant_settings SET flags = ?, updated_at = ? WHERE tenant_id = ?",
+                      (_json(flags), now_iso(), tenant_id))
+        else:
+            insert(c, "tenant_settings", tenant_id=tenant_id, flags=_json({"clinic": clinic}), updated_at=now_iso())
+    name = str(data.get("name") or "").strip()
+    if name:
+        update_tenant(tenant_id, name=name[:120])
+    return get_clinic_profile(tenant_id)

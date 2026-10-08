@@ -32,6 +32,7 @@ MODEL = os.environ.get("CONCIERGE_MODEL", "gemini-3.8-flash")
 FALLBACK_MODEL = os.environ.get("CONCIERGE_FALLBACK_MODEL", "gemini-3.5-flash-lite")
 GROQ_MODEL = os.environ.get("CONCIERGE_GROQ_MODEL", "openai/gpt-oss-120b")
 LLM_TIMEOUT_S = int(os.environ.get("CONCIERGE_LLM_TIMEOUT", "12"))
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
 # ── Prompt templates ──────────────────────────────────────────────────────────
 
@@ -40,6 +41,7 @@ _SYSTEM_REPLY = """You are an AI assistant for a dental front desk. Your job is 
 RULES:
 - Write in a warm, professional tone appropriate for a dental office.
 - Never invent appointments, availability, prices, or clinical advice.
+- Only use the phone number, address and hours listed in PRACTICE CONTEXT; never make them up.
 - If you don't know something, say the front desk will confirm.
 - Keep replies concise (2-4 short paragraphs).
 - Include the practice name at the end.
@@ -147,10 +149,12 @@ _SCHEMA_CLASSIFY = {
 
 def _provider_chain():
     """Yield (provider_name, callable) in fallback order."""
-    for model in dict.fromkeys(m for m in (MODEL, FALLBACK_MODEL) if m):
-        yield "gemini", lambda req, emit, m=model: _call_gemini(req, m, emit=emit)
+    if not GEMINI_API_KEY:
+        log.warning("GEMINI_API_KEY is not set; skipping Gemini")
+    for model in dict.fromkeys(m for m in (MODEL, FALLBACK_MODEL) if m and GEMINI_API_KEY):
+        yield "gemini", lambda req, emit, m=model, **kw: _call_gemini(req, m, emit=emit, **kw)
     if os.environ.get("GROQ_API_KEY"):
-        yield "groq", lambda req, emit: _call_groq(req, emit=emit)
+        yield "groq", lambda req, emit, **kw: _call_groq(req, emit=emit, **kw)
 
 
 def _noop(kind: str, **data) -> None:
@@ -174,7 +178,7 @@ def _call_gemini(prompt: str, model: str, *, emit: Any = None, system: str = "",
             "response_json_schema": schema,
         })
 
-    client = genai.Client(http_options=types.HttpOptions(
+    client = genai.Client(api_key=GEMINI_API_KEY, http_options=types.HttpOptions(
         timeout=LLM_TIMEOUT_S * 1000, retry_options=types.HttpRetryOptions(attempts=1),
     ))
     stream = client.models.generate_content_stream(
@@ -216,7 +220,8 @@ def _call_groq(prompt: str, *, emit: Any = None, system: str = "", schema: dict 
     if schema:
         kwargs["response_format"] = {"type": "json_schema", "json_schema": {"name": "response", "strict": True, "schema": schema}}
 
-    client = Groq(**kwargs)
+    client = Groq(api_key=os.environ["GROQ_API_KEY"], timeout=LLM_TIMEOUT_S, max_retries=0)
+    kwargs.pop("timeout"); kwargs.pop("max_retries")
     text, finish = "", None
     for chunk in client.chat.completions.create(**kwargs):
         if not chunk.choices:
@@ -418,3 +423,94 @@ Return: action, reason, priority (normal/high/urgent), suggested_message"""
         return {"action": "review_manually", "reason": "AI unavailable", "priority": "normal", "provider": provider}
     result["provider"] = provider
     return result
+
+
+# ── Patient email replies ─────────────────────────────────────────────────────
+
+_SYSTEM_REPLY_CLASSIFY = """You read a patient's email reply to a dental office and label it.
+booked = says they already booked/scheduled or confirms an appointment
+wants_appointment = wants to come in, offers days/times
+reschedule = wants to move an existing appointment
+cancel = wants to cancel
+question = asks something (cost, insurance, location, ...)
+not_interested = declines
+unsubscribe = asks to stop receiving emails
+other = anything else"""
+
+_SCHEMA_REPLY_CLASSIFY = {
+    "type": "object",
+    "properties": {
+        "intent": {"type": "string", "enum": ["booked", "wants_appointment", "reschedule", "cancel", "question",
+                                               "not_interested", "unsubscribe", "other"]},
+        "summary": {"type": "string"},
+        "proposed_times": {"type": ["string", "null"]},
+    },
+    "required": ["intent", "summary"],
+}
+
+
+def classify_reply(text: str) -> dict[str, Any] | None:
+    """Label a patient's email reply. Returns None when no LLM is available (caller falls back to rules)."""
+    if not text.strip():
+        return None
+    result, provider = _llm(f"Patient reply:\n{text[:4000]}", system=_SYSTEM_REPLY_CLASSIFY,
+                            schema=_SCHEMA_REPLY_CLASSIFY)
+    if result is None:
+        return None
+    result["provider"] = provider
+    return result
+
+
+# ── Website chat intake ───────────────────────────────────────────────────────
+
+_SYSTEM_INTAKE = """You extract appointment-request details from one website chat message to a dental office.
+Only return values the patient actually stated. Use null for anything not stated. Never guess.
+intent: emergency (pain, swelling, broken tooth, bleeding), new_patient (first visit), appointment_request
+(cleaning, checkup, other visit), question (just asking), or none.
+preferred_date / preferred_time: keep the patient's own words (e.g. "next Tuesday", "after 3pm")."""
+
+_SCHEMA_INTAKE = {
+    "type": "object",
+    "properties": {
+        "name": {"type": ["string", "null"]},
+        "email": {"type": ["string", "null"]},
+        "phone": {"type": ["string", "null"]},
+        "service": {"type": ["string", "null"]},
+        "intent": {"type": "string", "enum": ["emergency", "new_patient", "appointment_request", "question", "none"]},
+        "preferred_date": {"type": ["string", "null"]},
+        "preferred_time": {"type": ["string", "null"]},
+        "insurance": {"type": ["string", "null"]},
+    },
+    "required": ["name", "email", "phone", "service", "intent", "preferred_date", "preferred_time", "insurance"],
+}
+
+
+def extract_intake(message: str, known: dict[str, Any], last_question: str | None) -> dict[str, Any]:
+    """Pull intake fields out of a chat message. Returns {} when no LLM is available."""
+    known_block = "\n".join(f"- {k}: {v}" for k, v in known.items() if v and not k.startswith("_")) or "- nothing yet"
+    prompt = (f"Already known:\n{known_block}\n\nThe concierge last asked: {last_question or '(greeting)'}\n\n"
+              f"Patient message: {message[:2000]}")
+    result, _ = _llm(prompt, system=_SYSTEM_INTAKE, schema=_SCHEMA_INTAKE)
+    if not result:
+        return {}
+    return {k: v.strip() if isinstance(v, str) else v for k, v in result.items() if v not in (None, "", "none")}
+
+
+# ── Rewriting front desk text ────────────────────────────────────────────────
+
+_SCHEMA_TEXT = {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
+_REWRITE_HOW = {
+    "shorten": "Shorten this message to one or two concise sentences. Keep every fact, time and name.",
+    "warmer": "Rewrite this message to sound warmer and more personable while staying professional.",
+}
+
+
+def rewrite_text(text: str, how: str) -> str:
+    """Shorten or warm up a draft. Returns the original text if no LLM is available."""
+    if not text.strip() or how not in _REWRITE_HOW:
+        return text
+    result, _ = _llm(f"{_REWRITE_HOW[how]}\n\nMessage:\n{text[:6000]}",
+                     system="You edit emails written by a dental front desk. Return only the rewritten message.",
+                     schema=_SCHEMA_TEXT)
+    out = (result or {}).get("text", "").strip()
+    return out or text
