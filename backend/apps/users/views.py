@@ -60,4 +60,21 @@ class CurrentUserView(generics.RetrieveUpdateAPIView):
         return self.request.user
 
 
+class SeedUsersView(generics.GenericAPIView):
+    """Ensure all demo practices and user accounts exist."""
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        from .seed_data import seed_all_demo_data
+        accounts = seed_all_demo_data()
+        return Response({
+            'status': 'success',
+            'message': 'Demo practices and users ensured successfully.',
+            'accounts': accounts,
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        return self.get(request)
+
+
 

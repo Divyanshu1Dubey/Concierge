@@ -100,8 +100,47 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-white/10">
-            <p className="text-xs text-center text-slate-500">Demo: admin@raleighdentistry.com / Password123!</p>
+          <div className="mt-6 pt-5 border-t border-white/10">
+            <p className="text-xs text-center text-slate-400 mb-2 font-medium">Quick Demo Accounts (click to fill):</p>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('admin@raleighdentistry.com');
+                  setPassword('Password123!');
+                  setError('');
+                }}
+                className="px-2 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs text-slate-300 text-center transition-all truncate"
+                title="Agency Admin"
+              >
+                👑 Agency
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('brody@raleighdentistry.com');
+                  setPassword('Password123!');
+                  setError('');
+                }}
+                className="px-2 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs text-slate-300 text-center transition-all truncate"
+                title="Dr. Sarah Brody"
+              >
+                🩺 Doctor
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('desk@raleighdentistry.com');
+                  setPassword('Password123!');
+                  setError('');
+                }}
+                className="px-2 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs text-slate-300 text-center transition-all truncate"
+                title="Front Desk"
+              >
+                💻 Front Desk
+              </button>
+            </div>
+            <p className="text-[11px] text-center text-slate-500 mt-2">Password: <code className="text-teal-400">Password123!</code></p>
           </div>
         </div>
 
