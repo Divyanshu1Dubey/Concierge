@@ -10,12 +10,22 @@ import os
 from django.views.static import serve
 from apps.core.views import (
     HealthCheckView, ReadyCheckView, VersionCheckView,
-    serve_widget_js, serve_demo_html, RootIndexView, serve_spa
+    serve_widget_js, serve_demo_html, RootIndexView, serve_spa, get_frontend_dist
 )
 from apps.users.views import LoginView
+from django.http import HttpResponse
 
-frontend_dist_dir = os.path.join(settings.BASE_DIR, 'frontend', 'dist')
-frontend_assets_dir = os.path.join(frontend_dist_dir, 'assets')
+def serve_spa_asset(request, path):
+    dist_dir = get_frontend_dist()
+    if dist_dir:
+        return serve(request, path, document_root=os.path.join(dist_dir, 'assets'))
+    return HttpResponse(status=404)
+
+def serve_spa_favicon(request):
+    dist_dir = get_frontend_dist()
+    if dist_dir:
+        return serve(request, 'favicon.svg', document_root=dist_dir)
+    return HttpResponse(status=404)
 
 def mock_api_view(request, *args, **kwargs):
     return JsonResponse({"count": 0, "next": None, "previous": None, "results": []})
@@ -77,8 +87,8 @@ urlpatterns = [
     re_path(r'^api/.*$', mock_api_view),
 
     # Frontend SPA Static Assets
-    re_path(r'^assets/(?P<path>.*)$', serve, {'document_root': frontend_assets_dir}),
-    path('favicon.svg', serve, {'document_root': frontend_dist_dir, 'path': 'favicon.svg'}),
+    re_path(r'^assets/(?P<path>.*)$', serve_spa_asset, name='spa-assets'),
+    path('favicon.svg', serve_spa_favicon, name='spa-favicon'),
 
     # Frontend SPA Routes
     path('dashboard', serve_spa, name='spa-dashboard-no-slash'),

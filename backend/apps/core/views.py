@@ -83,20 +83,44 @@ def serve_demo_html(request):
     return HttpResponse("<h1>Demo page not found</h1>", status=404)
 
 
+def get_frontend_dist():
+    """Locate the frontend dist directory across multiple potential container paths."""
+    base = str(getattr(settings, 'BASE_DIR', ''))
+    cwd = os.getcwd()
+    views_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(cwd, 'dist'),
+        os.path.join(cwd, 'backend', 'dist'),
+        os.path.join(cwd, 'frontend', 'dist'),
+        os.path.join(cwd, '..', 'frontend', 'dist'),
+        os.path.join(base, 'backend', 'dist'),
+        os.path.join(base, 'dist'),
+        os.path.join(base, 'frontend', 'dist'),
+        os.path.join(base, '..', 'frontend', 'dist'),
+        os.path.join(base, 'backend', 'static', 'dist'),
+        os.path.join(base, 'static', 'dist'),
+        os.path.abspath(os.path.join(views_dir, '..', '..', 'dist')),
+        os.path.abspath(os.path.join(views_dir, '..', '..', '..', 'frontend', 'dist')),
+        os.path.abspath(os.path.join(views_dir, '..', '..', 'static', 'dist')),
+        '/app/backend/dist',
+        '/app/frontend/dist',
+        '/app/dist',
+        '/workspace/frontend/dist',
+    ]
+    for d in candidates:
+        if d and os.path.isfile(os.path.join(d, 'index.html')):
+            return os.path.abspath(d)
+    return None
+
+
 def serve_spa(request, *args, **kwargs):
     """Serve the single-page React application for all dashboard & client routes."""
-    candidates = [
-        os.path.join(settings.BASE_DIR, 'frontend', 'dist', 'index.html'),
-        os.path.join(settings.BASE_DIR, 'dist', 'index.html'),
-        os.path.join(settings.BASE_DIR, 'static', 'dist', 'index.html'),
-        os.path.join(settings.BASE_DIR, 'backend', 'static', 'dist', 'index.html'),
-        os.path.join(settings.BASE_DIR, '..', 'frontend', 'dist', 'index.html'),
-    ]
-    for c in candidates:
-        if os.path.exists(c):
-            with open(c, 'r', encoding='utf-8') as f:
-                content = f.read()
-            return HttpResponse(content, content_type='text/html')
+    dist_dir = get_frontend_dist()
+    if dist_dir:
+        index_file = os.path.join(dist_dir, 'index.html')
+        with open(index_file, 'r', encoding='utf-8') as f:
+            return HttpResponse(f.read(), content_type='text/html')
+
     return HttpResponse(
         "<h1>HeyJarvis: Frontend build not found</h1><p>Please run <code>npm run build</code> in the frontend folder.</p>",
         status=404
