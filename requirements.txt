@@ -11,12 +11,21 @@ django-filter==23.5
 psycopg2-binary>=2.9.10
 dj-database-url==2.1.0
 
-# Auth
+# Auth & API Extensions
+djangorestframework-simplejwt>=5.3.1
+drf-spectacular>=0.27.2
 django-allauth==0.60.0
 dj-rest-auth==5.0.2
 google-auth==2.25.2
 google-auth-oauthlib==1.2.0
 google-api-python-client==2.116.0
+requests>=2.31.0
+cryptography>=42.0.0
+
+# Channels / WebSockets
+channels>=4.1.0
+channels-redis>=4.2.0
+daphne>=4.1.2
 
 # AI
 openai==1.12.0
