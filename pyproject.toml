@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "heyjarvis"
+version = "1.0.0"
+description = "HeyJarvis - AI Dental Concierge"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Proprietary"}
+authors = [
+    {name = "HeyJarvis", email = "dev@heyjarvis.ai"},
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["backend/*"]

@@ -1,0 +1,10 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "heyjarvis-widget"
+version = "1.0.0"
+description = "HeyJarvis Embeddable Chat Widget"
+readme = "../README.md"
+requires-python = ">=3.8"

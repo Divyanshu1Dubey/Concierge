@@ -1,0 +1,12 @@
+-r base.txt
+
+# Development tools
+django-debug-toolbar==4.3.0
+ipython==8.22.2
+ipdb==0.13.13
+black==24.4.0
+isort==5.13.2
+flake8==7.0.0
+pylint==3.1.0
+mypy==1.9.0
+pre-commit==3.7.0

@@ -1,0 +1,71 @@
+# Docker build context
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Git
+.git
+.gitignore
+
+# GitHub workflows
+.github/
+
+# Node
+node_modules
+npm-debug.log
+pnpm-debug.log
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.coverage
+htmlcov/
+.venv
+venv/
+env/
+
+# Build outputs
+dist
+build
+.next
+out
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Database
+*.sqlite3
+
+# Media/static uploads
+media/
+staticfiles/
+static/
+
+# Tests
+tests/
+test-results/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Misc
+docker/

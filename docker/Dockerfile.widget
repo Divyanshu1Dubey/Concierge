@@ -1,0 +1,21 @@
+FROM node:20-alpine
+
+WORKDIR /build
+
+# Copy package files first for layer caching
+COPY package.json package-lock.json* webpack.config.js ./
+RUN npm ci --silent
+
+# Copy source code
+COPY src/ ./src/
+COPY tsconfig.json webpack.config.js ./
+
+# Build the widget
+RUN npm run build
+
+# Serve with nginx
+RUN npm install -g serve
+
+EXPOSE 3000
+
+CMD ["serve", "-s", "dist", "-l", "3000"]

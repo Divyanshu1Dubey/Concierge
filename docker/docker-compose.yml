@@ -1,0 +1,106 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: heyjarvis-postgres
+    environment:
+      POSTGRES_DB: heyjarvis
+      POSTGRES_USER: heyjarvis
+      POSTGRES_PASSWORD: devpassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U heyjarvis"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: heyjarvis-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: heyjarvis-backend
+    command: python manage.py runserver 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../backend:/app
+    environment:
+      - DEBUG=true
+      - DB_HOST=postgres
+      - DB_NAME=heyjarvis
+      - DB_USER=heyjarvis
+      - DB_PASSWORD=devpassword
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  celery:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: heyjarvis-celery
+    command: celery -A config worker -l info
+    volumes:
+      - ../backend:/app
+    environment:
+      - DEBUG=true
+      - DB_HOST=postgres
+      - DB_NAME=heyjarvis
+      - DB_USER=heyjarvis
+      - DB_PASSWORD=devpassword
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+
+  celery-beat:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: heyjarvis-celery-beat
+    command: celery -A config beat -l info
+    volumes:
+      - ../backend:/app
+    environment:
+      - DEBUG=true
+      - DB_HOST=postgres
+      - DB_NAME=heyjarvis
+      - DB_USER=heyjarvis
+      - DB_PASSWORD=devpassword
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+
+volumes:
+  postgres_data:
+  redis_data:

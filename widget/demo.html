@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Raleigh Comprehensive & Cosmetic Dentistry — Demo</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background: #f8fafc;
+      color: #1e293b;
+      line-height: 1.6;
+    }
+    h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    h2 { font-size: 1.25rem; margin-top: 2rem; margin-bottom: 0.5rem; color: #475569; }
+    .tagline { color: #64748b; font-size: 1.1rem; margin-bottom: 2rem; }
+    .demo-section {
+      background: #fff;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+      border: 1px solid #e2e8f0;
+    }
+    code {
+      background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+    pre {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 1rem; }
+    .feature { background: #f8fafc; padding: 16px; border-radius: 8px; border: 1px solid #e2e8f0; }
+    .feature strong { color: #2563eb; }
+  </style>
+</head>
+<body>
+  <h1>🦷 Raleigh Comprehensive & Cosmetic Dentistry</h1>
+  <p class="tagline">Your smile is our priority. Request an appointment below or chat with our AI concierge.</p>
+
+  <div class="features">
+    <div class="feature"><strong>General Dentistry</strong><br>Checkups, cleanings, and preventive care</div>
+    <div class="feature"><strong>Cosmetic Dentistry</strong><br>Whitening, veneers, and smile makeovers</div>
+    <div class="feature"><strong>Emergency Care</strong><br>Same-day appointments available</div>
+    <div class="feature"><strong>New Patients</strong><br>Welcome! Most insurance accepted</div>
+  </div>
+
+  <div class="demo-section">
+    <h2>📱 Try the HeyJarvis AI Concierge</h2>
+    <p>Click the chat button in the bottom-right corner to request an appointment through our AI assistant.</p>
+  </div>
+
+  <div class="demo-section">
+    <h2>⚙️ Embed Code</h2>
+    <p>Add this to any website to embed the HeyJarvis widget:</p>
+    <pre>&lt;script src="https://your-domain.com/widget/heyjarvis-widget.js"
+        data-practice="raleigh-comprehensive-cosmetic-dentistry"
+        data-theme="light"
+        data-title="Raleigh Dental"
+        data-subtitle="How can we help you today?"&gt;
+&lt;/script&gt;</pre>
+  </div>
+
+  <!-- HeyJarvis Widget -->
+  <script
+    src="../widget/heyjarvis-widget.js"
+    data-practice="raleigh-comprehensive-cosmetic-dentistry"
+    data-theme="light"
+    data-title="Raleigh Dental"
+    data-subtitle="How can we help you today?"
+    data-api-url="http://localhost:8000/api/v1"
+  ></script>
+</body>
+</html>

@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Raleigh Comprehensive & Cosmetic Dentistry — HeyJarvis Concierge Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #0d9488;
+      --primary-hover: #0f766e;
+      --primary-light: #ccfbf1;
+      --slate-900: #0f172a;
+      --slate-800: #1e293b;
+      --slate-600: #475569;
+      --slate-100: #f1f5f9;
+      --slate-50: #f8fafc;
+      --emerald-600: #059669;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: var(--slate-900);
+      background-color: #ffffff;
+      line-height: 1.6;
+    }
+
+    /* Top Emergency Alert Bar */
+    .top-bar {
+      background: linear-gradient(90deg, #047857 0%, #0d9488 100%);
+      color: #ffffff;
+      font-size: 13px;
+      padding: 8px 16px;
+      text-align: center;
+      font-weight: 500;
+    }
+    .top-bar strong {
+      font-weight: 700;
+      text-decoration: underline;
+    }
+
+    /* Header */
+    header {
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 18px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: inherit;
+    }
+    .brand-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #0d9488, #0284c7);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 800;
+      font-size: 20px;
+    }
+    .brand-text h1 {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--slate-900);
+    }
+    .brand-text p {
+      font-size: 12px;
+      color: var(--slate-600);
+      font-weight: 500;
+    }
+    nav {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+    nav a {
+      text-decoration: none;
+      color: var(--slate-600);
+      font-size: 14px;
+      font-weight: 600;
+      transition: color 0.15s;
+    }
+    nav a:hover {
+      color: var(--primary);
+    }
+    .cta-btn {
+      background: var(--primary);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-shadow: 0 4px 12px rgba(13, 148, 136, 0.25);
+    }
+    .cta-btn:hover {
+      background: var(--primary-hover);
+      transform: translateY(-1px);
+    }
+
+    /* Tester Floating Box */
+    .test-box {
+      background: #f8fafc;
+      border: 2px dashed #0d9488;
+      border-radius: 14px;
+      padding: 20px 24px;
+      margin: 24px auto;
+      max-width: 1140px;
+      box-shadow: 0 10px 25px -5px rgba(13, 148, 136, 0.1);
+    }
+    .test-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .test-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #dcfce7;
+      color: #166534;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 999px;
+      border: 1px solid #86efac;
+    }
+    .test-badge .pulse {
+      width: 8px;
+      height: 8px;
+      background: #22c55e;
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(1.3); }
+    }
+    .test-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .test-btn {
+      background: white;
+      border: 1px solid #cbd5e1;
+      color: #1e293b;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .test-btn:hover {
+      background: #f1f5f9;
+      border-color: #94a3b8;
+    }
+    .test-btn.primary {
+      background: #0d9488;
+      color: white;
+      border-color: #0d9488;
+    }
+    .test-btn.primary:hover {
+      background: #0f766e;
+    }
+    .test-guide {
+      font-size: 13px;
+      color: #475569;
+      background: white;
+      padding: 12px 16px;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      line-height: 1.5;
+    }
+    .test-guide ol {
+      margin-left: 20px;
+      margin-top: 6px;
+    }
+    .test-guide li {
+      margin-bottom: 4px;
+    }
+
+    /* Hero Section */
+    .hero {
+      max-width: 1140px;
+      margin: 40px auto;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 48px;
+      align-items: center;
+    }
+    .hero-tag {
+      display: inline-block;
+      background: var(--primary-light);
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 6px 14px;
+      border-radius: 999px;
+      margin-bottom: 16px;
+    }
+    .hero h2 {
+      font-size: 44px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      color: var(--slate-900);
+      margin-bottom: 20px;
+    }
+    .hero h2 span {
+      color: var(--primary);
+    }
+    .hero p {
+      font-size: 18px;
+      color: var(--slate-600);
+      margin-bottom: 28px;
+    }
+    .hero-btns {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+    }
+    .hero-btn-secondary {
+      background: white;
+      color: var(--slate-900);
+      border: 1px solid #cbd5e1;
+      padding: 12px 24px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .hero-btn-secondary:hover {
+      background: var(--slate-50);
+      border-color: #94a3b8;
+    }
+    .hero-card {
+      background: linear-gradient(135deg, #f0fdfa 0%, #e0f2fe 100%);
+      border: 1px solid #ccfbf1;
+      border-radius: 20px;
+      padding: 32px;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05);
+    }
+    .hero-card h3 {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--slate-900);
+      margin-bottom: 12px;
+    }
+    .feature-list {
+      list-style: none;
+      margin-top: 16px;
+    }
+    .feature-list li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--slate-800);
+    }
+    .feature-list li::before {
+      content: "✓";
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      background: #0d9488;
+      color: white;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 20px;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    /* Services Section */
+    .services {
+      background: var(--slate-50);
+      padding: 60px 24px;
+      border-top: 1px solid #e2e8f0;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .services-inner {
+      max-width: 1140px;
+      margin: 0 auto;
+    }
+    .section-title {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .section-title h3 {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .section-title p {
+      color: var(--slate-600);
+      font-size: 16px;
+      margin-top: 8px;
+    }
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 24px;
+    }
+    .service-card {
+      background: white;
+      padding: 28px;
+      border-radius: 16px;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .service-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+    .service-card h4 {
+      font-size: 18px;
+      font-weight: 800;
+      margin-bottom: 10px;
+      color: var(--slate-900);
+    }
+    .service-card p {
+      font-size: 14px;
+      color: var(--slate-600);
+      margin-bottom: 16px;
+    }
+    .service-card button {
+      background: transparent;
+      color: var(--primary);
+      border: 1px solid var(--primary);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      width: 100%;
+      transition: all 0.15s;
+    }
+    .service-card button:hover {
+      background: var(--primary);
+      color: white;
+    }
+
+    /* Footer */
+    footer {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 40px 24px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--slate-600);
+    }
+
+    @media (max-width: 768px) {
+      .hero {
+        grid-template-columns: 1fr;
+        gap: 32px;
+      }
+      nav {
+        display: none;
+      }
+      .hero h2 {
+        font-size: 32px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Emergency Alert Bar -->
+  <div class="top-bar">
+    ✨ Same-day emergency appointments & gentle cleanings available • Call <strong>(919) 866-1360</strong> or chat with our AI Concierge below!
+  </div>
+
+  <!-- Header -->
+  <header>
+    <a href="#" class="brand">
+      <div class="brand-icon">🦷</div>
+      <div class="brand-text">
+        <h1>Raleigh Comprehensive & Cosmetic Dentistry</h1>
+        <p>Dr. Neal Patel, DDS • Wake Forest & Raleigh, NC</p>
+      </div>
+    </a>
+    <nav>
+      <a href="#services">Services</a>
+      <a href="#doctors">Meet Dr. Patel</a>
+      <a href="#reviews">Patient Reviews</a>
+      <a href="#contact">Contact</a>
+      <button class="cta-btn" onclick="openConcierge('New Patient')">Book Appointment</button>
+    </nav>
+  </header>
+
+  <!-- Interactive Concierge Test Control Panel -->
+  <section class="test-box">
+    <div class="test-header">
+      <div>
+        <strong style="font-size: 15px; color: #0f172a;">🛠️ Live HeyJarvis Concierge Test Panel</strong>
+        <p style="font-size: 12px; color: #64748b; margin-top: 2px;">This test page lets you manually verify widget behavior, state transitions, and name extraction.</p>
+      </div>
+      <div class="test-badge">
+        <span class="pulse"></span>
+        API Connected: http://localhost:8000
+      </div>
+    </div>
+    
+    <div class="test-actions">
+      <button class="test-btn primary" onclick="openConcierge()">💬 Open Chat Widget</button>
+      <button class="test-btn" onclick="closeConcierge()">✖️ Close Widget</button>
+      <button class="test-btn" onclick="toggleConcierge()">🔄 Toggle Widget</button>
+      <button class="test-btn" onclick="simulateBooking('New Patient Exam')">📅 Simulate 'New Patient'</button>
+      <button class="test-btn" onclick="simulateBooking('Emergency Dental Care')">🚨 Simulate 'Emergency'</button>
+      <button class="test-btn" onclick="checkWidgetStatus()">🔍 Inspect Widget State</button>
+    </div>
+
+    <div class="test-guide" style="margin-top: 14px;">
+      <strong>✅ How to Test the Name Fix & Full Booking Flow:</strong>
+      <ol>
+        <li>Click <strong>Open Chat Widget</strong> (or click the floating blue circle in the bottom-right corner).</li>
+        <li>Click the quick reply pill <strong>"New Patient"</strong> (or type <em>"i want to book an appointment"</em>).</li>
+        <li>When the concierge asks: <em>"What is your full name?"</em>, type just <strong>div</strong> (or your name).</li>
+        <li><strong>Notice:</strong> The concierge will <strong>never ask your name again!</strong> It responds immediately: <em>"Nice to meet you, Div! What is the best phone number or email address...?"</em></li>
+        <li>Type a phone or email (e.g. <code>919-555-0144</code>), then pick a day (e.g. <code>Thursday morning</code>).</li>
+        <li>Confirm with <code>yes</code> to see the full appointment request logged!</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- Hero Section -->
+  <main class="hero">
+    <div>
+      <span class="hero-tag">24/7 AI-Powered Dental Concierge</span>
+      <h2>Exceptional Dental Care, <span>Personalized For You.</span></h2>
+      <p>From gentle routine cleanings to complete smile transformations, Dr. Neal Patel and our team provide compassionate, high-tech dentistry in Raleigh, NC.</p>
+      <div class="hero-btns">
+        <button class="cta-btn" onclick="openConcierge('New Patient')">Request an Appointment</button>
+        <button class="hero-btn-secondary" onclick="openConcierge('Dental Emergency')">Dental Emergency?</button>
+      </div>
+    </div>
+    <div class="hero-card">
+      <h3>Why Patients Choose Us</h3>
+      <ul class="feature-list">
+        <li>Same-day emergency pain relief visits</li>
+        <li>24/7 instant chat concierge with live scheduling</li>
+        <li>Modern digital dentistry with zero discomfort</li>
+        <li>In-network with major PPO insurance plans</li>
+        <li>Over 450+ five-star verified patient reviews</li>
+      </ul>
+    </div>
+  </main>
+
+  <!-- Services Grid -->
+  <section class="services" id="services">
+    <div class="services-inner">
+      <div class="section-title">
+        <h3>Comprehensive Care Under One Roof</h3>
+        <p>Click any treatment below to ask our concierge about pricing, availability, or to schedule.</p>
+      </div>
+      <div class="service-grid">
+        <div class="service-card">
+          <h4>Routine Cleanings & Exams</h4>
+          <p>Gentle ultrasonic cleanings, comprehensive digital x-rays, and oral cancer screenings.</p>
+          <button onclick="openConcierge('Routine Cleaning')">Book Cleaning</button>
+        </div>
+        <div class="service-card">
+          <h4>Cosmetic Smile Makeovers</h4>
+          <p>Custom porcelain veneers, professional whitening, and aesthetic dental bonding.</p>
+          <button onclick="openConcierge('Cosmetic Whitening')">Ask About Cosmetic</button>
+        </div>
+        <div class="service-card">
+          <h4>Invisalign® Clear Aligners</h4>
+          <p>Discreet, comfortable orthodontic teeth straightening for adults and teens.</p>
+          <button onclick="openConcierge('Invisalign Consultation')">Schedule Consultation</button>
+        </div>
+        <div class="service-card">
+          <h4>Dental Implants</h4>
+          <p>Permanent, natural-looking tooth replacements for missing or damaged teeth.</p>
+          <button onclick="openConcierge('Dental Implants')">Explore Implants</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <p><strong>Raleigh Comprehensive & Cosmetic Dentistry</strong> • 12040 Retail Dr, Wake Forest, NC 27587 • (919) 866-1360</p>
+    <p style="margin-top: 8px; font-size: 12px; color: #94a3b8;">Protected by HeyJarvis AI Concierge System • Privacy & HIPAA Compliant</p>
+  </footer>
+
+  <!-- Helper Scripts for Test Buttons -->
+  <script>
+    function openConcierge(initialMessage) {
+      if (window.HeyJarvis && typeof window.HeyJarvis.open === 'function') {
+        window.HeyJarvis.open();
+        if (initialMessage) {
+          // If message input is available, we can focus it
+          setTimeout(() => {
+            const input = document.getElementById('hj-message-input');
+            if (input && !input.value) {
+              input.focus();
+            }
+          }, 300);
+        }
+      } else {
+        alert("HeyJarvis widget is initializing. Please wait a moment.");
+      }
+    }
+
+    function closeConcierge() {
+      if (window.HeyJarvis && typeof window.HeyJarvis.close === 'function') {
+        window.HeyJarvis.close();
+      }
+    }
+
+    function toggleConcierge() {
+      if (window.HeyJarvis && typeof window.HeyJarvis.toggle === 'function') {
+        window.HeyJarvis.toggle();
+      }
+    }
+
+    function checkWidgetStatus() {
+      if (window.HeyJarvis && typeof window.HeyJarvis.getState === 'function') {
+        const state = window.HeyJarvis.getState();
+        alert("HeyJarvis Status:\n\n" + JSON.stringify({
+          isOpen: state.isOpen,
+          practiceSlug: state.practiceSlug,
+          apiUrl: state.apiUrl,
+          sessionId: state.sessionId,
+          conversationId: state.conversationId,
+          messagesCount: state.messages.length
+        }, null, 2));
+      } else {
+        alert("HeyJarvis widget not yet mounted. Check console for details.");
+      }
+    }
+
+    function simulateBooking(service) {
+      openConcierge();
+      // Click corresponding quick reply if visible
+      setTimeout(() => {
+        const buttons = document.querySelectorAll('.hj-quick-reply');
+        for (const b of buttons) {
+          if (b.textContent.toLowerCase().includes('new patient') && service.includes('New Patient')) {
+            b.click();
+            return;
+          }
+          if (b.textContent.toLowerCase().includes('emergency') && service.includes('Emergency')) {
+            b.click();
+            return;
+          }
+        }
+      }, 500);
+    }
+  </script>
+
+  <!-- HeyJarvis Universal Concierge Widget -->
+  <script async src="http://localhost:8000/widget.js"
+          data-api-url="http://localhost:8000"
+          data-practice="raleigh-dentistry"
+          data-heyjarvis-client="351936c601d0a11d6f757cf6c45ad55513a5dad1b488a82404b477a619ef76c8">
+  </script>
+</body>
+</html>

@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  backend-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install black flake8 isort mypy
+      - name: Black check
+        run: cd backend && black --check .
+      - name: Flake8
+        run: cd backend && flake8 --max-line-length=120 --exclude=migrations
+      - name: isort check
+        run: cd backend && isort --check-only .
+
+  frontend-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: cd frontend && npm ci
+      - name: TypeScript check
+        run: cd frontend && npx tsc --noEmit
+      - name: ESLint
+        run: cd frontend && npm run lint
+
+  widget-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: widget/package-lock.json
+      - name: Install dependencies
+        run: cd widget && npm ci
+      - name: TypeScript check
+        run: cd widget && npx tsc --noEmit
+      - name: Lint
+        run: cd widget && npm run lint
+
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: heyjarvis_test
+          POSTGRES_USER: heyjarvis
+          POSTGRES_PASSWORD: testpassword
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-django pytest-cov
+      - name: Run tests
+        env:
+          DATABASE_URL: postgres://heyjarvis:testpassword@localhost:5432/heyjarvis_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key-for-ci
+          DEBUG: 'true'
+        run: |
+          cd backend
+          python manage.py migrate --run-syncdb
+          pytest tests/ -v --cov=apps --cov-report=xml
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./backend/coverage.xml
+          fail_ci_if_error: false

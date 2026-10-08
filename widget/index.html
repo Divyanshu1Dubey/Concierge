@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmileBright Dental - HeyJarvis Widget Demo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1F2937; line-height: 1.6; }
+
+    /* Header */
+    .site-header {
+      background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+      color: white;
+      padding: 20px 0;
+    }
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+    .header-inner { display: flex; align-items: center; justify-content: space-between; }
+    .logo { font-size: 24px; font-weight: 700; }
+    .logo span { color: #06B6D4; }
+    .nav a { color: #94A3B8; text-decoration: none; margin-left: 24px; font-size: 14px; font-weight: 500; transition: color 0.2s; }
+    .nav a:hover { color: white; }
+    .nav a.btn { background: #06B6D4; color: white; padding: 8px 20px; border-radius: 8px; margin-left: 32px; }
+    .nav a.btn:hover { background: #0891B2; }
+
+    /* Hero */
+    .hero { background: linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #164E63 100%); color: white; padding: 80px 0 100px; text-align: center; position: relative; overflow: hidden; }
+    .hero::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(6,182,212,0.08) 0%, transparent 50%); }
+    .hero h1 { font-size: 48px; font-weight: 700; margin-bottom: 16px; position: relative; }
+    .hero h1 span { color: #06B6D4; }
+    .hero p { font-size: 18px; color: #94A3B8; max-width: 560px; margin: 0 auto 32px; position: relative; }
+    .hero-cta { display: inline-flex; gap: 12px; position: relative; }
+    .btn-primary { background: #06B6D4; color: white; padding: 14px 32px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 15px; border: none; cursor: pointer; transition: all 0.2s; }
+    .btn-primary:hover { background: #0891B2; transform: translateY(-1px); }
+    .btn-secondary { background: rgba(255,255,255,0.1); color: white; padding: 14px 32px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 15px; border: 1px solid rgba(255,255,255,0.2); cursor: pointer; transition: all 0.2s; }
+    .btn-secondary:hover { background: rgba(255,255,255,0.15); }
+
+    /* Services */
+    .services { padding: 80px 0; background: #F8FAFC; }
+    .section-title { text-align: center; margin-bottom: 48px; }
+    .section-title h2 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+    .section-title p { color: #64748B; font-size: 16px; }
+    .services-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
+    .service-card { background: white; padding: 32px; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border: 1px solid #E2E8F0; transition: all 0.3s; }
+    .service-card:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.08); transform: translateY(-2px); }
+    .service-icon { width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #06B6D4, #0891B2); display: flex; align-items: center; justify-content: center; margin-bottom: 16px; font-size: 24px; }
+    .service-card h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+    .service-card p { color: #64748B; font-size: 14px; }
+
+    /* About */
+    .about { padding: 80px 0; background: white; }
+    .about-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; }
+    .about-text h2 { font-size: 32px; font-weight: 700; margin-bottom: 16px; }
+    .about-text p { color: #64748B; font-size: 15px; margin-bottom: 24px; }
+    .about-features { list-style: none; }
+    .about-features li { padding: 8px 0; color: #374151; font-size: 14px; }
+    .about-features li::before { content: '✓'; color: #06B6D4; font-weight: 700; margin-right: 10px; }
+    .about-image { background: linear-gradient(135deg, #0F172A, #1E293B); border-radius: 20px; height: 400px; display: flex; align-items: center; justify-content: center; font-size: 120px; }
+
+    /* Contact */
+    .contact { padding: 80px 0; background: #F8FAFC; }
+    .contact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; }
+    .contact-card { background: white; padding: 28px; border-radius: 14px; text-align: center; border: 1px solid #E2E8F0; }
+    .contact-card .icon { font-size: 32px; margin-bottom: 12px; }
+    .contact-card h4 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .contact-card p { font-size: 13px; color: #64748B; }
+
+    /* Footer */
+    .footer { background: #0F172A; color: #94A3B8; padding: 40px 0; text-align: center; font-size: 13px; }
+
+    @media (max-width: 768px) {
+      .about-inner { grid-template-columns: 1fr; gap: 32px; }
+      .hero h1 { font-size: 32px; }
+      .hero p { font-size: 16px; }
+      .header-inner { flex-direction: column; gap: 12px; }
+      .nav a { margin-left: 12px; }
+      .nav a.btn { margin-left: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="container">
+      <div class="header-inner">
+        <div class="logo">Smile<span>Bright</span> Dental</div>
+        <nav class="nav">
+          <a href="#services">Services</a>
+          <a href="#about">About</a>
+          <a href="#contact">Contact</a>
+          <a href="#book" class="btn">Book Now</a>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <h1>Your Best Smile <span>Starts Here</span></h1>
+      <p>Modern dental care with a gentle touch. Schedule your appointment today and experience the difference.</p>
+      <div class="hero-cta">
+        <a href="#book" class="btn-primary">Schedule Appointment</a>
+        <a href="#services" class="btn-secondary">Our Services</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Services -->
+  <section class="services" id="services">
+    <div class="container">
+      <div class="section-title">
+        <h2>Our Services</h2>
+        <p>Comprehensive dental care for the whole family</p>
+      </div>
+      <div class="services-grid">
+        <div class="service-card">
+          <div class="service-icon">&#127911;</div>
+          <h3>General Dentistry</h3>
+          <p>Regular checkups, cleanings, and preventive care to keep your smile healthy.</p>
+        </div>
+        <div class="service-card">
+          <div class="service-icon">&#128142;</div>
+          <h3>Cosmetic Dentistry</h3>
+          <p>Teeth whitening, veneers, and smile makeovers for a confident look.</p>
+        </div>
+        <div class="service-card">
+          <div class="service-icon">&#129522;</div>
+          <h3>Dental Implants</h3>
+          <p>Permanent tooth replacement solutions that look and feel natural.</p>
+        </div>
+        <div class="service-card">
+          <div class="service-icon">&#128567;</div>
+          <h3>Pediatric Dentistry</h3>
+          <p>Gentle, child-friendly dental care to build healthy habits early.</p>
+        </div>
+        <div class="service-card">
+          <div class="service-icon">&#128508;</div>
+          <h3>Emergency Care</h3>
+          <p>Same-day appointments for urgent dental issues and pain relief.</p>
+        </div>
+        <div class="service-card">
+          <div class="service-icon">&#127908;</div>
+          <h3>Orthodontics</h3>
+          <p>Braces and clear aligners for straighter teeth at any age.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- About -->
+  <section class="about" id="about">
+    <div class="container">
+      <div class="about-inner">
+        <div class="about-text">
+          <h2>Meet Dr. Sarah Johnson</h2>
+          <p>With over 15 years of experience in family and cosmetic dentistry, Dr. Johnson is dedicated to providing the highest quality care in a comfortable, welcoming environment.</p>
+          <ul class="about-features">
+            <li>Board-certified in general dentistry</li>
+            <li>Advanced training in cosmetic procedures</li>
+            <li>Same-day appointments available</li>
+            <li>Insurance and flexible payment plans</li>
+            <li>State-of-the-art dental technology</li>
+          </ul>
+        </div>
+        <div class="about-image">&#127911;</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Contact -->
+  <section class="contact" id="contact">
+    <div class="container">
+      <div class="section-title">
+        <h2>Get In Touch</h2>
+        <p>We'd love to hear from you</p>
+      </div>
+      <div class="contact-grid">
+        <div class="contact-card">
+          <div class="icon">&#128222;</div>
+          <h4>Phone</h4>
+          <p>(555) 123-4567</p>
+        </div>
+        <div class="contact-card">
+          <div class="icon">&#9993;</div>
+          <h4>Email</h4>
+          <p>info@smilebrightdental.com</p>
+        </div>
+        <div class="contact-card">
+          <div class="icon">&#128205;</div>
+          <h4>Address</h4>
+          <p>123 Dental Avenue, Suite 200<br>Beverly Hills, CA 90210</p>
+        </div>
+        <div class="contact-card">
+          <div class="icon">&#128336;</div>
+          <h4>Hours</h4>
+          <p>Mon-Fri: 8am - 6pm<br>Sat: 9am - 2pm</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <p>&copy; 2026 SmileBright Dental. All rights reserved. | Powered by HeyJarvis</p>
+    </div>
+  </footer>
+
+  <!-- ============================================================
+       HeyJarvis Widget Embed
+       Configuration options:
+         - data-practice-slug: Your practice identifier
+         - data-api-url: HeyJarvis API endpoint
+         - data-primary-color: Theme color (hex)
+         - data-title: Widget title
+         - data-subtitle: Welcome message
+       ============================================================ -->
+  <script
+    src="../dist/widget.js"
+    data-practice-slug="smilebright-dental"
+    data-api-url="https://api.heyjarvis.io"
+    data-primary-color="#06B6D4"
+    data-title="SmileBright Dental"
+    data-subtitle="How can we help you today?">
+  </script>
+
+</body>
+</html>

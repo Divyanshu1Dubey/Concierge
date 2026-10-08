@@ -1,0 +1,14 @@
+{
+  "name": "heyjarvis-widget",
+  "version": "1.0.0",
+  "description": "HeyJarvis AI Dental Concierge Chat Widget",
+  "main": "dist/heyjarvis-widget.js",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite"
+  },
+  "devDependencies": {
+    "vite": "^5.1.0",
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,144 @@
+/* ================================================================
+   HeyJarvis Chat — Admin Styles
+   ================================================================ */
+
+/* --- Wrapper ------------------------------------------------- */
+.hj-admin-wrap {
+	max-width: 800px;
+	margin: 20px 0;
+}
+
+.hj-admin-wrap .nav-tab-wrapper {
+	margin-bottom: 20px;
+}
+
+/* --- Card --------------------------------------------------- */
+.hj-card {
+	background: #fff;
+	border: 1px solid #ccd0d4;
+	padding: 24px;
+	margin-bottom: 20px;
+	border-radius: 4px;
+	box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.hj-card h2 {
+	margin-top: 0;
+	margin-bottom: 16px;
+	font-size: 1.3em;
+	border-bottom: 1px solid #eee;
+	padding-bottom: 8px;
+}
+
+/* --- Form rows ---------------------------------------------- */
+.hj-form-table {
+	margin-top: 0;
+}
+
+.hj-form-table tr {
+	border-bottom: 1px solid #f0f0f0;
+}
+
+.hj-form-table tr:last-child {
+	border-bottom: none;
+}
+
+.hj-form-table th {
+	padding: 16px 10px 16px 0;
+	width: 200px;
+	font-weight: 600;
+}
+
+.hj-form-table td {
+	padding: 12px 10px;
+	vertical-align: top;
+}
+
+.hj-form-table input[type="text"],
+.hj-form-table textarea {
+	width: 100%;
+	max-width: 400px;
+}
+
+.hj-form-table textarea {
+	min-height: 80px;
+}
+
+/* --- Color picker ------------------------------------------- */
+.hj-color-wrapper {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.hj-color-wrapper input[type="text"] {
+	width: 100px !important;
+}
+
+.hj-color-wrapper input[type="color"] {
+	width: 50px;
+	height: 30px;
+	border: 1px solid #ccd0d4;
+	cursor: pointer;
+	border-radius: 2px;
+}
+
+/* --- Status badge ------------------------------------------- */
+.hj-status {
+	display: inline-block;
+	padding: 4px 10px;
+	border-radius: 3px;
+	font-size: 13px;
+	font-weight: 500;
+}
+
+.hj-status--success {
+	background: #edfaef;
+	color: #007017;
+}
+
+.hj-status--error {
+	background: #fef0f0;
+	color: #b32d2d;
+}
+
+.hj-status--pending {
+	background: #fef9ee;
+	color: #996800;
+}
+
+/* --- Preview ------------------------------------------------ */
+.hj-preview-frame {
+	width: 100%;
+	height: 400px;
+	border: 1px solid #ccd0d4;
+	border-radius: 4px;
+	background: #f9f9f9;
+}
+
+/* --- Actions ------------------------------------------------ */
+.hj-actions {
+	margin-top: 16px;
+}
+
+.hj-actions .button-primary {
+	margin-right: 8px;
+}
+
+.hj-notice {
+	padding: 12px 16px;
+	border-left: 4px solid #007cba;
+	background: #f0f6fc;
+	margin: 16px 0;
+	border-radius: 0 4px 4px 0;
+}
+
+.hj-notice--error {
+	border-left-color: #b32d2d;
+	background: #fef0f0;
+}
+
+.hj-notice--success {
+	border-left-color: #007017;
+	background: #edfaef;
+}

@@ -1,0 +1,57 @@
+# HeyJarvis Backend - Python Dependencies
+# Python 3.11+
+
+# Core
+Django==4.2.10
+djangorestframework==3.14.0
+django-cors-headers==4.3.1
+django-filter==23.5
+
+# Database
+psycopg2-binary==2.9.9
+dj-database-url==2.1.0
+
+# Auth
+django-allauth==0.60.0
+dj-rest-auth==5.0.2
+google-auth==2.25.2
+google-auth-oauthlib==1.2.0
+google-api-python-client==2.116.0
+
+# AI
+openai==1.12.0
+anthropic==0.18.0
+
+# Async tasks
+celery==5.3.6
+redis==5.0.2
+django-redis==5.4.0
+
+# Utilities
+python-decouple==3.8
+python-dateutil==2.8.2
+phonenumbers==8.13.39
+django-phonenumber-field==7.3.0
+django-timezone-field==6.1
+Pillow==10.2.0
+
+# Email
+# (Using Django's email backends + Gmail API client)
+
+# Security
+django-ratelimit==4.1.0
+django-axes==6.1.0
+django-templated-mail==1.1.1
+
+# Monitoring & logging
+sentry-sdk==1.40.6
+
+# Development & Testing
+pytest==7.4.4
+pytest-django==4.7.0
+pytest-cov==4.1.0
+factory-boy==3.3.0
+faker==22.6.0
+black==24.1.1
+flake8==7.0.0
+isort==5.13.2
