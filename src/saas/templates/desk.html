@@ -119,9 +119,9 @@ details[open] summary svg{transform:rotate(90deg)}
     <div class="clinic" id="clinic"></div>
     <div class="grow"></div>
     <span class="mode" id="mode" style="display:none"></span>
-    <a class="icon-btn" href="/frontdesk/settings" title="Settings"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></a>
-    <div class="sep"></div>
-    <div class="avatar"><button onclick="toggleMenu('acct-menu', event)"><span class="initials" id="initials">FD</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+    <a class="icon-btn" id="settings-btn" href="/frontdesk/settings" onclick="return checkAuth(event)" title="Settings"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></a>
+    <div class="sep" id="user-sep"></div>
+    <div class="avatar" id="user-avatar"><button onclick="toggleMenu('acct-menu', event)"><span class="initials" id="initials">FD</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
       <div class="menu" id="acct-menu"><a href="/frontdesk/settings">Settings</a><a href="/frontdesk/settings#team">Team</a><button onclick="logout()">Log out</button></div></div>
   </div>
   <h1>Patient requests</h1>
@@ -347,11 +347,25 @@ async function skipDay() {
 }
 
 // ── Sign-in (code by email; one click on local demos) ─────────────────────
+function checkAuth(e) {
+  if (!localStorage.getItem('fd_jwt')) {
+    if (e) e.preventDefault();
+    toast('Please sign in first to access Settings.');
+    var el = document.getElementById('l-slug') || document.getElementById('l-email');
+    if (el) el.focus();
+    return false;
+  }
+  return true;
+}
+
 function logout() { localStorage.removeItem('fd_jwt'); showLogin(); }
 var pollTimer = null, signedOut = false;
 function showLogin() {
   signedOut = true;
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }  // don't redraw the form while someone signs in
+  var sb = document.getElementById('settings-btn'); if (sb) sb.style.opacity = '0.35';
+  var ua = document.getElementById('user-avatar'); if (ua) ua.style.display = 'none';
+  var us = document.getElementById('user-sep'); if (us) us.style.display = 'none';
   document.getElementById('root').innerHTML = '<div class="login" style="flex:1"><h3 style="margin:0 0 6px">Sign in</h3>' +
     '<input id="l-slug" placeholder="Clinic ID" value="' + esc(localStorage.getItem('fd_slug') || new URLSearchParams(location.search).get('clinic') || '') + '">' +
     '<input id="l-email" type="email" placeholder="Work email"><input id="l-code" placeholder="6-digit code" style="display:none" inputmode="numeric" autocomplete="one-time-code">' +
@@ -376,7 +390,12 @@ async function demoLogin() {
 }
 
 async function init() {
+  var q = new URLSearchParams(location.search);
+  if (q.has('need_login')) { setTimeout(function () { toast('Please sign in first to access Settings.'); }, 150); }
   if (!localStorage.getItem('fd_jwt')) { showLogin(); return; }
+  var sb = document.getElementById('settings-btn'); if (sb) sb.style.opacity = '1';
+  var ua = document.getElementById('user-avatar'); if (ua) ua.style.display = '';
+  var us = document.getElementById('user-sep'); if (us) us.style.display = '';
   try {
     var m = await api('/fd/mailbox'); demo = !!m.demo_mode;
     var mode = document.getElementById('mode');

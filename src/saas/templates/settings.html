@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Settings</title>
+<script>
+  if (!localStorage.getItem('fd_jwt')) {
+    location.replace('/frontdesk?need_login=1');
+  }
+</script>
 <style>
 :root{
   --page:#ede3d8; --frame:#faf7f3; --card:#fdfbf8; --soft:#f3eee8; --sel:#e9e6dc; --line:#e7e0d7;
