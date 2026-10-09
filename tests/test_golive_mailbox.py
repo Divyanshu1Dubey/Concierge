@@ -140,6 +140,11 @@ def _reply_draft(ns) -> int:
                     ns.lid)[0]["id"]
 
 
+def _draft(did) -> dict:
+    with connect() as c:
+        return rows(c, "SELECT status, cadence_step FROM ai_drafts WHERE id = ?", did)[0]
+
+
 # ── 1. Einstein Mail sends on 587 with STARTTLS ──────────────────────────
 
 
@@ -324,6 +329,43 @@ def test_appended_copy_is_not_recorded_twice_or_treated_as_new_outbound(clinic):
            (before["anchor_at"], before["step_index"], before["status"])
 
 
+def test_cadence_moves_on_before_the_sent_copy(clinic, monkeypatch):
+    """Filing the Sent copy is a slow IMAP round trip: a scheduler tick during it must not re-draft the step."""
+    [did] = cadence.run_due(clinic.tid)
+    seen = {}
+
+    def imap_during_copy(s):
+        with connect() as c:
+            seen["lead"] = rows(c, "SELECT status FROM leads WHERE id = ?", clinic.lid)[0]["status"]
+        seen["draft"] = _draft(did)["status"]
+        seen["thread"] = len(mailbox.lead_thread(clinic.tid, clinic.lid))
+        seen["next"] = cadence.get_enrollment(clinic.tid, clinic.lid)["next_step"]["id"]
+        seen["tick"] = cadence.run_due(clinic.tid)
+        return clinic.imap
+    monkeypatch.setattr(mailbox, "_imap", imap_during_copy)
+    mailbox.send_draft(clinic.tid, did)
+    assert seen == {"lead": "contacted", "draft": "sent", "thread": 1, "next": "follow_up_1", "tick": []}
+    assert len(clinic.imap.appended) == 1
+
+
+def test_scheduler_rereads_an_enrollment_the_desk_moved_mid_run(clinic, monkeypatch):
+    """A run drafts slowly (AI); a step the desk sends meanwhile must not be drafted again from a stale read."""
+    other = create_lead(clinic.tid, {"name": "Lee Park", "email": "lee@patient.test"})
+    cadence.enroll(clinic.tid, other["id"])
+    lees = cadence.draft_for_step(clinic.tid, other["id"], cadence.get_cadence(clinic.tid)["steps"][0])
+    real = cadence.draft_for_step
+
+    def slow_draft(tid, lid, step):
+        if lid == clinic.lid:  # the desk sends Lee's first reply while Pat's is being drafted
+            mailbox.send_draft(clinic.tid, lees)
+        return real(tid, lid, step)
+    monkeypatch.setattr(cadence, "draft_for_step", slow_draft)
+    assert len(cadence.run_due(clinic.tid)) == 1  # Pat's first reply only
+    with connect() as c:
+        assert rows(c, "SELECT id FROM ai_drafts WHERE lead_id = ? AND status = 'pending'", other["id"]) == []
+    assert cadence.get_enrollment(clinic.tid, other["id"])["next_step"]["id"] == "follow_up_1"
+
+
 # ── 6. A reply's pause ends when the front desk answers ──────────────────
 
 
@@ -371,6 +413,67 @@ def test_desk_email_in_sent_resumes_only_if_after_the_reply(clinic):
     answer = _mail(sender=CLINIC, to=PATIENT, body="Tuesday at 3pm is booked", date=formatdate(time.time() + 60))
     assert _sync(clinic, sent=[answer])["outbound"] == 1
     assert cadence.get_enrollment(clinic.tid, clinic.lid)["status"] == "active"
+
+
+# ── 6b. The desk's own answer is the first reply ─────────────────────────
+
+
+def test_desk_answer_before_first_reply_was_sent_resumes_at_follow_up(clinic):
+    """The patient wrote in before the first reply was approved: the desk's answer replaces it."""
+    [first] = cadence.run_due(clinic.tid)
+    _sync(clinic, inbox=[_mail(body="I just filled in the form. Is Thursday possible?")])
+    assert cadence.get_enrollment(clinic.tid, clinic.lid)["status"] == "paused"
+    mailbox.send_draft(clinic.tid, _reply_draft(clinic))
+    enr = cadence.get_enrollment(clinic.tid, clinic.lid)
+    assert (enr["status"], enr["next_step"]["id"]) == ("active", "follow_up_1")
+    assert _draft(first)["status"] == "discarded"
+    assert cadence.run_due(clinic.tid) == []  # no second "thanks for reaching out"
+    assert cadence.run_due(clinic.tid, now=utcnow() + timedelta(hours=23)) == []
+    [nudge] = cadence.run_due(clinic.tid, now=utcnow() + timedelta(hours=25))
+    assert _draft(nudge)["cadence_step"] == "follow_up_1"
+
+
+def test_typed_reply_before_first_reply_replaces_it(clinic):
+    [first] = cadence.run_due(clinic.tid)
+    typed = create_ai_draft(clinic.tid, lead_id=clinic.lid, subject="Your appointment request",
+                            body="Hi Pat, we have Tuesday at 3pm or Wednesday at 10am. Which works?")
+    out = mailbox.send_draft(clinic.tid, typed["id"])
+    enr = cadence.get_enrollment(clinic.tid, clinic.lid)
+    assert (enr["status"], enr["next_step"]["id"]) == ("active", "follow_up_1")
+    assert _draft(first)["status"] == "discarded"  # no contradictory first reply left to approve
+    assert cadence.run_due(clinic.tid) == []
+    _sync(clinic, inbox=[_mail(reply_to=out["message_id"], body="Wednesday at 10am please")])
+    assert cadence.get_enrollment(clinic.tid, clinic.lid)["status"] == "paused"
+    mailbox.send_draft(clinic.tid, _reply_draft(clinic))
+    enr = cadence.get_enrollment(clinic.tid, clinic.lid)
+    assert (enr["status"], enr["next_step"]["id"]) == ("active", "follow_up_1")
+    assert cadence.run_due(clinic.tid) == []
+
+
+def test_webmail_answer_before_first_reply_replaces_it(clinic):
+    [first] = cadence.run_due(clinic.tid)
+    answer = _mail(sender=CLINIC, to=PATIENT, body="Hi Pat, Tuesday at 3pm is open", date=formatdate(time.time() + 60))
+    assert _sync(clinic, sent=[answer])["outbound"] == 1
+    assert cadence.get_enrollment(clinic.tid, clinic.lid)["next_step"]["id"] == "follow_up_1"
+    assert _draft(first)["status"] == "discarded" and cadence.run_due(clinic.tid) == []
+
+
+def test_desk_mail_from_before_the_request_is_not_a_first_reply(clinic):
+    [first] = cadence.run_due(clinic.tid)
+    old = _mail(sender=CLINIC, to=PATIENT, body="Reminder: cleaning next month", date=formatdate(time.time() - 3 * 86400))
+    assert _sync(clinic, sent=[old])["outbound"] == 1  # the first sync looks back 14 days
+    assert cadence.get_enrollment(clinic.tid, clinic.lid)["next_step"]["id"] == "first_reply"
+    assert _draft(first)["status"] == "pending"
+
+
+def test_delayed_first_step_is_a_follow_up_and_stays(clinic):
+    cadence.save_cadence(clinic.tid, {**cadence.get_cadence(clinic.tid), "steps": [
+        {"id": "nudge", "name": "Nudge", "delay_hours": 24, "mode": "template", "template": "Hi {{name}}, still keen?"}]})
+    mailbox.send_draft(clinic.tid, create_ai_draft(clinic.tid, lead_id=clinic.lid, subject="Hi", body="Hello Pat")["id"])
+    enr = cadence.get_enrollment(clinic.tid, clinic.lid)
+    assert (enr["status"], enr["next_step"]["id"]) == ("active", "nudge")
+    [nudge] = cadence.run_due(clinic.tid, now=utcnow() + timedelta(hours=25))
+    assert _draft(nudge)["cadence_step"] == "nudge"
 
 
 # ── 7. set_status with a closing status stops the cadence ────────────────

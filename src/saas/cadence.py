@@ -4,6 +4,7 @@ Every new lead with an email is enrolled. When a step is due, the scheduler
 creates a DRAFT in the front desk queue; nothing is emailed until a person
 approves it. Delays count from the last email the patient received (any email
 from the clinic resets the clock, including ones the desk sent from Gmail by hand).
+A desk email sent before the immediate first reply goes out takes its place.
 
 When the patient replies, the reply is classified and the first matching rule
 in `on_reply` runs. Actions:
@@ -240,18 +241,21 @@ def _run_due(tenant_id: int | None, now: datetime | None) -> list[int]:
         enrollments = rows(c, sql, args)
     created = []
     configs: dict[int, dict] = {}
-    for enr in enrollments:
-        cfg = configs.setdefault(enr["tenant_id"], get_cadence(enr["tenant_id"]))
+    for snap in enrollments:
+        cfg = configs.setdefault(snap["tenant_id"], get_cadence(snap["tenant_id"]))
         if not cfg.get("enabled", True):
+            continue
+        with connect() as c:  # re-read: drafting is slow, and the desk may have sent or paused this one meanwhile
+            waiting = row(c, "SELECT id FROM ai_drafts WHERE tenant_id = ? AND lead_id = ? AND status = 'pending' "
+                             "AND cadence_step IS NOT NULL", snap["tenant_id"], snap["lead_id"])
+            enr = row(c, "SELECT * FROM cadence_enrollments WHERE id = ? AND status = 'active'", snap["id"])
+        if not enr:
             continue
         nxt = _next_step(cfg, enr)
         if not nxt:
             _finish(enr["id"])
             continue
         _, step = nxt
-        with connect() as c:
-            waiting = row(c, "SELECT id FROM ai_drafts WHERE tenant_id = ? AND lead_id = ? AND status = 'pending' "
-                             "AND cadence_step IS NOT NULL", enr["tenant_id"], enr["lead_id"])
         if waiting or _due_at(enr, step) > now:
             continue
         try:
@@ -316,9 +320,11 @@ def draft_for_step(tenant_id: int, lead_id: int, step: dict) -> int:
 def on_outbound(tenant_id: int, lead_id: int, cadence_step: str | None, sent_at: str | None = None) -> None:
     """Any email to the patient resets the clock; a sent cadence draft also moves to the next step.
 
-    If a patient reply paused the cadence, the desk answering it resumes the cadence so follow-ups continue if the
-    patient goes quiet. sent_at is when a desk email found in the Sent folder went out (None: just now); one sent
-    before the patient's latest reply doesn't answer it."""
+    Any other email from the desk while the immediate (delay 0) first step is still unsent is the patient's first
+    reply: that step is passed and its pending draft discarded, so the next email is a follow-up, never a second
+    "thanks for reaching out". If a patient reply paused the cadence, the desk answering it resumes the cadence so
+    follow-ups continue if the patient goes quiet. sent_at is when a desk email found in the Sent folder went out
+    (None: just now); one sent before the patient's latest reply doesn't answer it."""
     enr = get_enrollment(tenant_id, lead_id)
     if not enr:
         return
@@ -328,6 +334,9 @@ def on_outbound(tenant_id: int, lead_id: int, cadence_step: str | None, sent_at:
         ids = [s["id"] for s in cfg["steps"]]
         if cadence_step in ids:
             idx = ids.index(cadence_step) + 1
+    elif _first_step_answered(cfg, enr, sent_at):
+        idx = 1
+        _discard_pending(tenant_id, lead_id, cfg["steps"][0]["id"])
     status, reason = enr["status"], enr.get("reason")
     paused_by_reply = status == "paused" and (reason or "").startswith(REPLY_REASON)
     if paused_by_reply and _answers_last_reply(tenant_id, lead_id, sent_at):
@@ -337,6 +346,14 @@ def on_outbound(tenant_id: int, lead_id: int, cadence_step: str | None, sent_at:
     with connect() as c:
         c.execute("UPDATE cadence_enrollments SET step_index = ?, anchor_at = ?, status = ?, reason = ?, updated_at = ? "
                   "WHERE id = ?", (idx, now_iso(), status, reason, now_iso(), enr["id"]))
+
+
+def _first_step_answered(cfg: dict, enr: dict, sent_at: str | None) -> bool:
+    """The next step is the cadence's immediate first reply and this desk email was sent since enrollment (older
+    mail found in the Sent folder isn't a reply to the request). A delayed first step is a follow-up: it stays."""
+    nxt = _next_step(cfg, enr)
+    return (nxt is not None and nxt[0] == 0 and float(nxt[1].get("delay_hours", 0)) == 0
+            and (sent_at is None or sent_at >= enr["created_at"]))
 
 
 def _answers_last_reply(tenant_id: int, lead_id: int, sent_at: str | None) -> bool:

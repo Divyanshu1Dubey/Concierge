@@ -542,14 +542,15 @@ def send_draft(tenant_id: int, draft_id: int, *, subject: str | None = None, bod
     record_message(tenant_id, lead["id"], "out", msg["Message-ID"], from_addr=sender, to_addr=recipient,
                    subject=subj, body=text, sent_at=now, in_reply_to=in_reply_to, references=references,
                    draft_id=draft_id, cadence_step=draft.get("cadence_step"), source="demo" if demo else "heyjarvis")
-    if not demo:  # after record_message, so the Sent sync sees this Message-ID as already known
-        _save_sent_copy(tenant_id, s, msg)
-
     from saas import cadence
     cadence.on_outbound(tenant_id, lead["id"], draft.get("cadence_step"))
     if lead.get("status") == "new":
         from saas.repositories import update_lead
         update_lead(lead["id"], status="contacted")
+    # Last: an IMAP round trip, so the cadence has already moved on (a scheduler tick meanwhile must not re-draft
+    # this step) and the Sent sync already knows this Message-ID.
+    if not demo:
+        _save_sent_copy(tenant_id, s, msg)
     return {"ok": True, "message_id": msg["Message-ID"], "to": recipient, "subject": subj, "demo": demo}
 
 
