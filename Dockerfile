@@ -25,6 +25,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY src/ ./src/
 COPY config/ ./config/
+COPY test_widget.html ./
 
 EXPOSE 8000
 

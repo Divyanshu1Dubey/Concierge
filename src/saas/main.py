@@ -254,6 +254,8 @@ def concierge_default_redirect(request: Request) -> RedirectResponse:
 
 @app.get("/concierge/{tenant_slug}")
 def hosted_concierge(tenant_slug: str) -> HTMLResponse:
+    if settings.is_production and tenant_slug in ("raleigh-dental-demo", "demo"):
+        tenant_slug = "raleigh-dentistry"
     tenant = get_tenant_by_slug(tenant_slug)
     if not tenant:
         raise HTTPException(status_code=404, detail="tenant not found")
@@ -302,7 +304,9 @@ def admin_page() -> HTMLResponse:
 @app.get("/test-widget")
 @app.get("/test_widget.html")
 def test_widget_page() -> HTMLResponse:
-    path = ROOT / "test_widget.html"
+    path = ROOT / "src" / "saas" / "templates" / "test_widget.html"
+    if not path.exists():
+        path = ROOT / "test_widget.html"
     return HTMLResponse(path.read_text(encoding="utf-8"))
 
 
