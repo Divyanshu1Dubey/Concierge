@@ -11,6 +11,10 @@ env/
 dist/
 build/
 
+# Retired React bundle (the server refuses it in production). Docker patterns are anchored at the context
+# root, so the 'dist/' above does not cover this one.
+src/saas/static/dist/
+
 # Database
 *.db
 *.sqlite

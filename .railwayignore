@@ -4,3 +4,5 @@
 /Raleigh_Dentistry_*.html
 /bundle_raw.txt
 /.claude/
+# Retired React bundle: the server refuses it in production; keep it out of the upload entirely.
+/src/saas/static/dist/

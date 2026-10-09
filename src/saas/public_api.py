@@ -646,33 +646,41 @@ async def fd_reply_lead(request: Request, lead_id: int, body: dict[str, Any]):
     return await _send_draft_or_http(auth["tenant_id"], draft["id"], {})
 
 
-async def _notify_desk(request: Request, lead_id: int, intent: str) -> None:
-    """Re-send the new-lead alert. 409 in production with no clinic mailbox (never written to disk instead)."""
+async def _notify_desk(request: Request, lead_id: int, intent: str) -> str:
+    """Re-send the new-lead alert. 409 in production with no clinic mailbox (never written to disk instead).
+
+    With a front desk address set, the full notification goes there from the clinic mailbox ("front_desk").
+    Without one, the team gets the PHI-free new-lead alert again from the HeyJarvis sender ("team", in the
+    background), never the patient's details mailed to a missing address."""
     auth = await _fd_auth(request)
     lead = get_lead(lead_id)
     if not lead or lead["tenant_id"] != auth["tenant_id"]:
         raise HTTPException(status_code=404, detail="lead not found")
-    from saas.emailer import send_lead_notification
+    from saas.emailer import NoFrontDeskAddress, send_lead_notification
     try:
         result = await run_in_threadpool(send_lead_notification, auth["tenant_id"], lead_id, intent)
     except MailboxNotConnected as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except NoFrontDeskAddress:
+        await run_in_threadpool(_alert_team_new_lead, auth["tenant_id"], lead_id)
+        return "team"
     if not result.ok:
         raise HTTPException(status_code=502, detail=f"Could not send: {result.error}")
+    return "front_desk"
 
 
 @frontdesk_app.post("/leads/{lead_id}/retry")
 @frontdesk_app.post("/leads/{lead_id}/retry-notify")  # alias used by frontend
 async def fd_retry_lead(request: Request, lead_id: int):
-    await _notify_desk(request, lead_id, "retry")
-    return {"ok": True, "status": "queued"}
+    notified = await _notify_desk(request, lead_id, "retry")
+    return {"ok": True, "status": "queued", "notified": notified}
 
 
 @frontdesk_app.post("/leads/{lead_id}/resend")
 @frontdesk_app.post("/leads/{lead_id}/resend-email")  # alias used by frontend
 async def fd_resend_lead(request: Request, lead_id: int):
-    await _notify_desk(request, lead_id, "resend")
-    return {"ok": True, "status": "sent"}
+    notified = await _notify_desk(request, lead_id, "resend")
+    return {"ok": True, "status": "sent" if notified == "front_desk" else "queued", "notified": notified}
 
 
 @frontdesk_app.get("/notes")
