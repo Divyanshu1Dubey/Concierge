@@ -39,9 +39,21 @@ Still to set in Railway → concierge → Variables (secrets, never commit them)
 | `DEFAULT_SMTP_FROM` | optional, e.g. `HeyJarvis <avi@heyjarvis.ai>` (defaults to the user) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | optional; only for clinics on Google Workspace (see the end of this doc) |
 
+### Production variables
+
+- **Never set `CONCIERGE_DEMO`** in production: it brings back the demo clinic and its well-known logins.
+- **Never set `GROQ_API_KEY`** (or `CONCIERGE_ALLOW_GROQ`) in production: patient messages go to Gemini only.
+  Groq is used only when both are set.
+- **`APP_ENV=production` is baked into the Docker image**, so a deleted Railway variable can't drop the server
+  into development mode. Production also refuses to boot without strong `JWT_SECRET`/`ENCRYPTION_KEY`, and
+  doesn't serve `/admin`, `/install`, the API docs or the old React bundle.
+- uvicorn runs with `--no-access-log` (search URLs carry patient names/emails/phones). Errors are still logged.
+
 Domain: Railway → concierge → Settings → Networking → Custom Domain `concierge.heyjarvis.ai` (port 8080),
 then add the CNAME (and TXT, if shown) in **GoDaddy** DNS, where heyjarvis.ai's DNS lives.
-Check: `https://concierge.heyjarvis.ai/health` returns `{"ok": true}`, and `/` redirects to `/frontdesk`.
+Check: `https://concierge.heyjarvis.ai/health` returns `"ok": true`, and `/` redirects to `/frontdesk`.
+`scheduler_last_tick_age_s` is the seconds since the mailbox/follow-up scheduler last finished cleanly (it runs
+every 2 minutes; `null` until the first run). If it keeps growing, check the logs.
 
 `railway.toml` is deprecated by Railway after 2026-12-01; the root `Dockerfile` is still picked up without it.
 

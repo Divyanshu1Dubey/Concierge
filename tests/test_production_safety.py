@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import pathlib
+import re
 import uuid
 
 import pytest
@@ -33,11 +35,26 @@ def test_unknown_clinic_id_does_not_fall_back_to_only_clinic():
     assert r.status_code == 404
 
 
+# SHA-256 of the Gmail app password the old ensure_demo_data shipped with: only the hash stays in the repo.
+_LEAKED_APP_PASSWORD_SHA256 = "dd627981f33130e0600613de65676f2184baa1889a9fc37d3f45b69f9b4de5dc"
+
+
+def _contains_leaked_app_password(text: str) -> bool:
+    """Gmail app passwords are 16 letters, often shown as four groups of four: hash every 16-letter window."""
+    for run in re.findall(r"[a-z]{16,}", text.lower().replace(" ", "")):
+        for i in range(len(run) - 15):
+            if hashlib.sha256(run[i:i + 16].encode()).hexdigest() == _LEAKED_APP_PASSWORD_SHA256:
+                return True
+    return False
+
+
 def test_no_hardcoded_mail_credentials_in_source():
     src = pathlib.Path(__file__).resolve().parents[1] / "src"
-    for f in src.rglob("*.py"):
-        text = f.read_text()
-        assert "iapjgasrmazuzqgd" not in text and "parulmaterial@" not in text, f
+    for f in src.rglob("*"):
+        if not f.is_file() or "__pycache__" in f.parts:
+            continue
+        text = f.read_text(errors="ignore")
+        assert not _contains_leaked_app_password(text) and "parulmaterial@" not in text, f
 
 
 def test_production_never_fakes_a_send(production):

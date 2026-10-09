@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -43,12 +45,20 @@ STATIC.mkdir(parents=True, exist_ok=True)
 
 log = logging.getLogger("heyjarvis.scheduler")
 SCHEDULER_INTERVAL_S = int(os.environ.get("CONCIERGE_SCHEDULER_INTERVAL", "120"))
+_last_tick_ok: float | None = None  # time.monotonic() of the last clean tick; /health reports its age
 
 
 def scheduler_tick() -> None:
     """Pull patient replies from every connected clinic mailbox, then draft any follow-ups that are due."""
+    global _last_tick_ok
     from saas import cadence, mailbox
-    for tenant_id in mailbox.connected_tenants():
+    ok = True
+    try:
+        tenants = mailbox.connected_tenants()
+    except Exception:  # e.g. a locked database: still run the cadence below
+        log.exception("listing connected mailboxes failed")
+        tenants, ok = [], False
+    for tenant_id in tenants:
         try:
             mailbox.sync_mailbox(tenant_id)
         except Exception as e:  # one clinic's bad password must not stop the others
@@ -57,12 +67,18 @@ def scheduler_tick() -> None:
         cadence.run_due()
     except Exception:
         log.exception("cadence run failed")
+        ok = False
+    if ok:
+        _last_tick_ok = time.monotonic()
 
 
 async def _scheduler_loop() -> None:
     while True:
         await asyncio.sleep(SCHEDULER_INTERVAL_S)
-        await run_in_threadpool(scheduler_tick)
+        try:
+            await run_in_threadpool(scheduler_tick)
+        except Exception:  # an escaped error would end the task and silently stop every follow-up
+            log.exception("scheduler tick failed")
 
 
 @asynccontextmanager
@@ -83,7 +99,10 @@ async def lifespan(_app: FastAPI):
         task.cancel()
 
 
-app = FastAPI(title="HeyJarvis Concierge Platform", version="1.0.0", lifespan=lifespan)
+_docs = not settings.is_production
+app = FastAPI(title="HeyJarvis Concierge Platform", version="1.0.0", lifespan=lifespan,
+              docs_url="/docs" if _docs else None, redoc_url="/redoc" if _docs else None,
+              openapi_url="/openapi.json" if _docs else None)
 
 app.add_middleware(
     CORSMiddleware,
@@ -93,8 +112,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Legacy/dev surfaces a production server never serves: the old admin page (renders patient fields unescaped and
+# reads a token from the URL hash), the install notes (docs/ isn't in the image) and every mounted app's API docs.
+_DEV_ONLY_PATHS = frozenset(
+    ["/admin", "/admin.html", "/install"]
+    + [prefix + p for prefix in ("", "/api", "/api/admin", "/api/admin/fd")
+       for p in ("/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json")]
+)
 
-app.mount("/static", StaticFiles(directory=str(STATIC)), name="saas-static")
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next) -> Response:
+    path = re.sub(r"/{2,}", "/", request.url.path)
+    if get_settings().is_production and path in _DEV_ONLY_PATHS:
+        response: Response = JSONResponse({"detail": "Not Found"}, status_code=404)
+    else:
+        response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # uvicorn --proxy-headers sets the scheme from X-Forwarded-Proto; the header check covers runs without it.
+    forwarded = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    if request.url.scheme == "https" or forwarded == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    # Staff pages and APIs can't be framed by other sites. /concierge/{slug} stays frameable: clinics may iframe it.
+    if path.startswith(("/frontdesk", "/api/admin")):
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    return response
+
+
+class _Static(StaticFiles):
+    """/static without the retired React bundle (static/dist) in production."""
+
+    def get_path(self, scope) -> str:
+        path = super().get_path(scope)  # already normalized: no '..', '.' or doubled slashes
+        if get_settings().is_production and path.split(os.sep)[0].lower() == "dist":
+            raise HTTPException(status_code=404)
+        return path
+
+
+app.mount("/static", _Static(directory=str(STATIC)), name="saas-static")
 app.mount("/api/admin", admin_app)
 admin_app.mount("/fd", frontdesk_app)
 app.mount("/api", public_app)
@@ -156,7 +212,9 @@ def google_callback(request: Request, code: str | None = None, state: str | None
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True}
+    # Always ok (it's the platform healthcheck); a growing tick age means follow-ups and reply tracking stalled.
+    age = None if _last_tick_ok is None else round(time.monotonic() - _last_tick_ok)
+    return {"ok": True, "scheduler_last_tick_age_s": age}
 
 
 @app.get("/")

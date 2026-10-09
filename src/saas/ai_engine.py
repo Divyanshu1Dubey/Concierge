@@ -9,7 +9,7 @@ Provides:
 - Knowledge retrieval
 
 Uses the same LLM provider chain as src/concierge/triage.py:
-  Gemini -> Groq -> keyword/rules fallback.
+  Gemini -> Groq (only with CONCIERGE_ALLOW_GROQ=1) -> keyword/rules fallback.
 
 Never exposes API keys to the browser.
 All patient-facing output is reviewed/sent by a human by default.
@@ -153,7 +153,8 @@ def _provider_chain():
         log.warning("GEMINI_API_KEY is not set; skipping Gemini")
     for model in dict.fromkeys(m for m in (MODEL, FALLBACK_MODEL) if m and GEMINI_API_KEY):
         yield "gemini", lambda req, emit, m=model, **kw: _call_gemini(req, m, emit=emit, **kw)
-    if os.environ.get("GROQ_API_KEY"):
+    # Patient messages go to Gemini only. Groq is a second vendor: it needs an explicit opt-in, not just a key.
+    if os.environ.get("GROQ_API_KEY") and os.environ.get("CONCIERGE_ALLOW_GROQ") == "1":
         yield "groq", lambda req, emit, **kw: _call_groq(req, emit=emit, **kw)
 
 

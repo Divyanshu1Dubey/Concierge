@@ -25,6 +25,7 @@ from saas.config import get_settings
 from saas.conversation import ConversationEngine, DEFAULT_GREETING, State
 from saas.database import connect, now_iso, row, rows
 from saas.emailer import (
+    MailboxNotConnected,
     send_lead_notification,
     send_test_email,
     test_smtp_connection,
@@ -564,27 +565,32 @@ async def fd_reply_lead(request: Request, lead_id: int, body: dict[str, Any]):
     return await _send_draft_or_http(auth["tenant_id"], draft["id"], {})
 
 
-@frontdesk_app.post("/leads/{lead_id}/retry")
-@frontdesk_app.post("/leads/{lead_id}/retry-notify")  # alias used by frontend
-async def fd_retry_lead(request: Request, lead_id: int):
+async def _notify_desk(request: Request, lead_id: int, intent: str) -> None:
+    """Re-send the new-lead alert. 409 in production with no clinic mailbox (never written to disk instead)."""
     auth = await _fd_auth(request)
     lead = get_lead(lead_id)
     if not lead or lead["tenant_id"] != auth["tenant_id"]:
         raise HTTPException(status_code=404, detail="lead not found")
     from saas.emailer import send_lead_notification
-    await run_in_threadpool(send_lead_notification, auth["tenant_id"], lead_id, "retry")
+    try:
+        result = await run_in_threadpool(send_lead_notification, auth["tenant_id"], lead_id, intent)
+    except MailboxNotConnected as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    if not result.ok:
+        raise HTTPException(status_code=502, detail=f"Could not send: {result.error}")
+
+
+@frontdesk_app.post("/leads/{lead_id}/retry")
+@frontdesk_app.post("/leads/{lead_id}/retry-notify")  # alias used by frontend
+async def fd_retry_lead(request: Request, lead_id: int):
+    await _notify_desk(request, lead_id, "retry")
     return {"ok": True, "status": "queued"}
 
 
 @frontdesk_app.post("/leads/{lead_id}/resend")
 @frontdesk_app.post("/leads/{lead_id}/resend-email")  # alias used by frontend
 async def fd_resend_lead(request: Request, lead_id: int):
-    auth = await _fd_auth(request)
-    lead = get_lead(lead_id)
-    if not lead or lead["tenant_id"] != auth["tenant_id"]:
-        raise HTTPException(status_code=404, detail="lead not found")
-    from saas.emailer import send_lead_notification
-    await run_in_threadpool(send_lead_notification, auth["tenant_id"], lead_id, "resend")
+    await _notify_desk(request, lead_id, "resend")
     return {"ok": True, "status": "sent"}
 
 
@@ -1768,7 +1774,10 @@ def admin_test_email(tenant_id: int, cu: CurrentUser = Depends(require_roles("ow
     _check_tenant(cu, tenant_id)
     row_data = _smtp_row(tenant_id)
     to = (row_data or {}).get("from_email") or settings.default_smtp_from
-    result = send_test_email(tenant_id, to)
+    try:
+        result = send_test_email(tenant_id, to)
+    except MailboxNotConnected as e:
+        raise HTTPException(status_code=409, detail=str(e))
     return {"ok": result.ok, "mode": result.mode, "ref": result.ref, "error": result.error}
 
 
