@@ -13,7 +13,7 @@ All tests pass: `.venv/bin/python -m pytest -q`, or `uv run pytest -q`.
   once you agree.
 - **Email goes through the clinic's own mailbox.** Raleigh's email is hosted by **Einstein Mail**
   (`mx.einsteinmail.com`), not Google. Settings → Email has an Einstein Mail preset
-  (`smtp.einsteinmail.com:465`, `imap.einsteinmail.com:993`, both checked: valid TLS, password login).
+  (`smtp.einsteinmail.com:587` STARTTLS and `imap.einsteinmail.com:993` SSL, per Einstein support; username = full address).
 - **Deploy on Render, paid plan with a disk.** The free plan wipes the SQLite database on every
   deploy and sleeps, which also stops the follow-up scheduler. `render.yaml` is already set up.
 - **No demo data in production.** Demo logins, the demo clinic and the developer portal at `/` only exist
