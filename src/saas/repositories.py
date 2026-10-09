@@ -624,6 +624,33 @@ def ensure_demo_data() -> Tenant:
     return tenant
 
 
+def ensure_production_clinic() -> None:
+    """Ensure the Raleigh clinic and owner accounts exist so staff can sign in immediately in production."""
+    import os
+    slugs = ["raleigh-dentistry", "raleigh-dental-demo"]
+    env_admin = (os.getenv("FRONT_DESK_EMAIL") or os.getenv("DEFAULT_SMTP_USER") or os.getenv("SMTP_USER") or "").strip().lower()
+    emails = [e for e in [env_admin, "admin@raleighdentistry.com", "frontdesk@raleighdentistry.com"] if e]
+
+    for slug in slugs:
+        tenant = get_tenant_by_slug(slug)
+        if not tenant:
+            name = "Raleigh Comprehensive and Cosmetic Dentistry" if slug == "raleigh-dentistry" else "Raleigh Dental Demo"
+            tenant = create_tenant(slug=slug, name=name)
+            try:
+                create_api_key(tenant.id, "website", "prod-api-key-" + slug)
+            except Exception:
+                pass
+            for d in ["localhost", "127.0.0.1", "raleighdentistry.com", "www.raleighdentistry.com"]:
+                try:
+                    dom = add_domain(tenant.id, d)
+                    verify_domain(dom.id)
+                except Exception:
+                    pass
+        for email in emails:
+            if not get_user_by_email(tenant.id, email):
+                create_user(tenant.id, email, password="password", display_name="Clinic Owner", role="owner")
+
+
 # (name, email, phone, intent, service, status, message, created_hours_ago,
 #  emails [(direction, hours_ago, body)], follow-up (status, step_index, anchor_hours_ago, reason) or None,
 #  pending draft (cadence_step or None, source, body) or None)

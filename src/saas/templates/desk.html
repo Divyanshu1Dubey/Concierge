@@ -368,15 +368,35 @@ function showLogin() {
   var us = document.getElementById('user-sep'); if (us) us.style.display = 'none';
   document.getElementById('root').innerHTML = '<div class="login" style="flex:1"><h3 style="margin:0 0 6px">Sign in</h3>' +
     '<input id="l-slug" placeholder="Clinic ID" value="' + esc(localStorage.getItem('fd_slug') || new URLSearchParams(location.search).get('clinic') || '') + '">' +
-    '<input id="l-email" type="email" placeholder="Work email"><input id="l-code" placeholder="6-digit code" style="display:none" inputmode="numeric" autocomplete="one-time-code">' +
+    '<input id="l-email" type="email" placeholder="Work email">' +
+    '<input id="l-pass" type="password" placeholder="Password" style="display:none" autocomplete="current-password">' +
+    '<input id="l-code" placeholder="6-digit code" style="display:none" inputmode="numeric" autocomplete="one-time-code">' +
     '<div class="err" id="l-err"></div><button class="btn dark" id="l-go" onclick="loginStep()">Email me a code</button>' +
-    '<button class="btn" id="l-demo" style="display:none" onclick="demoLogin()">Open demo</button></div>';
+    '<button class="btn" id="l-demo" style="display:none" onclick="demoLogin()">Open demo</button>' +
+    '<div style="margin-top:12px;text-align:center"><button type="button" id="l-pwd-toggle" onclick="togglePasswordLogin()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;text-decoration:underline">Sign in with password instead</button></div></div>';
   fetch(API + '/auth/demo').then(function (r) { return r.json(); }).then(function (d) { if (d.available) document.getElementById('l-demo').style.display = ''; }).catch(function () {});
 }
-var codeSent = false;
+var codeSent = false, usePassword = false;
+function togglePasswordLogin() {
+  usePassword = !usePassword;
+  document.getElementById('l-pass').style.display = usePassword ? '' : 'none';
+  document.getElementById('l-code').style.display = 'none';
+  document.getElementById('l-go').textContent = usePassword ? 'Sign in' : (codeSent ? 'Sign in with code' : 'Email me a code');
+  document.getElementById('l-pwd-toggle').textContent = usePassword ? 'Email me a code instead' : 'Sign in with password instead';
+  document.getElementById('l-err').textContent = '';
+}
 async function loginStep() {
   var slug = document.getElementById('l-slug').value.trim(), email = document.getElementById('l-email').value.trim(), err = document.getElementById('l-err');
   if (!slug || !email) { err.textContent = 'Enter clinic ID and email'; return; }
+  if (usePassword) {
+    var pass = (document.getElementById('l-pass') || {}).value;
+    if (!pass) { err.textContent = 'Enter your password'; return; }
+    var r = await fetch(API + '/auth/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tenant_slug: slug, email: email, password: pass})});
+    var d = await r.json();
+    if (!r.ok) { err.textContent = d.detail || 'Invalid clinic ID, email, or password'; return; }
+    localStorage.setItem('fd_jwt', d.access_token); localStorage.setItem('fd_slug', slug); location.reload();
+    return;
+  }
   var path = codeSent ? '/auth/code/verify' : '/auth/code/request';
   var r = await fetch(API + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tenant_slug: slug, email: email, code: (document.getElementById('l-code') || {}).value})});
   var d = await r.json();

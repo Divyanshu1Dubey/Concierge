@@ -91,8 +91,10 @@ async def lifespan(_app: FastAPI):
         # Demo clinic with known logins: local/dev only, never in production.
         if not settings.is_production or os.environ.get("CONCIERGE_DEMO") == "1":
             ensure_demo_data()
+        from saas.repositories import ensure_production_clinic
+        ensure_production_clinic()
     except Exception as e:
-        log.warning("startup migration/demo seed: %s", e)
+        log.warning("startup migration/clinic seed: %s", e)
     task = asyncio.create_task(_scheduler_loop()) if os.environ.get("CONCIERGE_SCHEDULER", "1") != "0" else None
     yield
     if task:

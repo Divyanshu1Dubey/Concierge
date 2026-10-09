@@ -67,7 +67,7 @@ def send_system_email(to: str, subject: str, body: str, dev_note: str | None = N
     s = get_settings()
     if not (s.default_smtp_host and s.default_smtp_user and s.default_smtp_password):
         if s.is_production:
-            raise LoginCodeError("Email login is not configured (DEFAULT_SMTP_* settings).")
+            raise LoginCodeError("Email login is not configured on production. Ensure DEFAULT_SMTP_USER and DEFAULT_SMTP_PASSWORD are set in Railway Variables.")
         log.warning("DEV ONLY - no SMTP configured. %s", dev_note or f"Would email {to}: {subject}")
         return False
     msg = EmailMessage()
@@ -77,6 +77,7 @@ def send_system_email(to: str, subject: str, body: str, dev_note: str | None = N
     msg.set_content(body)
     port = int(s.default_smtp_port or 465)
     ctx = ssl.create_default_context()
+    log.info("Sending login email to %s via %s:%d (from %s)...", to, s.default_smtp_host, port, msg["From"])
     conn = smtplib.SMTP_SSL(s.default_smtp_host, port, context=ctx, timeout=20) if port == 465 \
         else smtplib.SMTP(s.default_smtp_host, port, timeout=20)
     with conn:
@@ -84,4 +85,5 @@ def send_system_email(to: str, subject: str, body: str, dev_note: str | None = N
             conn.starttls(context=ctx)
         conn.login(s.default_smtp_user, s.default_smtp_password.get_secret_value())
         conn.send_message(msg)
+    log.info("Successfully delivered login email to %s.", to)
     return True
