@@ -20,33 +20,51 @@ def _rate_limit_key(prefix: str, identifier: str) -> str:
 
 
 def check_rate_limit(key: str, limit: int = DEFAULT_LIMIT, window: int = DEFAULT_WINDOW) -> tuple[bool, int]:
-    """Check and record a rate limit hit.
+    """Check and record a rate limit hit using a sliding window counter.
     Returns (allowed, remaining).
     """
     now = time.time()
-    window_start = str(int(now // window) * window)
+    cur_win = int(now // window) * window
+    prev_win = cur_win - window
+    cur_win_str = str(cur_win)
+    prev_win_str = str(prev_win)
+    pct = max(0.0, min(1.0, (now - cur_win) / float(window)))
 
     with connect() as c:
-        row = c.execute(
-            "SELECT count FROM rate_limit_entries WHERE key = ? AND window_start = ?",
-            (key, window_start),
-        ).fetchone()
+        # Cleanup expired entries for this key
+        c.execute(
+            "DELETE FROM rate_limit_entries WHERE key = ? AND window_start NOT IN (?, ?)",
+            (key, cur_win_str, prev_win_str),
+        )
 
-        if row and row[0] >= limit:
+        rows = c.execute(
+            "SELECT window_start, count FROM rate_limit_entries WHERE key = ? AND window_start IN (?, ?)",
+            (key, cur_win_str, prev_win_str),
+        ).fetchall()
+
+        counts = {r[0]: r[1] for r in rows}
+        cur_count = counts.get(cur_win_str, 0)
+        prev_count = counts.get(prev_win_str, 0)
+
+        # Sliding window weighted rate estimate
+        estimated = (prev_count * (1.0 - pct)) + cur_count
+
+        if estimated >= limit or cur_count >= limit:
             return False, 0
 
-        if row:
+        if cur_count > 0:
             c.execute(
                 "UPDATE rate_limit_entries SET count = count + 1 WHERE key = ? AND window_start = ?",
-                (key, window_start),
+                (key, cur_win_str),
             )
         else:
             c.execute(
                 "INSERT INTO rate_limit_entries (key, window_start, count) VALUES (?, ?, 1)",
-                (key, window_start),
+                (key, cur_win_str),
             )
 
-    return True, max(0, limit - (row[0] + 1 if row else 0))
+    remaining = max(0, int(limit - estimated - 1))
+    return True, remaining
 
 
 def rate_limit(prefix: str, limit: int = DEFAULT_LIMIT, window: int = DEFAULT_WINDOW):
