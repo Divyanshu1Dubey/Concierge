@@ -73,7 +73,7 @@ def test_einstein_preset_fills_servers(clinic):
     st = mailbox.connect_mailbox(clinic["id"], "einstein", "FrontDesk@RaleighDentistry.com", "secret")
     row = mailbox.get_settings_row(clinic["id"])
     assert (row["smtp_host"], row["smtp_port"], row["imap_host"], row["imap_port"]) == \
-           ("smtp.einsteinmail.com", 465, "imap.einsteinmail.com", 993)
+           ("smtp.einsteinmail.com", 587, "imap.einsteinmail.com", 993)
     assert st["connected"] and st["provider"] == "einstein" and st["address"] == "frontdesk@raleighdentistry.com"
     assert "secret" not in (row["smtp_password_enc"] or "")
 
@@ -102,7 +102,7 @@ def test_production_rejects_internal_mail_servers(clinic, monkeypatch):
 
 
 def test_separate_login_username_is_used(clinic, monkeypatch):
-    monkeypatch.setattr(smtplib, "SMTP_SSL", FakeSMTP)
+    monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)  # Einstein sends on 587 with STARTTLS
     mailbox.connect_mailbox(clinic["id"], "einstein", "frontdesk@rd.test", "pw", username="rd-frontdesk")
     with mailbox._smtp(mailbox.get_settings_row(clinic["id"])):
         pass
@@ -167,6 +167,7 @@ def test_friendly_errors_depend_on_provider(clinic):
 def test_send_test_email_goes_to_itself(clinic, monkeypatch):
     fake = FakeSMTP()
     monkeypatch.setattr(mailbox, "_smtp", lambda s: fake)
+    monkeypatch.setattr(mailbox, "_imap", lambda s: FakeIMAP())
     mailbox.connect_mailbox(clinic["id"], "einstein", "frontdesk@rd.test", "pw", from_name="Raleigh Dentistry")
     assert mailbox.send_test_email(clinic["id"])["to"] == "frontdesk@rd.test"
     assert fake.sent[0]["To"] == "frontdesk@rd.test" and "Raleigh Dentistry" in fake.sent[0]["From"]
