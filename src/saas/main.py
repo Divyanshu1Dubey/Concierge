@@ -140,14 +140,21 @@ async def security_headers(request: Request, call_next) -> Response:
     return response
 
 
+_RETIRED_BUNDLE = os.path.realpath(STATIC / "dist").casefold()
+
+
 class _Static(StaticFiles):
     """/static without the retired React bundle (static/dist) in production."""
 
-    def get_path(self, scope) -> str:
-        path = super().get_path(scope)  # already normalized: no '..', '.' or doubled slashes
-        if get_settings().is_production and path.split(os.sep)[0].lower() == "dist":
-            raise HTTPException(status_code=404)
-        return path
+    def lookup_path(self, path: str) -> tuple[str, os.stat_result | None]:
+        full_path, stat_result = super().lookup_path(path)
+        # Judge the file actually resolved, not the URL: '/static/..%2fstatic/dist/...' reaches dist/ too.
+        # casefold: macOS and Windows file systems also open 'DIST/'.
+        real = os.path.realpath(full_path).casefold() if full_path else ""
+        if real and get_settings().is_production and (real == _RETIRED_BUNDLE
+                                                      or real.startswith(_RETIRED_BUNDLE + os.sep)):
+            return "", None  # -> 404
+        return full_path, stat_result
 
 
 app.mount("/static", _Static(directory=str(STATIC)), name="saas-static")

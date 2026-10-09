@@ -143,8 +143,26 @@ def test_production_keeps_the_real_pages(production, client):
 
 
 def test_dev_surfaces_still_work_locally(client):
-    for path in ("/admin", "/docs", "/openapi.json", "/static/dist/index.html"):
+    for path in ("/admin", "/docs", "/openapi.json", "/static/dist/index.html", "/static/..%2fstatic/dist/index.html"):
         assert client.get(path).status_code == 200, path
+
+
+# An encoded slash is decoded after routing, so 'dist' is not the first path segment; the served file still is.
+@pytest.mark.parametrize("path", ["/static/..%2fstatic/dist/index.html", "/static/..%2Fstatic/dist/vite.svg",
+                                  "/static/%2e%2e%2fstatic/dist/index.html", "/static/%2e%2e/static/dist/index.html",
+                                  "/static/x/..%2f..%2fstatic/dist/index.html", "/static/..%2fstatic/DIST/index.html",
+                                  "/static/./dist/index.html", "/static/..%2fstatic/dist"])
+def test_retired_bundle_blocked_through_encoded_paths(production, client, path):
+    assert client.get(path).status_code == 404
+
+
+def test_retired_bundle_left_out_of_deploys():
+    assert "/src/saas/static/dist/" in (ROOT / ".railwayignore").read_text().splitlines()
+    # .dockerignore patterns are anchored at the context root: the existing 'dist/' doesn't reach static/dist.
+    assert "src/saas/static/dist/" in (ROOT / ".dockerignore").read_text().splitlines()
+    pages = [ROOT / "src" / "saas" / "templates" / f for f in ("desk.html", "settings.html", "frontdesk.html", "hosted.html")]
+    for page in pages + [ROOT / "src" / "saas" / "static" / "widget.js"]:
+        assert "static/dist" not in page.read_text(), page.name  # nothing live loads the bundle
 
 
 # ── 4. Legacy notification emailer never writes PHI to disk in production ──
@@ -188,6 +206,57 @@ def test_resend_still_dry_runs_locally(client, outbox):
     r = client.post(f"/api/admin/fd/leads/{c['lead_id']}/resend", headers=c["auth"])
     assert r.status_code == 200 and r.json()["status"] == "sent"
     assert len(list(outbox.iterdir())) == 1
+
+
+@pytest.fixture
+def mailbox_clinic(monkeypatch):
+    """Clinic mailbox connected the way Settings -> Email does it, no front desk address; every send captured."""
+    from saas import emailer, login_codes, mailbox
+    monkeypatch.setattr(mailbox, "_check_public_host", lambda host: None)  # no DNS lookups in tests
+    monkeypatch.setattr(emailer.settings, "default_smtp_reply_to", None)  # no FRONT_DESK_EMAIL fallback either
+    c = _clinic()
+    mailbox.connect_mailbox(c["tenant"].id, "einstein", "desk@clinic.test", "pw")
+    c["clinic_mail"], c["team_mail"] = [], []
+    monkeypatch.setattr(emailer, "_smtp_send", lambda tid, msg: c["clinic_mail"].append(msg) or True)
+    monkeypatch.setattr(login_codes, "send_system_email",
+                        lambda to, subject, body, dev_note=None: c["team_mail"].append((to, subject, body)) or True)
+    return c
+
+
+@pytest.mark.parametrize("action", ["resend", "retry", "resend-email", "retry-notify"])
+def test_realert_without_front_desk_address_sends_phi_free_team_alert(production, client, mailbox_clinic, action):
+    c = mailbox_clinic
+    r = client.post(f"/api/admin/fd/leads/{c['lead_id']}/{action}", headers=c["auth"])
+    assert r.status_code == 200 and r.json()["notified"] == "team"
+    assert c["clinic_mail"] == []  # no patient details from the clinic mailbox to 'None'
+    [(to, subject, body)] = c["team_mail"]
+    assert to == f"owner@{c['tenant'].slug}.test" and subject == "New patient request"
+    for private in ("Pat", "pat@x.test", "919-555-0100", "Crown"):
+        assert private not in subject and private not in body
+
+
+def test_realert_with_front_desk_address_mails_it(production, client, mailbox_clinic):
+    from saas.database import connect
+    c = mailbox_clinic
+    with connect() as db:
+        db.execute("UPDATE email_settings SET front_desk_email = ? WHERE tenant_id = ?",
+                   ("frontdesk@clinic.test", c["tenant"].id))
+    r = client.post(f"/api/admin/fd/leads/{c['lead_id']}/retry", headers=c["auth"])
+    assert r.status_code == 200 and r.json()["notified"] == "front_desk"
+    [msg] = c["clinic_mail"]
+    assert msg["To"] == "frontdesk@clinic.test" and c["team_mail"] == []
+
+
+@pytest.mark.parametrize("stored", [None, "", "  ", "None"], ids=["null", "empty", "blank", "None-string"])
+def test_lead_notification_never_mails_a_missing_recipient(mailbox_clinic, stored):
+    from saas import emailer
+    from saas.database import connect
+    c = mailbox_clinic
+    with connect() as db:
+        db.execute("UPDATE email_settings SET front_desk_email = ? WHERE tenant_id = ?", (stored, c["tenant"].id))
+    with pytest.raises(emailer.NoFrontDeskAddress):
+        emailer.send_lead_notification(c["tenant"].id, c["lead_id"], "retry")
+    assert c["clinic_mail"] == []
 
 
 # ── 5. No access logs (URLs carry patient search terms) ─────────────────────

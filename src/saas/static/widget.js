@@ -56,6 +56,7 @@
       var conversationId = null;
       var conversationToken = null;  // this chat's own secret: the client key is public, the token is not
       var submitted = false;
+      var awaitingPhone = false;  // urgent request already sent; one more answer (callback number) is welcome
       var emergencyDetected = false;
       var fields = {};
       var config = null;
@@ -172,6 +173,7 @@
       function resetChat() {
         bodyEl.innerHTML = '';
         submitted = false;
+        awaitingPhone = false;
         conversationId = null;
         conversationToken = null;
         fields = {};
@@ -199,7 +201,7 @@
 
       function sendText(text) {
         text = (text || '').trim();
-        if (!text || submitted) return;
+        if (!text || (submitted && !awaitingPhone)) return;
         hostedOptions(null);
         appendBubble(esc(text), true);
         msgEl.value = '';
@@ -233,8 +235,12 @@
       }
 
       function markSubmitted(data) {
+        var again = submitted;
         submitted = true;
-        setDisabled(true);
+        // An urgent request is sent right away and the reply asks for an optional callback number: keep the box open.
+        awaitingPhone = !!(data && data.followup === 'phone');
+        setDisabled(!awaitingPhone);
+        if (again) return;
         var tenant = config && config.tenant_name ? config.tenant_name : 'us';
         setTimeout(function () {
           clearEmpty();
@@ -534,6 +540,7 @@
     var unreadCount = 0;
     var isSubmitting = false;
     var submitted = false;
+    var awaitingPhone = false;  // urgent request already sent; one more answer (callback number) is welcome
     var emergencyDetected = false;
     var fields = {};
     var fieldHistory = [];
@@ -817,13 +824,43 @@
       return null;
     }
 
-    // Same words the server treats as urgent (conversation.py _EMERGENCY): whole words, never inside an email.
-    var EMERGENCY_RE = /\b(?:emergency|urgent|severe|tooth ?ache|hurts|hurting|pain|painful|broken|cracked|chipped|knocked out|swelling|swollen|bleeding|abscess(?:ed)?|infection|infected|can'?t sleep|cannot sleep)\b/;
+    // Same rules the server uses for urgent (conversation.py _EMERGENCY / _is_emergency): whole words, never inside
+    // an email, "no pain" / "pain-free" don't count, and severe/broken/cracked/chipped need a tooth, jaw, etc. nearby
+    // and no cosmetic request ("veneers for my chipped teeth").
+    var EMERGENCY_RE = /\b(?:emergenc(?:y|ies)|urgent(?:ly)?|tooth[- ]?aches?|ach(?:e|es|ing)|hurt(?:s|ing)?|pain(?:s|ful|killers?)?|throb(?:s|bing|bed)?|killing me|bleed(?:s|ing)?|bled|abscess(?:es|ed)?|swell(?:s|ing|ed|en)?|swollen|knock(?:ed)?[- ]out|knocked (?:[a-z']+ ){1,3}out|fever|f[ae]ll(?:en|s)? (?:out|off)|lost (?:a|my|the) (?:[a-z]+ )?(?:tooth|teeth|filling|crown|cap)|infection|infected|can'?t sleep|cannot sleep|(sever(?:e|ely)|brok(?:e|en)|crack(?:ed|s)?|chip(?:ped|s)?))\b/g;
+    var EMERGENCY_NEGATIONS = ['no', 'not', 'non', 'without', 'never', 'nothing', 'none', "isn't", 'isnt', "wasn't", 'wasnt', "aren't", 'arent', "don't", 'dont', "doesn't", 'doesnt', "didn't", 'didnt', "hasn't", 'hasnt', "haven't", 'havent'];
+    var EMERGENCY_STOPS = ['stop', 'stops', 'stopped', 'stopping'];
+    var INJURY_CONTEXT = ['tooth', 'teeth', 'molar', 'molars', 'crown', 'crowns', 'filling', 'fillings', 'jaw', 'gum', 'gums', 'mouth', 'face', 'lip', 'cheek', 'cap', 'implant', 'denture', 'dentures', 'wisdom', 'root'];
+    var COSMETIC_RE = /\b(?:veneers?|whiten(?:ing)?|bonding|cosmetic|smile makeover|invisalign|aligners?)\b/;
+    function emergencyNegated(before, after) {
+      if (/^(?:-|\s)?(?:free|less)\b/.test(after)) return true;
+      var words = (before.split(/[.;!?,]|\bbut\b/).pop().match(/[a-z']+/g) || []).slice(-3);
+      var last = -1;
+      for (var i = 0; i < words.length; i++) if (EMERGENCY_NEGATIONS.indexOf(words[i]) !== -1) last = i;
+      if (last === -1) return false;
+      for (var j = last + 1; j < words.length; j++) if (EMERGENCY_STOPS.indexOf(words[j]) !== -1) return false;
+      return true;
+    }
     function isEmergency(text) {
       if (!text) return false;
-      var lower = text.toLowerCase().replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, ' ').replace(/\u2019/g, "'");
-      return EMERGENCY_RE.test(lower);
+      var lower = text.toLowerCase().replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, ' ').replace(/[\u2018\u2019\u02bc]/g, "'");
+      var cosmetic = COSMETIC_RE.test(lower);
+      var m;
+      EMERGENCY_RE.lastIndex = 0;
+      while ((m = EMERGENCY_RE.exec(lower)) !== null) {
+        var before = lower.slice(0, m.index), after = lower.slice(m.index + m[0].length);
+        if (emergencyNegated(before, after)) continue;
+        if (m[1]) {
+          var nearby = (before.match(/[a-z']+/g) || []).slice(-4).concat((after.match(/[a-z']+/g) || []).slice(0, 4));
+          var hasContext = false;
+          for (var k = 0; k < nearby.length; k++) if (INJURY_CONTEXT.indexOf(nearby[k]) !== -1) hasContext = true;
+          if (cosmetic || !hasContext) continue;
+        }
+        return true;
+      }
+      return false;
     }
+    // end emergency words
 
     // Merge extracted fields into state, return newly found
     function mergeFields(text) {
@@ -945,7 +982,7 @@
     }
 
     function onConversationMessage(text) {
-      if (submitted) return;
+      if (submitted && !awaitingPhone) return;
       if (!text || !text.trim()) return;
 
       clearOptions();
@@ -979,7 +1016,7 @@
         }
         showOptions(data.options);
         if (data.state === 'submitted' || data.state === 'complete') {
-          markSubmitted();
+          markSubmitted(data);
         }
         if (data.state === 'handoff') {
           appendBubble(esc(data.reply || "Thank you! A team member will be with you shortly."));
@@ -1002,10 +1039,14 @@
       });
     }
 
-    function markSubmitted() {
+    function markSubmitted(data) {
+      var again = submitted;
       submitted = true;
-      setDisabled(true);
+      // An urgent request is sent right away and the reply asks for an optional callback number: keep the box open.
+      awaitingPhone = !!(data && data.followup === 'phone');
+      setDisabled(!awaitingPhone);
       hideTyping();
+      if (again) return;
       // Keep the conversation visible; confirm below it and let the visitor start over.
       setTimeout(function () {
         var el = document.createElement('div');
@@ -1025,6 +1066,7 @@
 
     function startNewRequest() {
       submitted = false;
+      awaitingPhone = false;
       conversationId = null;
       conversationToken = null;
       fields = {};

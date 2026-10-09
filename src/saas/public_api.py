@@ -357,17 +357,28 @@ def public_conversation_message(conversation_id: int, body: dict[str, Any], clie
     meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
     existing_fields = meta.get("fields") or {}
 
-    ctx = ConversationContext(conversation_id=conversation_id, tenant_id=conv["tenant_id"], fields=existing_fields)
+    ctx = ConversationContext(conversation_id=conversation_id, tenant_id=conv["tenant_id"], fields=existing_fields,
+                              turn_count=int(meta.get("turn_count") or 0))  # so the max_turns handoff can happen
     context = ConversationEngine(_tenant_config(key.tenant_id))
     if conv["lead_id"] is not None:
         # Already sent: keep the message with that request, but no second lead, staff alert or follow-up schedule.
         # "Start a new request" in the widget opens a new conversation for anything else.
-        return context.after_submit(ctx, str(body.get("message", "")))
+        had_phone = bool(ctx.fields.get("phone"))
+        result = context.after_submit(ctx, str(body.get("message", "")))
+        if ctx.fields.get("phone") and not had_phone:
+            # The optional callback number after an urgent request: add it to the request staff already have.
+            with connect() as c:
+                c.execute("UPDATE conversations SET metadata = ?, updated_at = ? WHERE id = ?",
+                          (json.dumps({**meta, "fields": ctx.fields}), now_iso(), conversation_id))
+            if conv["lead_id"]:  # 0 = another message is creating the lead right now
+                repo_update_lead(conv["lead_id"], phone=ctx.fields["phone"])
+        return result
     result = context.handle(ctx, body.get("message", ""))
 
     # Persist updated fields back to metadata
     updated_meta = dict(meta)
     updated_meta["fields"] = ctx.fields
+    updated_meta["turn_count"] = ctx.turn_count
     with connect() as c:
         c.execute("UPDATE conversations SET metadata = ?, updated_at = ? WHERE id = ?",
                   (json.dumps(updated_meta), now_iso(), conversation_id))
@@ -646,33 +657,41 @@ async def fd_reply_lead(request: Request, lead_id: int, body: dict[str, Any]):
     return await _send_draft_or_http(auth["tenant_id"], draft["id"], {})
 
 
-async def _notify_desk(request: Request, lead_id: int, intent: str) -> None:
-    """Re-send the new-lead alert. 409 in production with no clinic mailbox (never written to disk instead)."""
+async def _notify_desk(request: Request, lead_id: int, intent: str) -> str:
+    """Re-send the new-lead alert. 409 in production with no clinic mailbox (never written to disk instead).
+
+    With a front desk address set, the full notification goes there from the clinic mailbox ("front_desk").
+    Without one, the team gets the PHI-free new-lead alert again from the HeyJarvis sender ("team", in the
+    background), never the patient's details mailed to a missing address."""
     auth = await _fd_auth(request)
     lead = get_lead(lead_id)
     if not lead or lead["tenant_id"] != auth["tenant_id"]:
         raise HTTPException(status_code=404, detail="lead not found")
-    from saas.emailer import send_lead_notification
+    from saas.emailer import NoFrontDeskAddress, send_lead_notification
     try:
         result = await run_in_threadpool(send_lead_notification, auth["tenant_id"], lead_id, intent)
     except MailboxNotConnected as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except NoFrontDeskAddress:
+        await run_in_threadpool(_alert_team_new_lead, auth["tenant_id"], lead_id)
+        return "team"
     if not result.ok:
         raise HTTPException(status_code=502, detail=f"Could not send: {result.error}")
+    return "front_desk"
 
 
 @frontdesk_app.post("/leads/{lead_id}/retry")
 @frontdesk_app.post("/leads/{lead_id}/retry-notify")  # alias used by frontend
 async def fd_retry_lead(request: Request, lead_id: int):
-    await _notify_desk(request, lead_id, "retry")
-    return {"ok": True, "status": "queued"}
+    notified = await _notify_desk(request, lead_id, "retry")
+    return {"ok": True, "status": "queued", "notified": notified}
 
 
 @frontdesk_app.post("/leads/{lead_id}/resend")
 @frontdesk_app.post("/leads/{lead_id}/resend-email")  # alias used by frontend
 async def fd_resend_lead(request: Request, lead_id: int):
-    await _notify_desk(request, lead_id, "resend")
-    return {"ok": True, "status": "sent"}
+    notified = await _notify_desk(request, lead_id, "resend")
+    return {"ok": True, "status": "sent" if notified == "front_desk" else "queued", "notified": notified}
 
 
 @frontdesk_app.get("/notes")
