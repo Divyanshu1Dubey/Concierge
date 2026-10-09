@@ -29,6 +29,16 @@ class SendResult:
         self.error = error
 
 
+class MailboxNotConnected(RuntimeError):
+    """Production send with no clinic mailbox: refused instead of dry-running to the outbox."""
+
+
+def _refuse_dry_run_in_production(tenant_id: int) -> None:
+    # The dry-run outbox writes the whole email (patient details) to disk and reports it as sent.
+    if get_settings().is_production and _provider(tenant_id) == "default":
+        raise MailboxNotConnected("Connect the clinic mailbox in Settings → Email first.")
+
+
 # ── Template Engine ─────────────────────────────────────────────────────────
 
 
@@ -90,7 +100,8 @@ def send_email(
     context: dict[str, Any] | None = None,
     max_retries: int = 3,
 ) -> SendResult:
-    """Send an email with retry logic."""
+    """Send an email with retry logic. Raises MailboxNotConnected in production without a mailbox."""
+    _refuse_dry_run_in_production(tenant_id)
     context = context or {}
     msg = EmailMessage()
     msg["From"] = _sender(tenant_id)
@@ -148,6 +159,7 @@ def send_lead_notification(tenant_id: int, lead_id: int, intent: str = "default"
     lead = get_lead(lead_id)
     if not lead:
         return SendResult(False, "default", error="lead not found")
+    _refuse_dry_run_in_production(tenant_id)
 
     conversation = get_conversation(lead.get("conversation_id")) if lead.get("conversation_id") else None
 
