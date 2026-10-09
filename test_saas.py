@@ -137,7 +137,8 @@ def test_public_conversation_flow():
     assert body["conversation_id"] is not None
     assert body["reply"] == "Hi from demo"
     r = client.post("/v1/public/conversations/" + str(body["conversation_id"]) + "/messages",
-                    params={"client_key": pub}, json={"message": "My name is Alice"})
+                    params={"client_key": pub}, json={"message": "My name is Alice"},
+                    headers={"X-Conversation-Token": body["conversation_token"]})
     assert r.status_code == 200
     assert r.json()["reply"]
 
@@ -152,6 +153,7 @@ def test_tenant_isolation():
     r = TestClient(public_app).post(
         "/v1/public/conversations/" + str(conv_id) + "/messages",
         params={"client_key": k2},
+        headers={"X-Conversation-Token": r1.json()["conversation_token"]},
         json={"message": "hack"},
     )
     assert r.status_code in (404, 422, 400)

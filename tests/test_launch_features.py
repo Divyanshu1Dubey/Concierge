@@ -251,8 +251,12 @@ def test_chat_emergency_gives_phone(client, clinic):
     cfg = client.get("/api/v1/public/config", params={"client_key": key}).json()
     assert cfg["widget_config"]["clinic"]["phone"] == "(919) 555-0100"
     conv = client.post("/api/v1/public/conversations", params={"client_key": key}).json()
+    tok = {"X-Conversation-Token": conv["conversation_token"]}
     out = client.post(f"/api/v1/public/conversations/{conv['conversation_id']}/messages", params={"client_key": key},
-                      json={"message": "I'm Mike, my tooth is in severe pain, mike@x.test"}).json()
+                      json={"message": "I'm Mike, my tooth is in severe pain, mike@x.test"}, headers=tok).json()
+    assert out["state"] != "submitted" and "(919) 555-0100" in out["reply"] and "phone" in out["reply"]
+    out = client.post(f"/api/v1/public/conversations/{conv['conversation_id']}/messages", params={"client_key": key},
+                      json={"message": "skip"}, headers=tok).json()
     assert out["state"] == "submitted" and "(919) 555-0100" in out["reply"]
 
 

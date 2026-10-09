@@ -275,7 +275,8 @@ def _chat(client, key, messages):
     out = None
     for m in messages:
         out = client.post(f"/api/v1/public/conversations/{conv['conversation_id']}/messages",
-                          params={"client_key": key}, json={"message": m}).json()
+                          params={"client_key": key}, json={"message": m},
+                          headers={"X-Conversation-Token": conv["conversation_token"]}).json()
     return out
 
 
@@ -336,5 +337,7 @@ def test_new_request_alert_reaches_team_without_details(client, clinic, monkeypa
                 json={"name": "Dana Cruz", "email": "dana@x.test", "intent": "emergency", "message": "my private symptoms"})
     assert sorted(t for t, _, _ in sent) == ["member@rv.test", "owner@rv.test"]
     to, subject, body = sent[0]
-    assert subject.startswith("URGENT") and "Dana Cruz" in subject
-    assert f"/frontdesk?clinic={clinic['slug']}" in body and "private symptoms" not in body
+    assert subject.startswith("URGENT") and "emergency" in body
+    assert f"/frontdesk?clinic={clinic['slug']}" in body
+    for private in ("Dana", "Cruz", "dana@x.test", "private symptoms"):
+        assert private not in subject and private not in body

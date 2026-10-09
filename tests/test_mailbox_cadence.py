@@ -337,7 +337,8 @@ def _chat(messages):
     out = None
     for m in messages:
         out = client.post(f"/api/v1/public/conversations/{conv['conversation_id']}/messages",
-                          params={"client_key": key.public_key}, json={"message": m}).json()
+                          params={"client_key": key.public_key}, json={"message": m},
+                          headers={"X-Conversation-Token": conv["conversation_token"]}).json()
     return out
 
 
@@ -408,7 +409,8 @@ def test_greeting_offers_choices_and_one_tap_skips_to_contact_details():
     start = client.post("/api/v1/public/conversations", params={"client_key": key.public_key}).json()
     assert start["options"][:4] == ["Checkup & cleaning", "Implants", "Restorative (fillings, crowns)", "Emergency"]
     r = client.post(f"/api/v1/public/conversations/{start['conversation_id']}/messages",
-                    params={"client_key": key.public_key}, json={"message": "Implants"}).json()
+                    params={"client_key": key.public_key}, json={"message": "Implants"},
+                    headers={"X-Conversation-Token": start["conversation_token"]}).json()
     assert "name" in r["reply"].lower() and "options" not in r
 
 

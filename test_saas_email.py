@@ -108,6 +108,7 @@ class TestSendLeadNotification:
             f"/api/v1/public/conversations/{conv_id}/messages",
             params={"client_key": pub_key},
             json={"message": "My name is Alice, I need a cleaning appointment, email is alice@test.com, phone is 555-0100"},
+            headers={"X-Conversation-Token": r.json()["conversation_token"]},
         )
         assert r.status_code == 200
         result = r.json()

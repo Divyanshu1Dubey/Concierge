@@ -383,6 +383,7 @@ _ADDED_COLUMNS = {
                        "auth_type TEXT", "oauth_refresh_enc TEXT", "mail_provider TEXT",
                        "append_sent INTEGER"],  # 1: HeyJarvis files sent mail in Sent, 0: server does, NULL: unknown
     "ai_drafts": ["cadence_step TEXT", "to_email TEXT", "source TEXT"],
+    "conversations": ["access_token TEXT", "lead_id INTEGER"],
 }
 
 
