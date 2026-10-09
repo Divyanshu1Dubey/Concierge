@@ -116,16 +116,20 @@ app.add_middleware(
 
 # Legacy/dev surfaces a production server never serves: the old admin page (renders patient fields unescaped and
 # reads a token from the URL hash), the install notes (docs/ isn't in the image) and every mounted app's API docs.
-_DEV_ONLY_PATHS = frozenset(
+_DOCS_ONLY_PATHS = frozenset(
     prefix + p for prefix in ("", "/api", "/api/admin", "/api/admin/fd")
     for p in ("/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json")
+)
+_DEV_ONLY_PATHS = frozenset(
+    ["/admin", "/admin.html", "/install"] + list(_DOCS_ONLY_PATHS)
 )
 
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next) -> Response:
     path = re.sub(r"/{2,}", "/", request.url.path)
-    if get_settings().is_production and path in _DEV_ONLY_PATHS:
+    blocked_paths = _DOCS_ONLY_PATHS if os.environ.get("CONCIERGE_ALLOW_ADMIN") == "1" else _DEV_ONLY_PATHS
+    if get_settings().is_production and path in blocked_paths:
         response: Response = JSONResponse({"detail": "Not Found"}, status_code=404)
     else:
         response = await call_next(request)
@@ -333,23 +337,29 @@ def install_guide(request: Request) -> HTMLResponse:
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         "<title>Installation Guide — HeyJarvis Concierge</title>"
         "<style>"
-        ":root{--primary:#1f3b2e;--accent:#3a7d6e;--bg:#f6f7f8;--card:#fff;--border:#e5e7eb;--text:#1a1a1a;--muted:#6b7280;}"
+        ":root{--page:#ede3d8;--frame:#faf7f3;--card:#fdfbf8;--soft:#f3eee8;--line:#e7e0d7;--text:#2a211d;--muted:#7d726b;--ink:#3a2a24;--sage:#7c8c6e;}"
         "*{box-sizing:border-box;margin:0;padding:0;}"
-        "body{font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica Neue,Arial,sans-serif;background:var(--bg);color:var(--text);}"
-        ".wrap{max-width:860px;margin:0 auto;padding:24px;}"
-        ".header{padding:20px 24px;background:linear-gradient(135deg,#1a3c2a 0%,#2d6a4f 100%);color:#fff;border-radius:14px;margin-bottom:18px;}"
-        ".header h1{font-size:22px;margin-bottom:6px;}.header p{opacity:.85;font-size:14px;}"
-        ".card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px;box-shadow:0 2px 6px rgba(0,0,0,.04);}"
-        ".card h2{font-size:16px;margin-bottom:10px;}.card p{color:#374151;margin-bottom:10px;}"
-        ".code{background:#f5f5f5;border:1px solid #ddd;border-radius:10px;padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;word-break:break-all;white-space:pre-wrap;color:#1f3b2e;}"
-        ".btn{display:inline-block;margin-top:8px;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:0;background:var(--primary);color:#fff;}"
-        "ol,ul{margin-left:18px;margin-bottom:12px;color:#374151;}li{margin-bottom:6px;}"
-        "a{color:var(--primary);}@media(max-width:420px){.wrap{padding:14px;}}"
+        "body{font:15px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Inter,system-ui,sans-serif;background:var(--page);color:var(--text);padding:24px;}"
+        ".wrap{max-width:860px;margin:0 auto;background:var(--frame);border-radius:16px;border:1px solid var(--line);box-shadow:0 10px 40px rgba(80,55,35,.10);padding:32px;overflow:hidden;}"
+        ".topbar{display:flex;align-items:center;justify-content:space-between;padding-bottom:20px;margin-bottom:24px;border-bottom:1px solid var(--line);}"
+        ".logo{display:flex;align-items:center;gap:8px;font-family:Georgia,serif;font-size:24px;color:var(--text);text-decoration:none;}"
+        ".back-btn{color:var(--text);text-decoration:none;font-size:13px;font-weight:500;padding:7px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card);}"
+        ".back-btn:hover{background:var(--soft);}"
+        ".header h1{font-family:Georgia,serif;font-size:28px;margin-bottom:6px;color:var(--text);}.header p{color:var(--muted);font-size:15px;margin-bottom:24px;}"
+        ".card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;margin-bottom:20px;box-shadow:0 1px 3px rgba(60,40,25,.04);}"
+        ".card h2{font-size:18px;font-weight:600;margin-bottom:8px;color:var(--text);}.card p{color:var(--muted);margin-bottom:12px;}"
+        ".code{background:#2b221d;color:#ede4dc;border:1px solid var(--line);border-radius:10px;padding:14px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;word-break:break-all;white-space:pre-wrap;}"
+        ".btn{display:inline-block;margin-top:12px;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:0;background:var(--ink);color:#fff;transition:opacity .15s;}"
+        ".btn:hover{opacity:.9;}"
+        "ol,ul{margin-left:20px;margin-bottom:14px;color:var(--text);}li{margin-bottom:6px;}"
+        "a{color:var(--text);text-decoration:underline;text-decoration-color:var(--line);}"
+        "@media(max-width:480px){body{padding:10px;}.wrap{padding:18px;}}"
         "</style></head><body><div class=\"wrap\">"
+        "<div class=\"topbar\"><a class=\"logo\" href=\"/frontdesk\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 19c0-8 5-13 14-14-1 9-6 14-14 14z\" fill=\"#8a9a7b\"/><path d=\"M5 19c3-5 6-8 10-10\" stroke=\"#fdfbf8\" stroke-width=\"1.4\" fill=\"none\" stroke-linecap=\"round\"/></svg>HeyJarvis</a><a class=\"back-btn\" href=\"/frontdesk\">← Front Desk</a></div>"
         "<div class=\"header\"><h1>Installation Guide</h1><p>Add HeyJarvis Concierge to your website in minutes.</p></div>"
-        "<div class=\"card\"><h2>Quick Start</h2><p>Paste this snippet before <code>&lt;/body&gt;</code> and replace <code>YOUR_PUBLIC_KEY</code> with your public API key from the HeyJarvis dashboard.</p>"
+        "<div class=\"card\"><h2>Quick Start</h2><p>Paste this snippet before <code>&lt;/body&gt;</code> and replace <code>YOUR_PUBLIC_KEY</code> with your public API key.</p>"
         "<div class=\"code\">" + snippet + "</div>"
-        "<button class=\"btn\" onclick=\"navigator.clipboard.writeText(this.parentElement.querySelector('.code').textContent).then(()=>alert('Copied!'))\">Copy snippet</button>"
+        "<button class=\"btn\" onclick=\"navigator.clipboard.writeText(this.parentElement.querySelector('.code').textContent).then(()=>alert('Copied snippet!'))\">Copy snippet</button>"
         "</div>"
         + markdown
         + "</div></body></html>"

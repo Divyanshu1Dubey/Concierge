@@ -40,17 +40,17 @@
       position: sticky;
       top: 0;
       z-index: 999999;
-      background: #111827;
-      color: #f9fafb;
+      background: #3a2a24;
+      color: #ede4dc;
       padding: 12px 20px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      box-shadow: 0 4px 12px rgba(60,40,25,0.2);
       font-size: 13px;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      border-bottom: 2px solid #3b82f6;
+      border-bottom: 2px solid #7c8c6e;
     }
 
     .test-toolbar-left {
@@ -64,8 +64,8 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      background: #1e3a8a;
-      color: #93c5fd;
+      background: #4a3830;
+      color: #e6eadf;
       padding: 4px 10px;
       border-radius: 999px;
       font-weight: 600;
@@ -73,16 +73,16 @@
     }
 
     .badge-env.local {
-      background: #064e3b;
-      color: #6ee7b7;
+      background: #4a3830;
+      color: #8da07c;
     }
 
     .status-dot {
       width: 8px;
       height: 8px;
-      background: #10b981;
+      background: #7c8c6e;
       border-radius: 50%;
-      box-shadow: 0 0 8px #10b981;
+      box-shadow: 0 0 8px #7c8c6e;
       display: inline-block;
     }
 
@@ -94,9 +94,9 @@
     }
 
     .btn-link {
-      color: #fff;
+      color: #ede4dc;
       text-decoration: none;
-      background: #374151;
+      background: #4a3830;
       padding: 6px 12px;
       border-radius: 6px;
       font-weight: 500;
@@ -107,12 +107,12 @@
     }
 
     .btn-link:hover {
-      background: #4b5563;
-      color: #60a5fa;
+      background: #5d463d;
+      color: #fff;
     }
 
     .btn-action {
-      background: #2563eb;
+      background: #7c8c6e;
       color: #fff;
       border: none;
       padding: 6px 12px;
@@ -120,8 +120,9 @@
       font-weight: 600;
       cursor: pointer;
       font-size: 12px;
-      transition: background 0.2s;
+      transition: opacity 0.2s;
     }
+    .btn-action:hover { opacity: .9; }
 
     .btn-action:hover {
       background: #1d4ed8;
