@@ -3,22 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Raleigh Comprehensive & Cosmetic Dentistry — Concierge Plugin Test</title>
+  <title>Raleigh Comprehensive & Cosmetic Dentistry — Premier Dental Care in Raleigh, NC</title>
+  <meta name="description" content="Welcome to Raleigh Comprehensive and Cosmetic Dentistry. Gentle, modern dental care with 24/7 AI-assisted appointment concierge, cosmetic makeovers, and same-day emergency relief.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
   <style>
     :root {
       --primary: #1e3d34;
-      --primary-light: #285447;
-      --accent: #d4a373;
-      --accent-soft: #faedcd;
-      --text: #2d3748;
-      --text-muted: #718096;
-      --bg: #f8faf9;
+      --primary-light: #2c594d;
+      --primary-dark: #142a24;
+      --accent: #7c8c6e;
+      --accent-soft: #edf2eb;
+      --warm-bg: #f8faf8;
       --card-bg: #ffffff;
-      --border: #e2e8f0;
-      --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+      --border: #e4ebe6;
+      --text: #212925;
+      --text-muted: #5f6b64;
+      --shadow-sm: 0 2px 6px rgba(20, 42, 36, 0.04);
+      --shadow-md: 0 10px 30px rgba(20, 42, 36, 0.08);
+      --shadow-lg: 0 20px 45px rgba(20, 42, 36, 0.12);
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
     }
 
     * {
@@ -27,254 +34,332 @@
       padding: 0;
     }
 
+    html {
+      scroll-behavior: smooth;
+    }
+
     body {
       font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-      background-color: var(--bg);
+      background-color: var(--warm-bg);
       color: var(--text);
       line-height: 1.6;
       overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* Floating Diagnostic / Instructions Bar */
-    .test-toolbar {
-      position: sticky;
-      top: 0;
-      z-index: 999999;
-      background: #3a2a24;
-      color: #ede4dc;
-      padding: 12px 20px;
-      box-shadow: 0 4px 12px rgba(60,40,25,0.2);
+    /* ── Top Clinic Announcement Bar ───────────────────────────────────────── */
+    .top-announcement {
+      background: var(--primary-dark);
+      color: #e2ebe5;
+      padding: 9px 24px;
       font-size: 13px;
       display: flex;
-      flex-wrap: wrap;
-      align-items: center;
       justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
       gap: 12px;
-      border-bottom: 2px solid #7c8c6e;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
 
-    .test-toolbar-left {
+    .top-announcement-left {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 16px;
       flex-wrap: wrap;
     }
 
-    .badge-env {
+    .top-announcement a {
+      color: #e2ebe5;
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+
+    .top-announcement a:hover {
+      color: #ffffff;
+      text-decoration: underline;
+    }
+
+    .top-badge {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      background: #4a3830;
-      color: #e6eadf;
-      padding: 4px 10px;
+      background: rgba(124, 140, 110, 0.25);
+      color: #d1dfc7;
+      padding: 2px 8px;
       border-radius: 999px;
+      font-size: 11px;
       font-weight: 600;
-      font-size: 12px;
     }
 
-    .badge-env.local {
-      background: #4a3830;
-      color: #8da07c;
-    }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
+    .top-dot {
+      width: 6px;
+      height: 6px;
       background: #7c8c6e;
       border-radius: 50%;
-      box-shadow: 0 0 8px #7c8c6e;
       display: inline-block;
     }
 
-    .test-toolbar-right {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .btn-link {
-      color: #ede4dc;
-      text-decoration: none;
-      background: #4a3830;
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-weight: 500;
-      transition: background 0.2s;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-    }
-
-    .btn-link:hover {
-      background: #5d463d;
-      color: #fff;
-    }
-
-    .btn-action {
-      background: #7c8c6e;
-      color: #fff;
-      border: none;
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-weight: 600;
-      cursor: pointer;
-      font-size: 12px;
-      transition: opacity 0.2s;
-    }
-    .btn-action:hover { opacity: .9; }
-
-    .btn-action:hover {
-      background: #1d4ed8;
-    }
-
-    /* Dental Clinic Mock Website */
+    /* ── Main Navigation Header ────────────────────────────────────────────── */
     header {
-      background: #ffffff;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
       position: sticky;
-      top: 50px;
-      z-index: 100;
+      top: 0;
+      z-index: 1000;
+      transition: all 0.2s ease;
     }
 
     .nav-container {
-      max-width: 1200px;
+      max-width: 1240px;
       margin: 0 auto;
       padding: 16px 24px;
       display: flex;
-      justify-content: space-between;
       align-items: center;
+      justify-content: space-between;
+      gap: 20px;
     }
 
     .logo {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
       text-decoration: none;
-      color: var(--primary);
+      color: var(--text);
     }
 
     .logo-icon {
-      width: 36px;
-      height: 36px;
-      background: var(--primary);
-      border-radius: 8px;
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+      color: #fff;
+      border-radius: 12px;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #fff;
-      font-size: 20px;
+      font-size: 22px;
+      box-shadow: 0 4px 12px rgba(30, 61, 52, 0.18);
     }
 
     .logo-text h1 {
-      font-size: 18px;
+      font-size: 19px;
       font-weight: 700;
+      color: var(--primary);
       line-height: 1.2;
+      letter-spacing: -0.01em;
     }
 
     .logo-text span {
-      font-size: 11px;
+      font-size: 12px;
       color: var(--text-muted);
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
+      font-weight: 500;
+      letter-spacing: 0.02em;
     }
 
     .nav-menu {
       display: flex;
-      align-items: center;
-      gap: 24px;
       list-style: none;
+      gap: 28px;
+      align-items: center;
     }
 
     .nav-menu a {
       text-decoration: none;
       color: var(--text);
-      font-weight: 500;
       font-size: 14px;
-      transition: color 0.2s;
+      font-weight: 500;
+      transition: color 0.15s;
     }
 
     .nav-menu a:hover {
       color: var(--primary);
     }
 
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
     .btn-cta {
       background: var(--primary);
-      color: #fff;
-      padding: 10px 18px;
-      border-radius: 8px;
+      color: #ffffff;
+      border: 0;
+      padding: 10px 20px;
+      border-radius: 10px;
       font-weight: 600;
       font-size: 14px;
       text-decoration: none;
       cursor: pointer;
-      transition: background 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 14px rgba(30, 61, 52, 0.2);
+      transition: all 0.15s ease;
     }
 
     .btn-cta:hover {
       background: var(--primary-light);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(30, 61, 52, 0.28);
     }
 
-    /* Hero Section */
+    .btn-secondary {
+      background: var(--accent-soft);
+      color: var(--primary);
+      border: 1px solid rgba(124, 140, 110, 0.25);
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 14px;
+      text-decoration: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.15s;
+    }
+
+    .btn-secondary:hover {
+      background: #e2ecd9;
+    }
+
+    /* ── Hero Section ──────────────────────────────────────────────────────── */
     .hero {
-      max-width: 1200px;
-      margin: 40px auto 60px;
-      padding: 0 24px;
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 64px 24px 80px;
       display: grid;
-      grid-template-columns: 1.2fr 0.8fr;
-      gap: 40px;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 48px;
       align-items: center;
     }
 
     .hero-badge {
-      display: inline-block;
-      background: var(--accent-soft);
-      color: #8b5e34;
-      font-size: 12px;
-      font-weight: 700;
-      padding: 6px 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #edf5ed;
+      color: #24583b;
+      padding: 6px 14px;
       border-radius: 999px;
-      margin-bottom: 16px;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      border: 1px solid #d5e8d5;
     }
 
     .hero-title {
-      font-size: 42px;
-      font-weight: 700;
-      color: var(--primary);
-      line-height: 1.15;
+      font-family: 'Newsreader', Georgia, serif;
+      font-size: 52px;
+      line-height: 1.12;
+      font-weight: 600;
+      color: var(--primary-dark);
+      letter-spacing: -0.02em;
       margin-bottom: 20px;
     }
 
     .hero-subtitle {
       font-size: 18px;
       color: var(--text-muted);
-      margin-bottom: 30px;
-      max-width: 540px;
+      line-height: 1.6;
+      margin-bottom: 32px;
+      max-width: 580px;
     }
 
     .hero-actions {
       display: flex;
-      gap: 16px;
+      gap: 14px;
       align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 36px;
     }
 
+    .hero-trust {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+    }
+
+    .trust-rating {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .trust-stars {
+      color: #e59819;
+      font-size: 15px;
+    }
+
+    .trust-divider {
+      width: 1px;
+      height: 24px;
+      background: var(--border);
+    }
+
+    .trust-note {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    /* ── Hero Interactive Card ─────────────────────────────────────────────── */
     .hero-card {
-      background: linear-gradient(135deg, #1e3d34 0%, #285447 100%);
+      background: linear-gradient(145deg, #18332b 0%, #22473c 100%);
       color: #ffffff;
-      border-radius: 20px;
-      padding: 32px;
-      box-shadow: 0 20px 30px -10px rgba(30, 61, 52, 0.4);
+      border-radius: var(--radius-lg);
+      padding: 36px;
+      box-shadow: var(--shadow-lg);
+      position: relative;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .hero-card::after {
+      content: '';
+      position: absolute;
+      top: -60px;
+      right: -60px;
+      width: 160px;
+      height: 160px;
+      background: radial-gradient(circle, rgba(124, 140, 110, 0.3) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .hero-card-icon {
+      width: 40px;
+      height: 40px;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
     }
 
     .hero-card h3 {
-      font-size: 22px;
-      margin-bottom: 12px;
+      font-size: 20px;
+      font-weight: 700;
+      color: #ffffff;
+      line-height: 1.3;
     }
 
-    .hero-card p {
+    .hero-card-desc {
+      color: #c9d8d0;
       font-size: 14px;
-      opacity: 0.9;
+      line-height: 1.6;
       margin-bottom: 24px;
     }
 
@@ -283,221 +368,631 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
-      font-size: 14px;
+      margin-bottom: 28px;
     }
 
-    .feature-list li {
+    .feature-item {
       display: flex;
       align-items: center;
       gap: 10px;
+      font-size: 14px;
+      color: #e5eee8;
     }
 
     .feature-check {
-      width: 20px;
-      height: 20px;
-      background: rgba(255,255,255,0.2);
+      width: 22px;
+      height: 22px;
+      background: rgba(124, 140, 110, 0.35);
+      color: #bce1bc;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 12px;
+      font-weight: 700;
+      flex-shrink: 0;
     }
 
-    /* Testing Guide Callout */
-    .guide-section {
-      max-width: 1200px;
-      margin: 0 auto 60px;
-      padding: 0 24px;
-    }
-
-    .guide-box {
-      background: #ffffff;
-      border: 1px solid #bfdbfe;
-      border-left: 6px solid #2563eb;
+    .hero-card-cta {
+      width: 100%;
+      background: #fbf9f6;
+      color: var(--primary-dark);
+      border: 0;
+      padding: 13px 20px;
       border-radius: 12px;
-      padding: 24px;
-      box-shadow: var(--shadow);
-    }
-
-    .guide-box h2 {
-      font-size: 20px;
-      color: #1e3a8a;
-      margin-bottom: 12px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 8px;
+      transition: background 0.15s;
     }
 
-    .steps-grid {
+    .hero-card-cta:hover {
+      background: #ffffff;
+    }
+
+    /* ── Services Section ──────────────────────────────────────────────────── */
+    .section-wrap {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 80px 24px;
+    }
+
+    .section-title-wrap {
+      text-align: center;
+      max-width: 680px;
+      margin: 0 auto 52px;
+    }
+
+    .section-eyebrow {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    .section-title {
+      font-family: 'Newsreader', Georgia, serif;
+      font-size: 40px;
+      color: var(--primary-dark);
+      line-height: 1.2;
+      margin-bottom: 14px;
+      font-weight: 600;
+    }
+
+    .section-desc {
+      font-size: 16px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .services-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 16px;
-      margin-top: 16px;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
     }
 
-    .step-card {
-      background: #f8fafc;
+    .service-card {
+      background: var(--card-bg);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 16px;
+      border-radius: var(--radius-md);
+      padding: 32px 28px;
+      box-shadow: var(--shadow-sm);
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+      display: flex;
+      flex-direction: column;
     }
 
-    .step-num {
-      width: 28px;
-      height: 28px;
-      background: #2563eb;
-      color: #fff;
+    .service-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-md);
+      border-color: #cbd8cf;
+    }
+
+    .service-icon-box {
+      width: 52px;
+      height: 52px;
+      background: var(--accent-soft);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: 20px;
+    }
+
+    .service-card h3 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--primary-dark);
+      margin-bottom: 10px;
+    }
+
+    .service-card p {
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.6;
+      margin-bottom: 20px;
+      flex: 1;
+    }
+
+    .service-link {
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    .service-link:hover {
+      color: var(--primary-light);
+      text-decoration: underline;
+    }
+
+    /* ── Features / Why Choose Us ─────────────────────────────────────────── */
+    .why-section {
+      background: #f1f6f2;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .why-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+    }
+
+    .why-card {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 28px 24px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .why-icon {
+      font-size: 28px;
+      margin-bottom: 14px;
+    }
+
+    .why-card h4 {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--primary-dark);
+      margin-bottom: 8px;
+    }
+
+    .why-card p {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* ── Patient Reviews ──────────────────────────────────────────────────── */
+    .reviews-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+
+    .review-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 30px 26px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .review-stars {
+      color: #e59819;
+      font-size: 16px;
+      margin-bottom: 12px;
+    }
+
+    .review-quote {
+      font-style: italic;
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.65;
+      margin-bottom: 18px;
+    }
+
+    .reviewer {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .reviewer-avatar {
+      width: 38px;
+      height: 38px;
+      background: var(--accent-soft);
+      color: var(--primary);
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: 700;
       font-size: 13px;
-      margin-bottom: 10px;
     }
 
-    .step-card h4 {
+    .reviewer-info h5 {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--primary-dark);
+    }
+
+    .reviewer-info span {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* ── Contact & Clinic Hours ───────────────────────────────────────────── */
+    .contact-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 48px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      box-shadow: var(--shadow-md);
+    }
+
+    .contact-info h3 {
+      font-family: 'Newsreader', Georgia, serif;
+      font-size: 32px;
+      color: var(--primary-dark);
+      margin-bottom: 14px;
+      font-weight: 600;
+    }
+
+    .contact-info p {
+      color: var(--text-muted);
       font-size: 15px;
-      margin-bottom: 6px;
+      margin-bottom: 24px;
+    }
+
+    .contact-item {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .contact-item-icon {
+      font-size: 20px;
+      color: var(--primary);
+    }
+
+    .contact-item-text b {
+      display: block;
+      font-size: 14px;
       color: var(--text);
     }
 
-    .step-card p {
+    .contact-item-text span {
       font-size: 13px;
       color: var(--text-muted);
     }
 
-    /* Services Section */
-    .services-section {
-      max-width: 1200px;
-      margin: 0 auto 60px;
-      padding: 0 24px;
+    .hours-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 10px;
     }
 
-    .section-header {
-      text-align: center;
-      margin-bottom: 36px;
+    .hours-table td {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
     }
 
-    .section-header h2 {
-      font-size: 28px;
+    .hours-table td:last-child {
+      text-align: right;
+      font-weight: 600;
       color: var(--primary);
-      margin-bottom: 8px;
     }
 
-    .services-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    /* ── Footer ────────────────────────────────────────────────────────────── */
+    footer {
+      background: var(--primary-dark);
+      color: #c0cec6;
+      padding: 48px 24px 32px;
+      font-size: 13px;
+    }
+
+    .footer-container {
+      max-width: 1240px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
       gap: 20px;
+      padding-bottom: 28px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
 
-    .service-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 24px;
-      transition: transform 0.2s, box-shadow 0.2s;
+    .footer-brand h4 {
+      color: #ffffff;
+      font-size: 18px;
+      margin-bottom: 4px;
+      font-weight: 700;
     }
 
-    .service-card:hover {
-      transform: translateY(-3px);
-      box-shadow: var(--shadow);
+    .footer-brand p {
+      font-size: 12px;
+      color: #9db2a7;
     }
 
-    .service-icon {
-      font-size: 28px;
+    .footer-bottom {
+      max-width: 1240px;
+      margin: 24px auto 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 12px;
+      color: #8da498;
+    }
+
+    .dev-tools-link {
+      color: #a4beaf;
+      text-decoration: none;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 4px 10px;
+      border-radius: 6px;
+      transition: background 0.15s;
+      cursor: pointer;
+    }
+
+    .dev-tools-link:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: #ffffff;
+    }
+
+    /* ── Floating Dev / Testing Control Drawer ─────────────────────────────── */
+    .dev-pill {
+      position: fixed;
+      bottom: 24px;
+      left: 24px;
+      z-index: 999990;
+      background: #3a2a24;
+      color: #ede4dc;
+      padding: 8px 14px;
+      border-radius: 999px;
+      box-shadow: 0 4px 16px rgba(58, 42, 36, 0.28);
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      border: 1px solid #7c8c6e;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+
+    .dev-pill:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(58, 42, 36, 0.35);
+    }
+
+    .dev-pill .pulse-dot {
+      width: 7px;
+      height: 7px;
+      background: #7c8c6e;
+      border-radius: 50%;
+      box-shadow: 0 0 6px #7c8c6e;
+    }
+
+    /* Slide-out Diagnostic Drawer */
+    .dev-drawer {
+      position: fixed;
+      bottom: 70px;
+      left: 24px;
+      width: 380px;
+      max-width: calc(100vw - 48px);
+      background: #fdfbf8;
+      border: 1px solid #e7e0d7;
+      border-radius: 16px;
+      box-shadow: 0 16px 40px rgba(60, 40, 25, 0.22);
+      z-index: 999991;
+      padding: 20px;
+      display: none;
+      animation: devPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes devPop {
+      from { transform: translateY(12px) scale(0.96); opacity: 0; }
+      to { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    .dev-drawer.open {
+      display: block;
+    }
+
+    .dev-drawer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #e7e0d7;
       margin-bottom: 14px;
     }
 
-    .service-card h3 {
+    .dev-drawer-header h4 {
+      font-family: Georgia, serif;
+      font-size: 16px;
+      color: #3a2a24;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dev-drawer-close {
+      background: none;
+      border: 0;
       font-size: 18px;
-      color: var(--primary);
-      margin-bottom: 8px;
-    }
-
-    .service-card p {
-      font-size: 14px;
-      color: var(--text-muted);
-    }
-
-    /* Snippet Code Container */
-    .snippet-section {
-      max-width: 1200px;
-      margin: 0 auto 60px;
-      padding: 0 24px;
-    }
-
-    .code-container {
-      background: #1e1e1e;
-      color: #e2e8f0;
-      padding: 20px;
-      border-radius: 12px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 13px;
-      overflow-x: auto;
-      line-height: 1.5;
-      position: relative;
-    }
-
-    .copy-btn {
-      position: absolute;
-      top: 14px;
-      right: 14px;
-      background: #374151;
-      color: #fff;
-      border: none;
-      padding: 6px 12px;
-      border-radius: 6px;
+      color: #7d726b;
       cursor: pointer;
+    }
+
+    .dev-drawer-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
       font-size: 12px;
     }
 
-    .copy-btn:hover {
-      background: #4b5563;
+    .dev-drawer-row span {
+      color: #7d726b;
     }
 
-    footer {
-      background: #1e3d34;
-      color: #e2e8f0;
-      padding: 40px 24px;
+    .dev-drawer-row b {
+      color: #3a2a24;
+    }
+
+    .dev-drawer-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid #e7e0d7;
+    }
+
+    .dev-btn {
+      width: 100%;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
       text-align: center;
+      text-decoration: none;
+      border: 1px solid #e7e0d7;
+      background: #faf7f3;
+      color: #3a2a24;
+      transition: background 0.15s;
+    }
+
+    .dev-btn:hover {
+      background: #ede6de;
+    }
+
+    .dev-btn.primary {
+      background: #3a2a24;
+      color: #ffffff;
+      border: 0;
+    }
+
+    .dev-btn.primary:hover {
+      opacity: 0.92;
+    }
+
+    /* Modal for Embed Code Snippet */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(42, 33, 29, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 1000000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-overlay.open {
+      display: flex;
+    }
+
+    .modal-box {
+      background: #ffffff;
+      border: 1px solid #e7e0d7;
+      border-radius: 16px;
+      padding: 28px;
+      max-width: 620px;
+      width: 100%;
+      box-shadow: 0 20px 50px rgba(60, 40, 25, 0.2);
+    }
+
+    .modal-box h3 {
+      font-family: Georgia, serif;
+      font-size: 22px;
+      color: #3a2a24;
+      margin-bottom: 8px;
+    }
+
+    .modal-box p {
       font-size: 14px;
+      color: #5f6b64;
+      margin-bottom: 16px;
+    }
+
+    .code-box {
+      background: #2b221d;
+      color: #ede4dc;
+      padding: 16px;
+      border-radius: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin-bottom: 16px;
+      border: 1px solid #4a3830;
+    }
+
+    /* ── Responsive ────────────────────────────────────────────────────────── */
+    @media (max-width: 980px) {
+      .hero {
+        grid-template-columns: 1fr;
+        padding: 40px 20px 60px;
+      }
+      .hero-title {
+        font-size: 42px;
+      }
+      .services-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .why-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .reviews-grid {
+        grid-template-columns: 1fr;
+      }
+      .contact-card {
+        grid-template-columns: 1fr;
+        padding: 32px 24px;
+      }
     }
 
     @media (max-width: 768px) {
-      .hero {
-        grid-template-columns: 1fr;
+      .top-announcement {
+        display: none;
       }
       .nav-menu {
         display: none;
+      }
+      .hero-title {
+        font-size: 34px;
+      }
+      .services-grid {
+        grid-template-columns: 1fr;
+      }
+      .why-grid {
+        grid-template-columns: 1fr;
       }
     }
   </style>
 </head>
 <body>
 
-  <!-- Top Diagnostic / Testing Control Toolbar -->
-  <div class="test-toolbar" id="test-toolbar">
-    <div class="test-toolbar-left">
-      <span class="badge-env" id="env-badge">
-        <span class="status-dot"></span>
-        <span id="env-label">Production (Railway)</span>
-      </span>
-      <span style="opacity: 0.85;">Host: <b id="host-label">web-production-4e036.up.railway.app</b></span>
-      <span style="opacity: 0.85;">Public Key: <code id="key-label" style="background:#262626;padding:2px 6px;border-radius:4px;">pk_ATYR3nGGm3QhcvHOtfPUvtAy</code></span>
+  <!-- Top Announcement Bar -->
+  <div class="top-announcement">
+    <div class="top-announcement-left">
+      <span>📍 1010 Dental Care Way, Raleigh, NC 27601</span>
+      <span>•</span>
+      <span>📞 <a href="tel:9195550199">(919) 555-0199</a></span>
+      <span>•</span>
+      <span>🕒 Mon–Fri 8:00 AM – 5:00 PM</span>
     </div>
-    <div class="test-toolbar-right">
-      <button class="btn-action" id="toggle-host-btn" onclick="toggleServerMode()">Switch to Local Server</button>
-      <a class="btn-link" id="frontdesk-link" href="https://web-production-4e036.up.railway.app/frontdesk" target="_blank">
-        📥 Front Desk Inbox ↗
-      </a>
-      <a class="btn-link" id="admin-link" href="https://web-production-4e036.up.railway.app/admin" target="_blank">
-        ⚙️ Admin Panel ↗
-      </a>
+    <div>
+      <span class="top-badge"><span class="top-dot"></span> 24/7 AI Concierge Online</span>
     </div>
   </div>
 
-  <!-- Dental Website Header -->
+  <!-- Header Navigation -->
   <header>
     <div class="nav-container">
       <a href="#" class="logo">
@@ -509,140 +1004,350 @@
       </a>
       <ul class="nav-menu">
         <li><a href="#services">Services</a></li>
-        <li><a href="#about">About Practice</a></li>
-        <li><a href="#instructions">How to Test Widget</a></li>
-        <li><a href="#snippet">Embed Code</a></li>
+        <li><a href="#why-us">Why Choose Us</a></li>
+        <li><a href="#reviews">Patient Reviews</a></li>
+        <li><a href="#contact">Hours & Location</a></li>
       </ul>
-      <a href="javascript:void(0)" class="btn-cta" onclick="triggerChatWidget()">Chat With Concierge</a>
+      <div class="nav-actions">
+        <button class="btn-cta" onclick="openConcierge()">
+          💬 Chat with Concierge
+        </button>
+      </div>
     </div>
   </header>
 
   <!-- Hero Section -->
   <section class="hero">
     <div>
-      <span class="hero-badge">Now Accepting New Patients</span>
+      <span class="hero-badge">✨ Now Accepting New Patients</span>
       <h2 class="hero-title">Experience Modern, Gentle Dental Care in Raleigh</h2>
       <p class="hero-subtitle">
-        From routine cleanings to cosmetic smile makeovers and same-day emergency dental relief. Our AI-assisted Front Desk Concierge is available 24/7.
+        Personalized smile makeovers, routine preventive care, and same-day dental emergency relief. Our intelligent patient concierge is available 24/7 to answer questions and schedule your visit.
       </p>
       <div class="hero-actions">
-        <button class="btn-cta" onclick="triggerChatWidget()" style="font-size:16px;padding:12px 24px;">
-          💬 Start Chat in Widget
+        <button class="btn-cta" onclick="openConcierge()" style="font-size:15px;padding:12px 24px;">
+          📅 Schedule Appointment
         </button>
-        <a href="#instructions" class="btn-link" style="color:var(--primary);background:var(--accent-soft);padding:12px 20px;border-radius:8px;">
-          📖 Testing Instructions
+        <a href="#services" class="btn-secondary">
+          Explore Services
         </a>
+      </div>
+      <div class="hero-trust">
+        <div class="trust-rating">
+          <span class="trust-stars">★★★★★</span>
+          <span>4.9 / 5.0</span>
+        </div>
+        <div class="trust-divider"></div>
+        <div class="trust-note">
+          Over <b>1,200 verified 5-star reviews</b> from Triangle patients
+        </div>
       </div>
     </div>
 
+    <!-- Live Concierge Interactive Feature Card -->
     <div class="hero-card">
-      <h3>✨ 24/7 Patient Assistant Active</h3>
-      <p>
-        Look at the bottom right corner of this screen! The HeyJarvis Concierge chat bubble is running as an embedded plugin widget.
+      <div class="hero-card-header">
+        <div class="hero-card-icon">✨</div>
+        <div>
+          <h3>24/7 Patient Assistant Active</h3>
+          <span style="font-size:12px;color:#a4bfb2;">HeyJarvis Concierge</span>
+        </div>
+      </div>
+      <p class="hero-card-desc">
+        Click the chat bubble in the bottom right corner or the button below! Our concierge helps you check appointment availability, answers questions about insurance, and triages emergency tooth pain in seconds.
       </p>
       <ul class="feature-list">
-        <li>
+        <li class="feature-item">
           <div class="feature-check">✓</div>
-          Instant friendly answers for patients
+          Instant friendly answers for new & existing patients
         </li>
-        <li>
+        <li class="feature-item">
           <div class="feature-check">✓</div>
-          Automatic triage & emergency detection
+          Automatic dental emergency detection & fast triage
         </li>
-        <li>
+        <li class="feature-item">
           <div class="feature-check">✓</div>
-          Seamless handoff to clinic Front Desk inbox
+          Direct handoff to clinic Front Desk inbox
         </li>
-        <li>
+        <li class="feature-item">
           <div class="feature-check">✓</div>
           AI draft replies generated instantly for staff review
         </li>
       </ul>
+      <button class="hero-card-cta" onclick="openConcierge()">
+        💬 Start Chat with Smile Concierge
+      </button>
     </div>
   </section>
 
-  <!-- Instructions Box -->
-  <section class="guide-section" id="instructions">
-    <div class="guide-box">
-      <h2>🧪 Step-by-Step Manual Testing Guide</h2>
-      <p style="color:#4b5563;font-size:14px;">
-        Follow these 4 simple steps to test the widget end-to-end and see your message land in the Front Desk inbox:
-      </p>
-
-      <div class="steps-grid">
-        <div class="step-card">
-          <div class="step-num">1</div>
-          <h4>Open the Chat Widget</h4>
-          <p>Click the floating circular button in the bottom right corner labeled <b>"Chat with us"</b> (or click "Start Chat in Widget" above).</p>
-        </div>
-
-        <div class="step-card">
-          <div class="step-num">2</div>
-          <h4>Send a Message</h4>
-          <p>Select a quick option (e.g. <em>Routine Cleaning</em>) or type a real message like: <code>"I have severe tooth pain on my lower left jaw."</code></p>
-        </div>
-
-        <div class="step-card">
-          <div class="step-num">3</div>
-          <h4>Provide Name & Email</h4>
-          <p>When the concierge asks, provide your test name and email (e.g. <code>John Doe, john@example.com</code>). The widget confirms: <em>"Request sent"</em>.</p>
-        </div>
-
-        <div class="step-card">
-          <div class="step-num">4</div>
-          <h4>Verify in Front Desk</h4>
-          <p>Open <a id="guide-inbox-link" href="https://web-production-4e036.up.railway.app/frontdesk" target="_blank" style="color:#2563eb;font-weight:600;">Front Desk Inbox ↗</a>. Notice your new lead appears immediately with an AI-generated draft ready for 1-click send!</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Practice Services -->
-  <section class="services-section" id="services">
-    <div class="section-header">
-      <h2>Comprehensive Dental Services</h2>
-      <p style="color:var(--text-muted);">Serving Raleigh, Durham, and the Triangle area</p>
+  <!-- Services Section -->
+  <section class="section-wrap" id="services">
+    <div class="section-title-wrap">
+      <div class="section-eyebrow">Comprehensive Dental Care</div>
+      <h2 class="section-title">Specialized Treatments for Your Entire Family</h2>
+      <p class="section-desc">From routine cleanings to complex restorations, our Raleigh clinic provides gentle, state-of-the-art care under one roof.</p>
     </div>
 
     <div class="services-grid">
       <div class="service-card">
-        <div class="service-icon">✨</div>
-        <h3>Cosmetic Dentistry</h3>
-        <p>Porcelain veneers, teeth whitening, and full smile makeovers tailored to your natural beauty.</p>
-      </div>
-
-      <div class="service-card">
-        <div class="service-icon">🚨</div>
-        <h3>Emergency Dental Care</h3>
-        <p>Same-day emergency appointments for severe toothaches, chipped teeth, and dental trauma.</p>
-      </div>
-
-      <div class="service-card">
-        <div class="service-icon">🪥</div>
+        <div class="service-icon-box">🪥</div>
         <h3>Preventive & Cleanings</h3>
-        <p>Gentle cleanings, comprehensive exams, digital x-rays, and periodontal wellness care.</p>
+        <p>Comprehensive exams, gentle dental cleanings, digital low-dose x-rays, and periodontal wellness care to protect your smile.</p>
+        <span class="service-link" onclick="openConcierge()">Book cleaning with Concierge →</span>
       </div>
 
       <div class="service-card">
-        <div class="service-icon">🦷</div>
-        <h3>Restorative & Implants</h3>
-        <p>Long-lasting dental implants, natural-looking crowns, and tooth-colored fillings.</p>
+        <div class="service-icon-box">✨</div>
+        <h3>Cosmetic Dentistry</h3>
+        <p>Custom porcelain veneers, professional in-office Zoom! whitening, and cosmetic bonding tailored to your natural facial aesthetics.</p>
+        <span class="service-link" onclick="openConcierge()">Explore smile makeover →</span>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon-box">🚨</div>
+        <h3>Same-Day Emergencies</h3>
+        <p>Immediate relief for severe toothaches, cracked or knocked-out teeth, and sudden dental pain. Walk-ins and same-day visits welcome.</p>
+        <span class="service-link" onclick="openConcierge()">Request emergency care →</span>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon-box">🦷</div>
+        <h3>Dental Implants & Crowns</h3>
+        <p>Permanent tooth replacement with biocompatible titanium implants, precision porcelain crowns, and durable dental bridges.</p>
+        <span class="service-link" onclick="openConcierge()">Schedule implant consult →</span>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon-box">😁</div>
+        <h3>Invisalign Clear Aligners</h3>
+        <p>Discreetly straighten teeth without metal brackets. Custom 3D-scanned aligners for adults and teens with certified Raleigh providers.</p>
+        <span class="service-link" onclick="openConcierge()">Check Invisalign options →</span>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon-box">🧸</div>
+        <h3>Family & Pediatric Care</h3>
+        <p>Warm, comforting dental visits designed to make children and teens feel confident, safe, and happy about their oral health.</p>
+        <span class="service-link" onclick="openConcierge()">Book family visit →</span>
       </div>
     </div>
   </section>
 
-  <!-- Embed Snippet Display -->
-  <section class="snippet-section" id="snippet">
-    <div class="section-header" style="text-align:left;margin-bottom:16px;">
-      <h2>📋 How to Add This Script to Any Website (HTML)</h2>
-      <p style="color:var(--text-muted);font-size:14px;">
-        To install this widget on any production HTML website, WordPress site, Webflow, or Shopify, paste this single snippet before the closing <code>&lt;/body&gt;</code> tag:
-      </p>
+  <!-- Why Choose Us -->
+  <section class="why-section" id="why-us">
+    <div class="section-wrap">
+      <div class="section-title-wrap">
+        <div class="section-eyebrow">Why Raleigh Patients Choose Us</div>
+        <h2 class="section-title">A Modern Dental Experience Designed Around You</h2>
+        <p class="section-desc">We combine compassionate clinicians, calm treatment suites, and modern technology to make every visit effortless.</p>
+      </div>
+
+      <div class="why-grid">
+        <div class="why-card">
+          <div class="why-icon">🤖</div>
+          <h4>24/7 Intelligent Concierge</h4>
+          <p>Schedule visits, check treatment options, or send emergency requests anytime day or night directly through our site.</p>
+        </div>
+        <div class="why-card">
+          <div class="why-icon">🌿</div>
+          <h4>Gentle, Pain-Free Approach</h4>
+          <p>Comfort amenities, warm blankets, and gentle numbing techniques ensure patients with dental anxiety feel totally relaxed.</p>
+        </div>
+        <div class="why-card">
+          <div class="why-icon">🔬</div>
+          <h4>Advanced 3D Technology</h4>
+          <p>Digital 3D intraoral scanners replace messy goop impressions, giving you precise, fast, and comfortable results.</p>
+        </div>
+        <div class="why-card">
+          <div class="why-icon">🛡️</div>
+          <h4>Transparent & Fair Pricing</h4>
+          <p>We work with most major dental insurance plans and provide clear, upfront cost estimates with zero surprise fees.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Patient Reviews -->
+  <section class="section-wrap" id="reviews">
+    <div class="section-title-wrap">
+      <div class="section-eyebrow">Patient Stories</div>
+      <h2 class="section-title">Loved by Over 1,200 Raleigh Patients</h2>
+      <p class="section-desc">Here is what our patients say about their experience with our practice and front desk team.</p>
     </div>
 
-    <div class="code-container">
-      <button class="copy-btn" onclick="copySnippetCode()">Copy Script</button>
-      <pre id="snippet-code">&lt;!-- HeyJarvis Concierge Widget --&gt;
+    <div class="reviews-grid">
+      <div class="review-card">
+        <div class="review-stars">★★★★★</div>
+        <p class="review-quote">
+          "I used the website chat late on a Sunday evening when my crown broke. The concierge answered my questions immediately and had me booked for 9am Monday morning. Absolutely lifesaver!"
+        </p>
+        <div class="reviewer">
+          <div class="reviewer-avatar">HW</div>
+          <div class="reviewer-info">
+            <h5>Hannah Weiss</h5>
+            <span>Raleigh, NC</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="review-card">
+        <div class="review-stars">★★★★★</div>
+        <p class="review-quote">
+          "Best dental office in the Triangle! The staff is incredibly gentle and welcoming. Being able to ask questions online before coming in made everything so stress-free."
+        </p>
+        <div class="reviewer">
+          <div class="reviewer-avatar">RN</div>
+          <div class="reviewer-info">
+            <h5>Robert Nguyen</h5>
+            <span>Cary, NC</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="review-card">
+        <div class="review-stars">★★★★★</div>
+        <p class="review-quote">
+          "Had my teeth whitened and two veneers done for my wedding. The results look so natural! The team was super attentive and followed up the next day."
+        </p>
+        <div class="reviewer">
+          <div class="reviewer-avatar">AR</div>
+          <div class="reviewer-info">
+            <h5>Aisha Rahman</h5>
+            <span>Wake Forest, NC</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Contact & Hours Section -->
+  <section class="section-wrap" id="contact" style="padding-top:0;">
+    <div class="contact-card">
+      <div class="contact-info">
+        <h3>Visit Our Raleigh Practice</h3>
+        <p>Conveniently located in Midtown Raleigh with complimentary patient parking.</p>
+
+        <div class="contact-item">
+          <div class="contact-item-icon">📍</div>
+          <div class="contact-item-text">
+            <b>Clinic Address</b>
+            <span>1010 Dental Care Way, Suite 200, Raleigh, NC 27601</span>
+          </div>
+        </div>
+
+        <div class="contact-item">
+          <div class="contact-item-icon">📞</div>
+          <div class="contact-item-text">
+            <b>Telephone</b>
+            <span><a href="tel:9195550199" style="color:var(--primary);text-decoration:none;font-weight:600;">(919) 555-0199</a></span>
+          </div>
+        </div>
+
+        <div class="contact-item">
+          <div class="contact-item-icon">✉️</div>
+          <div class="contact-item-text">
+            <b>Front Desk Email</b>
+            <span>care@raleighdentistry.com</span>
+          </div>
+        </div>
+
+        <div style="margin-top:24px;">
+          <button class="btn-cta" onclick="openConcierge()">
+            💬 Message Front Desk Now
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <h4 style="font-size:18px;font-weight:700;color:var(--primary-dark);margin-bottom:12px;">Office Hours</h4>
+        <table class="hours-table">
+          <tr><td>Monday</td><td>8:00 AM – 5:00 PM</td></tr>
+          <tr><td>Tuesday</td><td>8:00 AM – 5:00 PM</td></tr>
+          <tr><td>Wednesday</td><td>8:00 AM – 5:00 PM</td></tr>
+          <tr><td>Thursday</td><td>8:00 AM – 5:00 PM</td></tr>
+          <tr><td>Friday</td><td>8:00 AM – 2:00 PM</td></tr>
+          <tr><td>Saturday – Sunday</td><td>Emergency On-Call</td></tr>
+        </table>
+        <div style="background:var(--accent-soft);border-radius:12px;padding:16px;margin-top:20px;font-size:13px;color:var(--primary-dark);">
+          <b>🚨 Emergency After-Hours:</b> Use our 24/7 online concierge anytime. Emergency cases are immediately triaged and routed to our on-call clinician.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-container">
+      <div class="footer-brand">
+        <h4>🦷 Raleigh Comprehensive & Cosmetic Dentistry</h4>
+        <p>Premier family, cosmetic, and emergency dentistry in Raleigh, North Carolina.</p>
+      </div>
+      <div>
+        <a class="dev-tools-link" onclick="openSnippetModal()">
+          📋 Embed Script Code
+        </a>
+        &nbsp;
+        <a class="dev-tools-link" onclick="toggleDevDrawer()">
+          ⚙️ Developer & Test Tools
+        </a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Raleigh Comprehensive and Cosmetic Dentistry. All rights reserved.</span>
+      <span>Powered by <b>HeyJarvis AI Concierge Platform</b></span>
+    </div>
+  </footer>
+
+  <!-- ── Floating Dev / Test Mode Pill ───────────────────────────────────────── -->
+  <div class="dev-pill" id="dev-pill" onclick="toggleDevDrawer()" title="Click to view testing controls and host configuration">
+    <span class="pulse-dot"></span>
+    <span id="dev-pill-label">⚡ Live Widget (Railway Production)</span>
+  </div>
+
+  <!-- Slide-out Diagnostic Drawer -->
+  <div class="dev-drawer" id="dev-drawer">
+    <div class="dev-drawer-header">
+      <h4><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14z" fill="#7c8c6e"/><path d="M5 19c3-5 6-8 10-10" stroke="#fdfbf8" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg> HeyJarvis Diagnostic</h4>
+      <button class="dev-drawer-close" onclick="toggleDevDrawer()">✕</button>
+    </div>
+    <div class="dev-drawer-row">
+      <span>Active Host:</span>
+      <b id="drawer-host">web-production-4e036.up.railway.app</b>
+    </div>
+    <div class="dev-drawer-row">
+      <span>Public Key:</span>
+      <b id="drawer-key" style="font-family:monospace;font-size:11px;">pk_ATYR3nGGm3QhcvHOtfPUvtAy</b>
+    </div>
+    <div class="dev-drawer-row">
+      <span>Status:</span>
+      <b style="color:#7c8c6e;">● Connected & Serving</b>
+    </div>
+
+    <div class="dev-drawer-actions">
+      <button class="dev-btn primary" onclick="openConcierge(); toggleDevDrawer();">
+        💬 Open Chat Widget Now
+      </button>
+      <button class="dev-btn" id="toggle-host-btn" onclick="toggleServerMode()">
+        🔄 Switch to Localhost
+      </button>
+      <a class="dev-btn" id="drawer-inbox-link" href="https://web-production-4e036.up.railway.app/frontdesk" target="_blank">
+        📥 Open Front Desk Inbox ↗
+      </a>
+      <a class="dev-btn" id="drawer-admin-link" href="https://web-production-4e036.up.railway.app/admin" target="_blank">
+        ⚙️ Open Admin Panel ↗
+      </a>
+      <button class="dev-btn" onclick="openSnippetModal()">
+        📋 Copy HTML Embed Snippet
+      </button>
+    </div>
+  </div>
+
+  <!-- Modal for Copying Embed Script -->
+  <div class="modal-overlay" id="snippet-modal" onclick="if(event.target===this) closeSnippetModal()">
+    <div class="modal-box">
+      <h3>📋 Production Embed Snippet</h3>
+      <p>Paste this single snippet into any website before the closing <code>&lt;/body&gt;</code> tag to enable HeyJarvis Concierge:</p>
+      <pre class="code-box" id="snippet-code">&lt;!-- HeyJarvis Concierge Widget --&gt;
 &lt;script
   async
   src="https://web-production-4e036.up.railway.app/widget.js"
@@ -650,66 +1355,98 @@
   data-heyjarvis-form="false"
   data-heyjarvis-auto-open="false"&gt;
 &lt;/script&gt;</pre>
+      <div style="display:flex;justify-content:flex-end;gap:10px;">
+        <button class="dev-btn" onclick="closeSnippetModal()" style="width:auto;padding:8px 16px;">Close</button>
+        <button class="dev-btn primary" onclick="copySnippetCode()" style="width:auto;padding:8px 20px;">Copy Snippet</button>
+      </div>
     </div>
-  </section>
+  </div>
 
-  <footer>
-    <p><b>Raleigh Comprehensive and Cosmetic Dentistry</b> • 1010 Dental Care Way, Raleigh, NC</p>
-    <p style="margin-top:6px;opacity:0.75;">Powered by HeyJarvis AI Concierge Platform</p>
-  </footer>
-
-  <!-- Script to control test mode & load widget -->
+  <!-- ── Widget Loader & Controller ────────────────────────────────────────── -->
   <script>
-    // Configuration
     var PROD_HOST = "https://web-production-4e036.up.railway.app";
     var LOCAL_HOST = "http://127.0.0.1:8000";
     var PROD_KEY = "pk_ATYR3nGGm3QhcvHOtfPUvtAy";
 
-    // URL parameter support: ?host=local or ?host=prod
     var urlParams = new URLSearchParams(window.location.search);
-    var mode = urlParams.get('host') === 'local' ? 'local' : 'prod';
-
-    var currentHost = mode === 'local' ? LOCAL_HOST : PROD_HOST;
+    var isLocalMode = urlParams.get('host') === 'local';
+    var currentHost = isLocalMode ? LOCAL_HOST : PROD_HOST;
     var clientKey = urlParams.get('key') || PROD_KEY;
 
-    // Update UI headers
-    function updateToolbar() {
-      var badge = document.getElementById('env-badge');
-      var label = document.getElementById('env-label');
-      var hostLabel = document.getElementById('host-label');
-      var keyLabel = document.getElementById('key-label');
+    // Update Drawer UI
+    function initDevDrawer() {
+      var pillLabel = document.getElementById('dev-pill-label');
+      var drawerHost = document.getElementById('drawer-host');
+      var drawerKey = document.getElementById('drawer-key');
       var toggleBtn = document.getElementById('toggle-host-btn');
-      var frontdeskLink = document.getElementById('frontdesk-link');
-      var adminLink = document.getElementById('admin-link');
-      var guideInboxLink = document.getElementById('guide-inbox-link');
+      var inboxLink = document.getElementById('drawer-inbox-link');
+      var adminLink = document.getElementById('drawer-admin-link');
+      var snippetCode = document.getElementById('snippet-code');
 
-      if (mode === 'local') {
-        badge.className = 'badge-env local';
-        label.textContent = 'Local Server';
-        hostLabel.textContent = '127.0.0.1:8000';
-        toggleBtn.textContent = 'Switch to Production (Railway)';
+      if (isLocalMode) {
+        pillLabel.textContent = '⚡ Dev Mode (Localhost:8000)';
+        drawerHost.textContent = '127.0.0.1:8000';
+        toggleBtn.textContent = '🔄 Switch to Production (Railway)';
       } else {
-        badge.className = 'badge-env';
-        label.textContent = 'Production (Railway)';
-        hostLabel.textContent = 'web-production-4e036.up.railway.app';
-        toggleBtn.textContent = 'Switch to Localhost';
+        pillLabel.textContent = '⚡ Live Widget (Railway Production)';
+        drawerHost.textContent = 'web-production-4e036.up.railway.app';
+        toggleBtn.textContent = '🔄 Switch to Localhost';
       }
 
-      keyLabel.textContent = clientKey;
-      frontdeskLink.href = currentHost + '/frontdesk';
+      drawerKey.textContent = clientKey;
+      inboxLink.href = currentHost + '/frontdesk';
       adminLink.href = currentHost + '/admin';
-      guideInboxLink.href = currentHost + '/frontdesk';
+
+      snippetCode.textContent =
+        '<!-- HeyJarvis Concierge Widget -->\n' +
+        '<script\n' +
+        '  async\n' +
+        '  src="' + currentHost + '/widget.js"\n' +
+        '  data-heyjarvis-client="' + clientKey + '"\n' +
+        '  data-heyjarvis-form="false"\n' +
+        '  data-heyjarvis-auto-open="false">\n' +
+        '<\/script>';
+
+      // If user specified ?dev=1 or ?test=1 in URL, open drawer automatically
+      if (urlParams.get('dev') === '1' || urlParams.get('test') === '1') {
+        document.getElementById('dev-drawer').classList.add('open');
+      }
+    }
+
+    function toggleDevDrawer() {
+      var d = document.getElementById('dev-drawer');
+      d.classList.toggle('open');
     }
 
     function toggleServerMode() {
-      var nextMode = mode === 'local' ? 'prod' : 'local';
+      var nextMode = isLocalMode ? 'prod' : 'local';
       var u = new URL(window.location.href);
       u.searchParams.set('host', nextMode);
       window.location.href = u.toString();
     }
 
-    function triggerChatWidget() {
-      // Find the widget open button in shadow root
+    function openSnippetModal() {
+      document.getElementById('snippet-modal').classList.add('open');
+    }
+
+    function closeSnippetModal() {
+      document.getElementById('snippet-modal').classList.remove('open');
+    }
+
+    function copySnippetCode() {
+      var code = document.getElementById('snippet-code').textContent;
+      navigator.clipboard.writeText(code).then(function() {
+        alert('Copied embed snippet to clipboard! Paste it before </body> on any website.');
+        closeSnippetModal();
+      });
+    }
+
+    // Programmatic trigger for opening HeyJarvis widget
+    function openConcierge() {
+      if (window.HeyJarvis && typeof window.HeyJarvis.open === 'function') {
+        window.HeyJarvis.open();
+        return;
+      }
       var mounts = document.querySelectorAll('div');
       for (var i = 0; i < mounts.length; i++) {
         if (mounts[i].shadowRoot) {
@@ -720,19 +1457,12 @@
           }
         }
       }
-      alert('Widget is loading... Please wait 1 second.');
+      setTimeout(openConcierge, 400);
     }
 
-    function copySnippetCode() {
-      var code = document.getElementById('snippet-code').textContent;
-      navigator.clipboard.writeText(code).then(function() {
-        alert('Copied snippet script to clipboard!');
-      });
-    }
+    initDevDrawer();
 
-    updateToolbar();
-
-    // Dynamically inject the widget.js script using the configured host & key
+    // Dynamically inject the production HeyJarvis script
     var s = document.createElement('script');
     s.async = true;
     s.src = currentHost + '/widget.js';

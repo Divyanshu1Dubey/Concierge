@@ -1399,6 +1399,16 @@
       setTimeout(openWidget, 500);
     }
 
+    // ── Global Client API ──────────────────────────────────────────────────
+    try {
+      window.HeyJarvis = {
+        open: openWidget,
+        close: closeWidget,
+        toggle: function () { isOpen ? closeWidget() : openWidget(); },
+        isOpen: function () { return isOpen; }
+      };
+    } catch (_) {}
+
     // ── Error boundary ───────────────────────────────────────────────────────
   } catch (e) {
     if (window.console) console.error('HeyJarvis widget error:', e);
