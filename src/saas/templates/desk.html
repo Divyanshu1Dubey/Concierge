@@ -83,6 +83,23 @@ textarea:focus{outline:none;border-color:#cdbfb2}
 .hint{font-size:14px;color:var(--muted)}
 .note{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;margin:16px 4px}
 
+/* quick timing chips */
+.time-bar{background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:12px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.time-label{font-weight:600;font-size:13px;color:var(--ink);display:flex;align-items:center;gap:6px}
+.time-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.time-chip{background:var(--card);border:1px solid var(--line);color:var(--text);padding:5px 12px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:500;transition:all .15s;display:inline-flex;align-items:center;gap:4px}
+.time-chip:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
+.time-chip.active{background:var(--sage);color:#fff;border-color:var(--sage);font-weight:600}
+.time-chip.custom-btn{background:#fff;border-style:dashed}
+.time-chip.custom-btn:hover{background:var(--soft);color:var(--text);border-style:solid}
+.time-chip.undo-btn{background:#fff;color:var(--danger);border-color:var(--line);margin-left:auto}
+.time-chip.undo-btn:hover{background:#fdf2f2;border-color:var(--danger);color:var(--danger)}
+.custom-time-box{display:none;width:100%;align-items:center;gap:8px;padding-top:10px;margin-top:6px;border-top:1px dashed var(--line)}
+.custom-time-box.show{display:flex;flex-wrap:wrap}
+.custom-time-box input,.custom-time-box select{font:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--text)}
+.custom-time-box button{background:var(--ink);color:#fff;border:0;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500}
+.custom-time-box button:hover{opacity:.9}
+
 /* booked card */
 .booked{display:flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:14px;padding:26px 30px;gap:24px 30px;box-shadow:0 2px 10px rgba(60,40,25,.05);margin-top:20px}
 .booked .l{flex:1 1 320px;min-width:0;display:flex;gap:18px}
@@ -280,6 +297,27 @@ async function openLead(id) {
   if (g === 'reply' || g === 'waiting') {
     var title = draft ? 'Ready to send' : (g === 'waiting' ? 'Waiting on ' + first + ' · emailed ' + ago(lead.last_email_at) : 'Write a reply');
     html += '<hr class="rule"><div class="compose"><div class="top"><b>' + title + '</b><span class="ch">' + MAIL + 'Email</span></div>' +
+      '<div class="time-bar" id="time-bar">' +
+        '<span class="time-label"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Add Timing:</span>' +
+        '<div class="time-chips" id="time-chips"></div>' +
+        '<button type="button" class="time-chip custom-btn" onclick="toggleCustomTime()" title="Pick custom date and time">📅 Custom</button>' +
+        '<button type="button" class="time-chip undo-btn" id="undo-time-btn" style="display:none" onclick="resetDraftTiming()" title="Revert to original text">↺ Revert</button>' +
+        '<div class="custom-time-box" id="custom-time-box">' +
+          '<input type="date" id="cust-date">' +
+          '<select id="cust-time">' +
+            '<option value="9:00 AM">9:00 AM</option>' +
+            '<option value="10:00 AM" selected>10:00 AM</option>' +
+            '<option value="11:00 AM">11:00 AM</option>' +
+            '<option value="11:30 AM">11:30 AM</option>' +
+            '<option value="1:00 PM">1:00 PM</option>' +
+            '<option value="2:00 PM">2:00 PM</option>' +
+            '<option value="2:30 PM">2:30 PM</option>' +
+            '<option value="3:00 PM">3:00 PM</option>' +
+            '<option value="4:00 PM">4:00 PM</option>' +
+          '</select>' +
+          '<button type="button" onclick="insertCustomTiming()">Insert Slot</button>' +
+        '</div>' +
+      '</div>' +
       '<textarea id="reply" style="' + (!draft && g === 'waiting' ? 'min-height:110px' : '') + '" placeholder="' + (g === 'waiting' ? 'Send another message (optional)' : 'Write your reply') + '">' + esc(draft ? draft.body : '') + '</textarea>' +
       '<div class="bot"><span class="hint">' + (demo ? 'Demo: recorded, not emailed.' : (draft ? 'You can edit this message before sending.' : 'Sent from your clinic email.')) + '</span>' +
       '<button class="btn dark" id="go" onclick="' + (draft ? 'approve(' + draft.id + ')' : 'sendNew(' + id + ')') + '">' + (draft ? 'Approve &amp; send' : 'Send') + '</button></div></div>';
@@ -300,6 +338,9 @@ async function openLead(id) {
     html += '<div class="histh">Conversation history</div><div class="hist">' + historyRows(msgs) + '</div>';
   }
   document.getElementById('detail').innerHTML = html;
+  if (g === 'reply' || g === 'waiting') {
+    setupTimingBar(draft ? draft.body : '');
+  }
 }
 
 async function approve(draftId) {
@@ -340,6 +381,163 @@ async function simulate(id) {
   var r = await api('/fd/demo/leads/' + id + '/reply', {method: 'POST', body: {body: v}});
   toast('Patient reply: ' + r.intent.replace(/_/g, ' '));
   current = id; await load(); if (leads.some(function (l) { return l.id === id; })) openLead(id);
+}
+
+// ── Quick Appointment Timing Helpers ─────────────────────────────────────
+var originalDraftText = '';
+var activeSlots = [];
+
+function setupTimingBar(draftText) {
+  originalDraftText = draftText || '';
+  activeSlots = [];
+  var container = document.getElementById('time-chips');
+  if (!container) return;
+  container.innerHTML = '';
+  
+  var slots = getUpcomingSlots();
+  slots.forEach(function (s) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'time-chip';
+    btn.textContent = s.label;
+    btn.title = 'Click to propose ' + s.full;
+    btn.onclick = function () { selectSlot(s, btn); };
+    container.appendChild(btn);
+  });
+}
+
+function getUpcomingSlots() {
+  var list = [];
+  var now = new Date();
+  var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  
+  // Tomorrow
+  var d1 = new Date(now);
+  d1.setDate(d1.getDate() + 1);
+  if (d1.getDay() === 0) d1.setDate(d1.getDate() + 1);
+  if (d1.getDay() === 6) d1.setDate(d1.getDate() + 2);
+  var d1Day = days[d1.getDay()];
+  var d1Date = d1Day + ', ' + months[d1.getMonth()] + ' ' + d1.getDate();
+  
+  list.push({ label: 'Tomorrow 10:00 AM', full: 'Tomorrow (' + d1Date + ') at 10:00 AM' });
+  list.push({ label: 'Tomorrow 2:00 PM', full: 'Tomorrow (' + d1Date + ') at 2:00 PM' });
+  
+  // Next weekday
+  var d2 = new Date(d1);
+  d2.setDate(d2.getDate() + 1);
+  if (d2.getDay() === 0) d2.setDate(d2.getDate() + 1);
+  if (d2.getDay() === 6) d2.setDate(d2.getDate() + 2);
+  var d2Day = days[d2.getDay()];
+  var d2Date = d2Day + ', ' + months[d2.getMonth()] + ' ' + d2.getDate();
+  
+  list.push({ label: d2Day + ' 11:30 AM', full: d2Date + ' at 11:30 AM' });
+  list.push({ label: d2Day + ' 3:30 PM', full: d2Date + ' at 3:30 PM' });
+  
+  return list;
+}
+
+function selectSlot(slot, btnEl) {
+  var ta = document.getElementById('reply');
+  if (!ta) return;
+  if (!originalDraftText) originalDraftText = ta.value;
+  
+  var existingIdx = -1;
+  for (var i = 0; i < activeSlots.length; i++) {
+    if (activeSlots[i].full === slot.full) { existingIdx = i; break; }
+  }
+  
+  if (existingIdx !== -1) {
+    activeSlots.splice(existingIdx, 1);
+    btnEl.classList.remove('active');
+  } else {
+    if (activeSlots.length >= 2) {
+      activeSlots.shift();
+      var chips = document.querySelectorAll('#time-chips .time-chip.active');
+      if (chips.length) chips[0].classList.remove('active');
+    }
+    activeSlots.push(slot);
+    btnEl.classList.add('active');
+  }
+  applyTimingToDraft();
+}
+
+function applyTimingToDraft() {
+  var ta = document.getElementById('reply');
+  var undoBtn = document.getElementById('undo-time-btn');
+  if (!ta) return;
+  
+  if (activeSlots.length === 0) {
+    ta.value = originalDraftText;
+    if (undoBtn) undoBtn.style.display = 'none';
+    return;
+  }
+  if (undoBtn) undoBtn.style.display = 'inline-flex';
+  
+  var timePhrase = activeSlots.length === 1 ? activeSlots[0].full : (activeSlots[0].full + ' or ' + activeSlots[1].full);
+  var newSentence = 'We have an opening available on ' + timePhrase + '. Would that time work for you? If not, please reply with another day or time that fits your schedule.';
+  
+  var text = originalDraftText;
+  var prevTimingRegex = /We have (?:an opening|openings) available on [^.\n]+\. Would [^.\n]+\?/i;
+  var askTimingRegex = /(?:To help us (?:find|get)|Please reply with|Could you reply with|Let us know what)[^.\n]*(?:days? and times?|best time|schedule)[^.\n]*\./i;
+  
+  if (prevTimingRegex.test(ta.value)) {
+    ta.value = ta.value.replace(prevTimingRegex, 'We have ' + (activeSlots.length === 1 ? 'an opening' : 'openings') + ' available on ' + timePhrase + '. Would that time work for you?');
+  } else if (askTimingRegex.test(text)) {
+    ta.value = text.replace(askTimingRegex, newSentence);
+  } else {
+    var parts = text.split('\n\n');
+    if (parts.length > 1) {
+      parts.splice(parts.length - 1, 0, newSentence);
+      ta.value = parts.join('\n\n');
+    } else {
+      ta.value = text + '\n\n' + newSentence;
+    }
+  }
+  toast('Timing added to message');
+}
+
+function resetDraftTiming() {
+  var ta = document.getElementById('reply');
+  var undoBtn = document.getElementById('undo-time-btn');
+  if (ta && originalDraftText) ta.value = originalDraftText;
+  activeSlots = [];
+  document.querySelectorAll('#time-chips .time-chip.active').forEach(function (el) { el.classList.remove('active'); });
+  if (undoBtn) undoBtn.style.display = 'none';
+  toast('Reverted to original draft');
+}
+
+function toggleCustomTime() {
+  var box = document.getElementById('custom-time-box');
+  if (!box) return;
+  box.classList.toggle('show');
+  if (box.classList.contains('show')) {
+    var d = document.getElementById('cust-date');
+    if (d && !d.value) {
+      var t = new Date();
+      t.setDate(t.getDate() + 1);
+      d.value = t.toISOString().split('T')[0];
+      d.min = new Date().toISOString().split('T')[0];
+    }
+  }
+}
+
+function insertCustomTiming() {
+  var dVal = document.getElementById('cust-date').value;
+  var tVal = document.getElementById('cust-time').value;
+  if (!dVal || !tVal) { toast('Please choose date & time'); return; }
+  var parts = dVal.split('-');
+  var dt = new Date(parts[0], parts[1] - 1, parts[2]);
+  var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var dateStr = days[dt.getDay()] + ', ' + months[dt.getMonth()] + ' ' + dt.getDate();
+  
+  var customSlot = { label: dateStr + ' ' + tVal, full: dateStr + ' at ' + tVal };
+  activeSlots = [customSlot];
+  document.querySelectorAll('#time-chips .time-chip.active').forEach(function (el) { el.classList.remove('active'); });
+  applyTimingToDraft();
+  var box = document.getElementById('custom-time-box');
+  if (box) box.classList.remove('show');
 }
 
 async function skipDay() {
