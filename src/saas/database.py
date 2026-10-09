@@ -380,7 +380,8 @@ def connect():
 _ADDED_COLUMNS = {
     "email_settings": ["imap_host TEXT", "imap_port INTEGER", "imap_user TEXT", "imap_password_enc TEXT",
                        "imap_state TEXT", "sent_folder TEXT", "last_sync_at TEXT", "last_sync_error TEXT",
-                       "auth_type TEXT", "oauth_refresh_enc TEXT", "mail_provider TEXT"],
+                       "auth_type TEXT", "oauth_refresh_enc TEXT", "mail_provider TEXT",
+                       "append_sent INTEGER"],  # 1: HeyJarvis files sent mail in Sent, 0: server does, NULL: unknown
     "ai_drafts": ["cadence_step TEXT", "to_email TEXT", "source TEXT"],
 }
 

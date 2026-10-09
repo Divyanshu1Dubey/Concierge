@@ -11,7 +11,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
-from email.utils import make_msgid
+from email.utils import formatdate, make_msgid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -166,11 +166,12 @@ def connected(clinic, monkeypatch):
 
 def test_odd_message_does_not_block_reply_tracking(connected, monkeypatch):
     tid, lid = connected
+    now = formatdate()  # not a thread reply: must be dated after the lead was created to count
     bad = (b"From: pat@x.test\r\nTo: desk@rv.test\r\nSubject: Re: ma\xc3\xb1ana \xe2\x80\x94 cita\r\n"
-           b"Message-ID: <bad@x>\r\nDate: Mon, 05 Oct 2026 10:00:00 -0400\r\n\r\nHola, el martes funciona.\r\n")
+           b"Message-ID: <bad@x>\r\nDate: " + now.encode() + b"\r\n\r\nHola, el martes funciona.\r\n")
     good = EmailMessage()
     good["From"], good["To"], good["Subject"] = "pat@x.test", "desk@rv.test", "Re: request"
-    good["Message-ID"], good["Date"] = make_msgid(domain="x"), "Mon, 05 Oct 2026 11:00:00 -0400"
+    good["Message-ID"], good["Date"] = make_msgid(domain="x"), now
     good.set_content("Thursday works")
     monkeypatch.setattr(mailbox, "_imap", lambda s: Imap([bad, bytes(good)]))
     stats = mailbox.sync_mailbox(tid)

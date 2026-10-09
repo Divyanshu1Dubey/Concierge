@@ -10,11 +10,13 @@ in `on_reply` runs. Actions:
   stop                  end the cadence for this patient
   pause / resume        hold or continue the cadence
   skip:<step_id>        drop one future step (e.g. "skip:follow_up_1")
-  set_status:<status>   change the lead status (new, contacted, booked, closed, ...)
+  set_status:<status>   change the lead status (new, contacted, booked, closed, ...);
+                        a closing status (booked, closed, ...) also stops the cadence
   task:<title>          add a front desk task
   draft_reply           queue an AI reply to the patient's message for approval
 Pending (unsent) cadence drafts are discarded on stop/pause/skip so stale
-follow-ups can't be sent by accident.
+follow-ups can't be sent by accident. A cadence paused by a reply resumes once
+the front desk answers the patient; one paused by staff or stopped stays that way.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ log = logging.getLogger(__name__)
 REPLY_INTENTS = ["booked", "wants_appointment", "reschedule", "cancel", "question",
                  "not_interested", "unsubscribe", "other"]
 LEAD_STATUSES = {"new", "contacted", "qualified", "booked", "closed", "spam", "scheduled", "completed", "archived"}
+REPLY_REASON = "patient replied"  # reason prefix for states set by reply rules (staff actions say "... by front desk")
 
 DEFAULT_CADENCE: dict[str, Any] = {
     "enabled": True,
@@ -310,8 +313,12 @@ def draft_for_step(tenant_id: int, lead_id: int, step: dict) -> int:
         return None  # another run already drafted this step
 
 
-def on_outbound(tenant_id: int, lead_id: int, cadence_step: str | None) -> None:
-    """Any email to the patient resets the clock; a sent cadence draft also moves to the next step."""
+def on_outbound(tenant_id: int, lead_id: int, cadence_step: str | None, sent_at: str | None = None) -> None:
+    """Any email to the patient resets the clock; a sent cadence draft also moves to the next step.
+
+    If a patient reply paused the cadence, the desk answering it resumes the cadence so follow-ups continue if the
+    patient goes quiet. sent_at is when a desk email found in the Sent folder went out (None: just now); one sent
+    before the patient's latest reply doesn't answer it."""
     enr = get_enrollment(tenant_id, lead_id)
     if not enr:
         return
@@ -321,12 +328,24 @@ def on_outbound(tenant_id: int, lead_id: int, cadence_step: str | None) -> None:
         ids = [s["id"] for s in cfg["steps"]]
         if cadence_step in ids:
             idx = ids.index(cadence_step) + 1
-    status = enr["status"]
+    status, reason = enr["status"], enr.get("reason")
+    paused_by_reply = status == "paused" and (reason or "").startswith(REPLY_REASON)
+    if paused_by_reply and _answers_last_reply(tenant_id, lead_id, sent_at):
+        status, reason = "active", "front desk replied"
     if status == "active" and _next_step(cfg, {**enr, "step_index": idx}) is None:
         status = "completed"
     with connect() as c:
-        c.execute("UPDATE cadence_enrollments SET step_index = ?, anchor_at = ?, status = ?, updated_at = ? WHERE id = ?",
-                  (idx, now_iso(), status, now_iso(), enr["id"]))
+        c.execute("UPDATE cadence_enrollments SET step_index = ?, anchor_at = ?, status = ?, reason = ?, updated_at = ? "
+                  "WHERE id = ?", (idx, now_iso(), status, reason, now_iso(), enr["id"]))
+
+
+def _answers_last_reply(tenant_id: int, lead_id: int, sent_at: str | None) -> bool:
+    if sent_at is None:
+        return True
+    with connect() as c:
+        last = row(c, "SELECT MAX(sent_at) AS at FROM email_messages WHERE tenant_id = ? AND lead_id = ? "
+                      "AND direction = 'in'", tenant_id, lead_id)
+    return not (last and last["at"]) or sent_at >= last["at"]
 
 
 def on_discard(tenant_id: int, lead_id: int, cadence_step: str | None) -> None:
@@ -358,8 +377,10 @@ def on_reply(tenant_id: int, lead_id: int, message: dict) -> dict:
     for act in rule.get("do") or []:
         name, _, arg = act.partition(":")
         if name in ("stop", "pause", "resume") and enr:
+            if name == "pause" and get_enrollment(tenant_id, lead_id)["status"] != "active":
+                continue  # already paused (a staff pause stays a staff pause), stopped or finished
             set_state(tenant_id, lead_id, {"stop": "stopped", "pause": "paused", "resume": "active"}[name],
-                      reason=f"patient replied: {intent}")
+                      reason=f"{REPLY_REASON}: {intent}")
         elif name == "skip" and enr:
             skipped = sorted(set(get_enrollment(tenant_id, lead_id)["skipped"]) | {arg})
             with connect() as c:
@@ -368,6 +389,7 @@ def on_reply(tenant_id: int, lead_id: int, message: dict) -> dict:
             _discard_pending(tenant_id, lead_id, arg)
         elif name == "set_status":
             update_lead(lead_id, status=arg)
+            stop_for_status(tenant_id, lead_id, arg)  # booked, closed, ...: no more follow-ups
         elif name == "task":
             create_frontdesk_task(tenant_id, title=arg, priority="high", lead_id=lead_id,
                                   description=classification.get("summary"))

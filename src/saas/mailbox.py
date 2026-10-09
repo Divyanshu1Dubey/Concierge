@@ -6,8 +6,11 @@ Google app password (2-Step Verification must be on).
 
 Privacy rules:
 - The inbox is opened read-only (BODY.PEEK): nothing is marked read, moved or deleted.
+- The only thing ever written is a copy of each email HeyJarvis sends, added to the
+  Sent folder when the mail server doesn't file one itself (Gmail always does).
 - Only messages that belong to a known lead are stored. Everything else in the
-  clinic's mailbox is skipped without being saved.
+  clinic's mailbox is skipped without being saved. Auto-replies, bounces and the
+  clinic's own emails are never treated as patient replies.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ import json
 import logging
 import re
 import ssl
+import time
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage, Message
 from email.utils import formatdate, getaddresses, make_msgid, parsedate_to_datetime
@@ -32,7 +36,8 @@ GMAIL = {"smtp_host": "smtp.gmail.com", "smtp_port": 465, "imap_host": "imap.gma
 # Ready-made server settings. "custom" means the clinic types them in.
 PROVIDERS = {
     "gmail": {"label": "Google Workspace / Gmail", **GMAIL},
-    "einstein": {"label": "Einstein Mail", "smtp_host": "smtp.einsteinmail.com", "smtp_port": 465,
+    # Einstein support's settings: SMTP 587 with STARTTLS, IMAP 993 SSL, username = full address.
+    "einstein": {"label": "Einstein Mail", "smtp_host": "smtp.einsteinmail.com", "smtp_port": 587,
                  "imap_host": "imap.einsteinmail.com", "imap_port": 993, "sent_folder": None},
     "custom": {"label": "Other email provider", "smtp_host": "", "smtp_port": 465, "imap_host": "", "imap_port": 993,
                "sent_folder": None},
@@ -42,6 +47,8 @@ IMAP_PORTS = {993, 143}
 SENT_FOLDER_NAMES = ["Sent", "Sent Items", "Sent Messages", "Sent Mail", "INBOX.Sent", "INBOX/Sent", "[Gmail]/Sent Mail"]
 FIRST_SYNC_DAYS = 14
 MAX_FETCH_PER_SYNC = 200
+SENT_COPY_WAITS = (0.5, 1.0, 1.5, 2.0)  # seconds between looks for the server's own Sent copy of the test email
+AUTO_PRECEDENCE = {"bulk", "junk", "list", "auto_reply"}
 
 
 class MailboxError(Exception):
@@ -106,6 +113,7 @@ def connect_mailbox(tenant_id: int, provider: str, address: str, password: str, 
         "imap_host": imap_host, "imap_port": imap_port, "imap_user": (username or address).strip(),
         "smtp_password_enc": secret, "imap_password_enc": secret, "oauth_refresh_enc": None,
         "sent_folder": preset["sent_folder"], "from_email": address, "imap_state": None, "last_sync_error": None,
+        "append_sent": None,
     }
     return _store(tenant_id, fields, from_name)
 
@@ -260,7 +268,83 @@ def send_test_email(tenant_id: int) -> dict:
             conn.send_message(msg)
     except Exception as e:
         raise MailboxError(f"Send failed: {_friendly(e, s)}") from e
-    return {"ok": True, "to": sender}
+    sent_copy = None if _files_sent_itself(s) else _learn_sent_copy(tenant_id, s, msg)
+    return {"ok": True, "to": sender, "sent_copy": sent_copy}
+
+
+def _files_sent_itself(s: dict) -> bool:
+    """Gmail (app password or Google sign-in) always files SMTP-sent mail in Sent Mail by itself."""
+    return (s.get("mail_provider") in (None, "gmail") or s.get("auth_type") == "oauth"
+            or "gmail.com" in str(s.get("smtp_host") or ""))
+
+
+def _learn_sent_copy(tenant_id: int, s: dict, msg: EmailMessage) -> str | None:
+    """After the test email: did the server file it in Sent by itself? If not, add it there and remember
+    (append_sent) to do the same for every email HeyJarvis sends. Best effort: returns 'server', 'added' or None."""
+    try:
+        imap = _imap(s)
+    except Exception as e:
+        log.warning("mailbox: sent-copy check could not log in for tenant %s: %s", tenant_id, _friendly(e, s))
+        return None
+    try:
+        folder = s.get("sent_folder") or detect_sent_folder(imap)
+        if not folder:
+            return None
+        found = _in_folder(imap, folder, msg["Message-ID"])
+        for wait in SENT_COPY_WAITS:  # some servers file the copy a moment after the send
+            if found:
+                break
+            time.sleep(wait)
+            found = _in_folder(imap, folder, msg["Message-ID"])
+        with connect() as c:
+            c.execute("UPDATE email_settings SET sent_folder = ?, append_sent = ? WHERE tenant_id = ?",
+                      (folder, 0 if found else 1, tenant_id))
+        if found:
+            return "server"
+        _append_sent(imap, folder, msg)
+        return "added"
+    except Exception as e:
+        log.warning("mailbox: sent-copy check failed for tenant %s: %s", tenant_id, _friendly(e, s))
+        return None
+    finally:
+        try:
+            imap.logout()
+        except Exception:
+            pass
+
+
+def _in_folder(imap, folder: str, message_id: str) -> bool:
+    typ, _ = imap.select(_quote(folder), readonly=True)  # re-select so messages filed since the last look show up
+    if typ != "OK":
+        raise MailboxError(f"cannot open {folder}")
+    typ, data = imap.uid("SEARCH", None, f'HEADER Message-ID "{message_id}"')
+    return typ == "OK" and bool(data and data[0] and data[0].split())
+
+
+def _append_sent(imap, folder: str, msg: EmailMessage) -> None:
+    typ, _ = imap.append(_quote(folder), "(\\Seen)", imaplib.Time2Internaldate(time.time()), msg.as_bytes())
+    if typ != "OK":
+        raise MailboxError(f"cannot save to {folder}")
+
+
+def _save_sent_copy(tenant_id: int, s: dict, msg: EmailMessage) -> None:
+    """File a copy of a sent email in the clinic's Sent folder, unless the server does that itself.
+
+    Unknown servers (append_sent NULL, test email never sent) get a copy too. Never fails the send."""
+    folder = s.get("sent_folder")
+    if _files_sent_itself(s) or s.get("append_sent") == 0 or not folder:
+        return
+    try:
+        imap = _imap(s)
+        try:
+            _append_sent(imap, folder, msg)
+        finally:
+            try:
+                imap.logout()
+            except Exception:
+                pass
+    except Exception as e:
+        log.warning("mailbox: could not save a sent copy for tenant %s: %s", tenant_id, _friendly(e, s))
 
 
 def demo_mode(tenant_id: int) -> bool:
@@ -458,6 +542,8 @@ def send_draft(tenant_id: int, draft_id: int, *, subject: str | None = None, bod
     record_message(tenant_id, lead["id"], "out", msg["Message-ID"], from_addr=sender, to_addr=recipient,
                    subject=subj, body=text, sent_at=now, in_reply_to=in_reply_to, references=references,
                    draft_id=draft_id, cadence_step=draft.get("cadence_step"), source="demo" if demo else "heyjarvis")
+    if not demo:  # after record_message, so the Sent sync sees this Message-ID as already known
+        _save_sent_copy(tenant_id, s, msg)
 
     from saas import cadence
     cadence.on_outbound(tenant_id, lead["id"], draft.get("cadence_step"))
@@ -503,9 +589,11 @@ def sync_mailbox(tenant_id: int) -> dict:
                     c.execute("UPDATE email_settings SET sent_folder = ? WHERE tenant_id = ?", (sent, tenant_id))
         sent = sent or (GMAIL["sent_folder"] if s.get("mail_provider") in (None, "gmail") else None)
         folders = [("INBOX", "in")] + ([(sent, "out")] if sent else [])
+        own = {a.strip().lower() for a in (s.get("from_email"), s.get("smtp_user"), s.get("imap_user"))
+               if a and "@" in a}
         for folder, direction in folders:
             try:
-                _sync_folder(imap, tenant_id, folder, direction, state, stats)
+                _sync_folder(imap, tenant_id, folder, direction, state, stats, own)
             except Exception as e:  # a missing Sent folder must not block reply tracking
                 log.warning("mailbox sync %s failed for tenant %s: %s", folder, tenant_id, e)
                 if direction == "in":
@@ -526,7 +614,8 @@ def _save_sync(tenant_id: int, state: dict, error: str | None) -> None:
                   (json.dumps(state), now_iso(), error, tenant_id))
 
 
-def _sync_folder(imap, tenant_id: int, folder: str, direction: str, state: dict, stats: dict) -> None:
+def _sync_folder(imap, tenant_id: int, folder: str, direction: str, state: dict, stats: dict,
+                 own: set[str] = frozenset()) -> None:
     typ, _ = imap.select(_quote(folder), readonly=True)
     if typ != "OK":
         raise MailboxError(f"cannot open {folder}")
@@ -549,7 +638,7 @@ def _sync_folder(imap, tenant_id: int, folder: str, direction: str, state: dict,
         raw = next((p[1] for p in parts or [] if isinstance(p, tuple)), None)
         if raw:
             try:
-                _ingest(tenant_id, email.message_from_bytes(raw, policy=email.policy.default), direction, stats)
+                _ingest(tenant_id, email.message_from_bytes(raw, policy=email.policy.default), direction, stats, own)
             except Exception:  # one odd message must never block reply tracking for the clinic
                 log.exception("mailbox: skipped unreadable message uid=%s tenant=%s", uid, tenant_id)
                 stats["skipped"] += 1
@@ -569,7 +658,7 @@ def _uidvalidity(imap) -> str:
         return ""
 
 
-def _ingest(tenant_id: int, msg: Message, direction: str, stats: dict) -> None:
+def _ingest(tenant_id: int, msg: Message, direction: str, stats: dict, own: set[str] = frozenset()) -> None:
     message_id = _hdr(msg, "Message-ID")
     if not message_id:
         stats["skipped"] += 1
@@ -578,13 +667,19 @@ def _ingest(tenant_id: int, msg: Message, direction: str, stats: dict) -> None:
     references = _hdr(msg, "References") or None
     from_addr = _addr(_hdr(msg, "From"))
     to_addrs = [a.lower() for _, a in getaddresses([str(v) for v in msg.get_all("To", []) + msg.get_all("Cc", [])]) if a]
+    if direction == "in" and (from_addr in own or _is_automated(msg, from_addr)):
+        stats["skipped"] += 1  # the clinic's own mail, out-of-office replies and bounces are not patient replies
+        return
 
-    lead = _match_lead(tenant_id, in_reply_to, references, from_addr if direction == "in" else None,
-                       to_addrs if direction == "out" else [])
+    lead, by_thread = _match_lead(tenant_id, in_reply_to, references, from_addr if direction == "in" else None,
+                                  to_addrs if direction == "out" else [])
     if not lead:
         stats["skipped"] += 1
         return
     sent_at = _date(_hdr(msg, "Date"))
+    if direction == "in" and not by_thread and sent_at < (lead.get("created_at") or ""):
+        stats["skipped"] += 1  # older mail from this address (the first sync looks back 14 days), not a reply
+        return
     body = _text_body(msg)
     saved = record_message(tenant_id, lead["id"], direction, message_id, from_addr=from_addr,
                            to_addr=", ".join(to_addrs), subject=clean_subject(_hdr(msg, "Subject")), body=body,
@@ -598,11 +693,26 @@ def _ingest(tenant_id: int, msg: Message, direction: str, stats: dict) -> None:
         cadence.on_reply(tenant_id, lead["id"], saved)
     else:
         stats["outbound"] += 1
-        cadence.on_outbound(tenant_id, lead["id"], None)
+        cadence.on_outbound(tenant_id, lead["id"], None, sent_at=sent_at)
+
+
+def _is_automated(msg: Message, from_addr: str | None) -> bool:
+    """Auto-replies (RFC 3834 and common vendor headers), bulk/list mail and delivery reports (bounces)."""
+    auto = _hdr(msg, "Auto-Submitted").lower()
+    if auto and auto.split(";")[0].strip() != "no":
+        return True
+    if msg.get("X-Autoreply") is not None or msg.get("X-Autorespond") is not None:
+        return True
+    if _hdr(msg, "Precedence").lower() in AUTO_PRECEDENCE:
+        return True
+    if (from_addr or "").split("@")[0] in ("mailer-daemon", "postmaster"):
+        return True
+    return msg.get_content_type() == "multipart/report"
 
 
 def _match_lead(tenant_id: int, in_reply_to: str | None, references: str | None, from_addr: str | None,
-                to_addrs: list[str]) -> dict | None:
+                to_addrs: list[str]) -> tuple[dict | None, bool]:
+    """(lead, matched_by_thread). By thread means In-Reply-To/References point at a message we already have."""
     ids = [i for i in ([in_reply_to] if in_reply_to else []) + (references or "").split() if i]
     with connect() as c:
         if ids:
@@ -610,13 +720,13 @@ def _match_lead(tenant_id: int, in_reply_to: str | None, references: str | None,
             hit = row(c, f"SELECT lead_id FROM email_messages WHERE tenant_id = ? AND message_id IN ({marks}) "
                          "ORDER BY id DESC LIMIT 1", tenant_id, *ids)
             if hit:
-                return row(c, "SELECT * FROM leads WHERE id = ?", hit["lead_id"])
+                return row(c, "SELECT * FROM leads WHERE id = ?", hit["lead_id"]), True
         for addr in ([from_addr] if from_addr else []) + to_addrs:
             hit = row(c, "SELECT * FROM leads WHERE tenant_id = ? AND lower(email) = ? ORDER BY id DESC LIMIT 1",
                       tenant_id, addr.lower())
             if hit:
-                return hit
-    return None
+                return hit, False
+    return None, False
 
 
 def _addr(value: str | None) -> str | None:
