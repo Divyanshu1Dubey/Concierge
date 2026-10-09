@@ -119,10 +119,11 @@ details[open] summary svg{transform:rotate(90deg)}
     <div class="clinic" id="clinic"></div>
     <div class="grow"></div>
     <span class="mode" id="mode" style="display:none"></span>
+    <a class="btn" id="open-chat-btn" href="/chat" target="_blank" style="padding:6px 12px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;gap:6px" title="Test patient chat in a new tab"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Patient Chat</a>
     <a class="icon-btn" id="settings-btn" href="/frontdesk/settings" onclick="return checkAuth(event)" title="Settings"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></a>
     <div class="sep" id="user-sep"></div>
     <div class="avatar" id="user-avatar"><button onclick="toggleMenu('acct-menu', event)"><span class="initials" id="initials">FD</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
-      <div class="menu" id="acct-menu"><a href="/frontdesk/settings">Settings</a><a href="/frontdesk/settings#team">Team</a><button onclick="logout()">Log out</button></div></div>
+      <div class="menu" id="acct-menu"><a href="/frontdesk/settings">Settings</a><a href="/frontdesk/settings#team">Team</a><a href="/frontdesk/full">Advanced View</a><a href="/admin" target="_blank">Admin Panel</a><a href="/test-widget" target="_blank">Test Widget Page</a><a href="/install" target="_blank">Widget Snippet</a><button onclick="logout()">Log out</button></div></div>
   </div>
   <h1>Patient requests</h1>
   <div class="body" id="root">
@@ -425,8 +426,10 @@ async function init() {
       document.getElementById('clinic').textContent = t.name;
       document.getElementById('initials').textContent = t.name.split(/\s+/).filter(function (w) { return /^[A-Za-z]/.test(w); }).slice(0, 2).map(function (w) { return w[0].toUpperCase(); }).join('');
     }
+    var cb = document.getElementById('open-chat-btn');
+    if (cb) cb.href = '/concierge/' + encodeURIComponent(localStorage.getItem('fd_slug') || 'raleigh-dentistry');
     await load();
-    pollTimer = setInterval(function () { var a = document.activeElement; if (!signedOut && (!a || (a.tagName !== 'TEXTAREA' && a.tagName !== 'INPUT'))) load().catch(function () {}); }, 30000);
+    pollTimer = setInterval(function () { var a = document.activeElement; if (!signedOut && (!a || (a.tagName !== 'TEXTAREA' && a.tagName !== 'INPUT'))) load().catch(function () {}); }, 5000);
   } catch (e) {}
 }
 init();

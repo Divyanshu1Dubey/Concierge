@@ -399,6 +399,10 @@ def public_conversation_message(conversation_id: int, body: dict[str, Any], clie
             c.execute("UPDATE conversations SET lead_id = ? WHERE id = ?", (lead["id"], conversation_id))
         _alert_team_new_lead(key.tenant_id, lead["id"])
         cadence.enroll(key.tenant_id, lead["id"])
+        try:
+            cadence.run_due(key.tenant_id)
+        except Exception:
+            log.exception("Immediate cadence draft generation failed for lead %s", lead["id"])
         track_event(key.tenant_id, "lead_created", {"lead_id": lead["id"], "conversation_id": conversation_id})
     return result
 

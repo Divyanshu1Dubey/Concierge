@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Raleigh Comprehensive & Cosmetic Dentistry — Concierge Plugin Test</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #1e3d34;
+      --primary-light: #285447;
+      --accent: #d4a373;
+      --accent-soft: #faedcd;
+      --text: #2d3748;
+      --text-muted: #718096;
+      --bg: #f8faf9;
+      --card-bg: #ffffff;
+      --border: #e2e8f0;
+      --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* Floating Diagnostic / Instructions Bar */
+    .test-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 999999;
+      background: #111827;
+      color: #f9fafb;
+      padding: 12px 20px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      font-size: 13px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 2px solid #3b82f6;
+    }
+
+    .test-toolbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .badge-env {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #1e3a8a;
+      color: #93c5fd;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .badge-env.local {
+      background: #064e3b;
+      color: #6ee7b7;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background: #10b981;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #10b981;
+      display: inline-block;
+    }
+
+    .test-toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn-link {
+      color: #fff;
+      text-decoration: none;
+      background: #374151;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: 500;
+      transition: background 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .btn-link:hover {
+      background: #4b5563;
+      color: #60a5fa;
+    }
+
+    .btn-action {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.2s;
+    }
+
+    .btn-action:hover {
+      background: #1d4ed8;
+    }
+
+    /* Dental Clinic Mock Website */
+    header {
+      background: #ffffff;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 50px;
+      z-index: 100;
+    }
+
+    .nav-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--primary);
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--primary);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 20px;
+    }
+
+    .logo-text h1 {
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .logo-text span {
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .nav-menu {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      list-style: none;
+    }
+
+    .nav-menu a {
+      text-decoration: none;
+      color: var(--text);
+      font-weight: 500;
+      font-size: 14px;
+      transition: color 0.2s;
+    }
+
+    .nav-menu a:hover {
+      color: var(--primary);
+    }
+
+    .btn-cta {
+      background: var(--primary);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-cta:hover {
+      background: var(--primary-light);
+    }
+
+    /* Hero Section */
+    .hero {
+      max-width: 1200px;
+      margin: 40px auto 60px;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 40px;
+      align-items: center;
+    }
+
+    .hero-badge {
+      display: inline-block;
+      background: var(--accent-soft);
+      color: #8b5e34;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 6px 12px;
+      border-radius: 999px;
+      margin-bottom: 16px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .hero-title {
+      font-size: 42px;
+      font-weight: 700;
+      color: var(--primary);
+      line-height: 1.15;
+      margin-bottom: 20px;
+    }
+
+    .hero-subtitle {
+      font-size: 18px;
+      color: var(--text-muted);
+      margin-bottom: 30px;
+      max-width: 540px;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .hero-card {
+      background: linear-gradient(135deg, #1e3d34 0%, #285447 100%);
+      color: #ffffff;
+      border-radius: 20px;
+      padding: 32px;
+      box-shadow: 0 20px 30px -10px rgba(30, 61, 52, 0.4);
+    }
+
+    .hero-card h3 {
+      font-size: 22px;
+      margin-bottom: 12px;
+    }
+
+    .hero-card p {
+      font-size: 14px;
+      opacity: 0.9;
+      margin-bottom: 24px;
+    }
+
+    .feature-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      font-size: 14px;
+    }
+
+    .feature-list li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .feature-check {
+      width: 20px;
+      height: 20px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+
+    /* Testing Guide Callout */
+    .guide-section {
+      max-width: 1200px;
+      margin: 0 auto 60px;
+      padding: 0 24px;
+    }
+
+    .guide-box {
+      background: #ffffff;
+      border: 1px solid #bfdbfe;
+      border-left: 6px solid #2563eb;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .guide-box h2 {
+      font-size: 20px;
+      color: #1e3a8a;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .step-card {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .step-num {
+      width: 28px;
+      height: 28px;
+      background: #2563eb;
+      color: #fff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+
+    .step-card h4 {
+      font-size: 15px;
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+
+    .step-card p {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    /* Services Section */
+    .services-section {
+      max-width: 1200px;
+      margin: 0 auto 60px;
+      padding: 0 24px;
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+
+    .section-header h2 {
+      font-size: 28px;
+      color: var(--primary);
+      margin-bottom: 8px;
+    }
+
+    .services-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+    }
+
+    .service-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .service-card:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--shadow);
+    }
+
+    .service-icon {
+      font-size: 28px;
+      margin-bottom: 14px;
+    }
+
+    .service-card h3 {
+      font-size: 18px;
+      color: var(--primary);
+      margin-bottom: 8px;
+    }
+
+    .service-card p {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    /* Snippet Code Container */
+    .snippet-section {
+      max-width: 1200px;
+      margin: 0 auto 60px;
+      padding: 0 24px;
+    }
+
+    .code-container {
+      background: #1e1e1e;
+      color: #e2e8f0;
+      padding: 20px;
+      border-radius: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      overflow-x: auto;
+      line-height: 1.5;
+      position: relative;
+    }
+
+    .copy-btn {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      background: #374151;
+      color: #fff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .copy-btn:hover {
+      background: #4b5563;
+    }
+
+    footer {
+      background: #1e3d34;
+      color: #e2e8f0;
+      padding: 40px 24px;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    @media (max-width: 768px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+      .nav-menu {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Diagnostic / Testing Control Toolbar -->
+  <div class="test-toolbar" id="test-toolbar">
+    <div class="test-toolbar-left">
+      <span class="badge-env" id="env-badge">
+        <span class="status-dot"></span>
+        <span id="env-label">Production (Railway)</span>
+      </span>
+      <span style="opacity: 0.85;">Host: <b id="host-label">web-production-4e036.up.railway.app</b></span>
+      <span style="opacity: 0.85;">Public Key: <code id="key-label" style="background:#262626;padding:2px 6px;border-radius:4px;">pk_ATYR3nGGm3QhcvHOtfPUvtAy</code></span>
+    </div>
+    <div class="test-toolbar-right">
+      <button class="btn-action" id="toggle-host-btn" onclick="toggleServerMode()">Switch to Local Server</button>
+      <a class="btn-link" id="frontdesk-link" href="https://web-production-4e036.up.railway.app/frontdesk" target="_blank">
+        📥 Front Desk Inbox ↗
+      </a>
+      <a class="btn-link" id="admin-link" href="https://web-production-4e036.up.railway.app/admin" target="_blank">
+        ⚙️ Admin Panel ↗
+      </a>
+    </div>
+  </div>
+
+  <!-- Dental Website Header -->
+  <header>
+    <div class="nav-container">
+      <a href="#" class="logo">
+        <div class="logo-icon">🦷</div>
+        <div class="logo-text">
+          <h1>Raleigh Dentistry</h1>
+          <span>Comprehensive & Cosmetic Care</span>
+        </div>
+      </a>
+      <ul class="nav-menu">
+        <li><a href="#services">Services</a></li>
+        <li><a href="#about">About Practice</a></li>
+        <li><a href="#instructions">How to Test Widget</a></li>
+        <li><a href="#snippet">Embed Code</a></li>
+      </ul>
+      <a href="javascript:void(0)" class="btn-cta" onclick="triggerChatWidget()">Chat With Concierge</a>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div>
+      <span class="hero-badge">Now Accepting New Patients</span>
+      <h2 class="hero-title">Experience Modern, Gentle Dental Care in Raleigh</h2>
+      <p class="hero-subtitle">
+        From routine cleanings to cosmetic smile makeovers and same-day emergency dental relief. Our AI-assisted Front Desk Concierge is available 24/7.
+      </p>
+      <div class="hero-actions">
+        <button class="btn-cta" onclick="triggerChatWidget()" style="font-size:16px;padding:12px 24px;">
+          💬 Start Chat in Widget
+        </button>
+        <a href="#instructions" class="btn-link" style="color:var(--primary);background:var(--accent-soft);padding:12px 20px;border-radius:8px;">
+          📖 Testing Instructions
+        </a>
+      </div>
+    </div>
+
+    <div class="hero-card">
+      <h3>✨ 24/7 Patient Assistant Active</h3>
+      <p>
+        Look at the bottom right corner of this screen! The HeyJarvis Concierge chat bubble is running as an embedded plugin widget.
+      </p>
+      <ul class="feature-list">
+        <li>
+          <div class="feature-check">✓</div>
+          Instant friendly answers for patients
+        </li>
+        <li>
+          <div class="feature-check">✓</div>
+          Automatic triage & emergency detection
+        </li>
+        <li>
+          <div class="feature-check">✓</div>
+          Seamless handoff to clinic Front Desk inbox
+        </li>
+        <li>
+          <div class="feature-check">✓</div>
+          AI draft replies generated instantly for staff review
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Instructions Box -->
+  <section class="guide-section" id="instructions">
+    <div class="guide-box">
+      <h2>🧪 Step-by-Step Manual Testing Guide</h2>
+      <p style="color:#4b5563;font-size:14px;">
+        Follow these 4 simple steps to test the widget end-to-end and see your message land in the Front Desk inbox:
+      </p>
+
+      <div class="steps-grid">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <h4>Open the Chat Widget</h4>
+          <p>Click the floating circular button in the bottom right corner labeled <b>"Chat with us"</b> (or click "Start Chat in Widget" above).</p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <h4>Send a Message</h4>
+          <p>Select a quick option (e.g. <em>Routine Cleaning</em>) or type a real message like: <code>"I have severe tooth pain on my lower left jaw."</code></p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <h4>Provide Name & Email</h4>
+          <p>When the concierge asks, provide your test name and email (e.g. <code>John Doe, john@example.com</code>). The widget confirms: <em>"Request sent"</em>.</p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <h4>Verify in Front Desk</h4>
+          <p>Open <a id="guide-inbox-link" href="https://web-production-4e036.up.railway.app/frontdesk" target="_blank" style="color:#2563eb;font-weight:600;">Front Desk Inbox ↗</a>. Notice your new lead appears immediately with an AI-generated draft ready for 1-click send!</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Practice Services -->
+  <section class="services-section" id="services">
+    <div class="section-header">
+      <h2>Comprehensive Dental Services</h2>
+      <p style="color:var(--text-muted);">Serving Raleigh, Durham, and the Triangle area</p>
+    </div>
+
+    <div class="services-grid">
+      <div class="service-card">
+        <div class="service-icon">✨</div>
+        <h3>Cosmetic Dentistry</h3>
+        <p>Porcelain veneers, teeth whitening, and full smile makeovers tailored to your natural beauty.</p>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon">🚨</div>
+        <h3>Emergency Dental Care</h3>
+        <p>Same-day emergency appointments for severe toothaches, chipped teeth, and dental trauma.</p>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon">🪥</div>
+        <h3>Preventive & Cleanings</h3>
+        <p>Gentle cleanings, comprehensive exams, digital x-rays, and periodontal wellness care.</p>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon">🦷</div>
+        <h3>Restorative & Implants</h3>
+        <p>Long-lasting dental implants, natural-looking crowns, and tooth-colored fillings.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Embed Snippet Display -->
+  <section class="snippet-section" id="snippet">
+    <div class="section-header" style="text-align:left;margin-bottom:16px;">
+      <h2>📋 How to Add This Script to Any Website (HTML)</h2>
+      <p style="color:var(--text-muted);font-size:14px;">
+        To install this widget on any production HTML website, WordPress site, Webflow, or Shopify, paste this single snippet before the closing <code>&lt;/body&gt;</code> tag:
+      </p>
+    </div>
+
+    <div class="code-container">
+      <button class="copy-btn" onclick="copySnippetCode()">Copy Script</button>
+      <pre id="snippet-code">&lt;!-- HeyJarvis Concierge Widget --&gt;
+&lt;script
+  async
+  src="https://web-production-4e036.up.railway.app/widget.js"
+  data-heyjarvis-client="pk_ATYR3nGGm3QhcvHOtfPUvtAy"
+  data-heyjarvis-form="false"
+  data-heyjarvis-auto-open="false"&gt;
+&lt;/script&gt;</pre>
+    </div>
+  </section>
+
+  <footer>
+    <p><b>Raleigh Comprehensive and Cosmetic Dentistry</b> • 1010 Dental Care Way, Raleigh, NC</p>
+    <p style="margin-top:6px;opacity:0.75;">Powered by HeyJarvis AI Concierge Platform</p>
+  </footer>
+
+  <!-- Script to control test mode & load widget -->
+  <script>
+    // Configuration
+    var PROD_HOST = "https://web-production-4e036.up.railway.app";
+    var LOCAL_HOST = "http://127.0.0.1:8000";
+    var PROD_KEY = "pk_ATYR3nGGm3QhcvHOtfPUvtAy";
+
+    // URL parameter support: ?host=local or ?host=prod
+    var urlParams = new URLSearchParams(window.location.search);
+    var mode = urlParams.get('host') === 'local' ? 'local' : 'prod';
+
+    var currentHost = mode === 'local' ? LOCAL_HOST : PROD_HOST;
+    var clientKey = urlParams.get('key') || PROD_KEY;
+
+    // Update UI headers
+    function updateToolbar() {
+      var badge = document.getElementById('env-badge');
+      var label = document.getElementById('env-label');
+      var hostLabel = document.getElementById('host-label');
+      var keyLabel = document.getElementById('key-label');
+      var toggleBtn = document.getElementById('toggle-host-btn');
+      var frontdeskLink = document.getElementById('frontdesk-link');
+      var adminLink = document.getElementById('admin-link');
+      var guideInboxLink = document.getElementById('guide-inbox-link');
+
+      if (mode === 'local') {
+        badge.className = 'badge-env local';
+        label.textContent = 'Local Server';
+        hostLabel.textContent = '127.0.0.1:8000';
+        toggleBtn.textContent = 'Switch to Production (Railway)';
+      } else {
+        badge.className = 'badge-env';
+        label.textContent = 'Production (Railway)';
+        hostLabel.textContent = 'web-production-4e036.up.railway.app';
+        toggleBtn.textContent = 'Switch to Localhost';
+      }
+
+      keyLabel.textContent = clientKey;
+      frontdeskLink.href = currentHost + '/frontdesk';
+      adminLink.href = currentHost + '/admin';
+      guideInboxLink.href = currentHost + '/frontdesk';
+    }
+
+    function toggleServerMode() {
+      var nextMode = mode === 'local' ? 'prod' : 'local';
+      var u = new URL(window.location.href);
+      u.searchParams.set('host', nextMode);
+      window.location.href = u.toString();
+    }
+
+    function triggerChatWidget() {
+      // Find the widget open button in shadow root
+      var mounts = document.querySelectorAll('div');
+      for (var i = 0; i < mounts.length; i++) {
+        if (mounts[i].shadowRoot) {
+          var openBtn = mounts[i].shadowRoot.getElementById('hj-open');
+          if (openBtn) {
+            openBtn.click();
+            return;
+          }
+        }
+      }
+      alert('Widget is loading... Please wait 1 second.');
+    }
+
+    function copySnippetCode() {
+      var code = document.getElementById('snippet-code').textContent;
+      navigator.clipboard.writeText(code).then(function() {
+        alert('Copied snippet script to clipboard!');
+      });
+    }
+
+    updateToolbar();
+
+    // Dynamically inject the widget.js script using the configured host & key
+    var s = document.createElement('script');
+    s.async = true;
+    s.src = currentHost + '/widget.js';
+    s.setAttribute('data-heyjarvis-client', clientKey);
+    s.setAttribute('data-heyjarvis-form', 'false');
+    s.setAttribute('data-heyjarvis-auto-open', 'false');
+    document.body.appendChild(s);
+  </script>
+</body>
+</html>

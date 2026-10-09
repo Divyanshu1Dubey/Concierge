@@ -117,9 +117,8 @@ app.add_middleware(
 # Legacy/dev surfaces a production server never serves: the old admin page (renders patient fields unescaped and
 # reads a token from the URL hash), the install notes (docs/ isn't in the image) and every mounted app's API docs.
 _DEV_ONLY_PATHS = frozenset(
-    ["/admin", "/admin.html", "/install"]
-    + [prefix + p for prefix in ("", "/api", "/api/admin", "/api/admin/fd")
-       for p in ("/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json")]
+    prefix + p for prefix in ("", "/api", "/api/admin", "/api/admin/fd")
+    for p in ("/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json")
 )
 
 
@@ -245,8 +244,12 @@ def portal_page() -> Response:
 @app.get("/concierge/")
 @app.get("/chat")
 @app.get("/chat/")
-def concierge_default_redirect() -> RedirectResponse:
-    return RedirectResponse(url="/concierge/raleigh-dental-demo", status_code=307)
+def concierge_default_redirect(request: Request) -> RedirectResponse:
+    clinic = request.query_params.get("clinic")
+    if clinic:
+        return RedirectResponse(url=f"/concierge/{clinic}", status_code=307)
+    slug = "raleigh-dentistry" if settings.is_production else "raleigh-dental-demo"
+    return RedirectResponse(url=f"/concierge/{slug}", status_code=307)
 
 
 @app.get("/concierge/{tenant_slug}")
@@ -296,20 +299,32 @@ def admin_page() -> HTMLResponse:
     return HTMLResponse(path.read_text(encoding="utf-8"))
 
 
+@app.get("/test-widget")
+@app.get("/test_widget.html")
+def test_widget_page() -> HTMLResponse:
+    path = ROOT / "test_widget.html"
+    return HTMLResponse(path.read_text(encoding="utf-8"))
+
+
 @app.get("/install")
-def install_guide() -> HTMLResponse:
+def install_guide(request: Request) -> HTMLResponse:
     path = ROOT / "docs" / "installation.md"
-    markdown = path.read_text(encoding="utf-8")
+    markdown = path.read_text(encoding="utf-8") if path.exists() else ""
     app_url = str(settings.app_url).rstrip("/")
+    if "localhost" in app_url and request.base_url:
+        app_url = str(request.base_url).rstrip("/")
+    clinic = request.query_params.get("clinic") or ("raleigh-dentistry" if settings.is_production else "raleigh-dental-demo")
+    t = get_tenant_by_slug(clinic)
+    pk = _public_key(t.id) if t else "YOUR_PUBLIC_KEY"
     snippet = (
         "<script\n"
         "  async\n"
-        "  src=\"{app_url}/widget.js\"\n"
-        "  data-heyjarvis-client=\"YOUR_PUBLIC_KEY\"\n"
+        f"  src=\"{app_url}/widget.js\"\n"
+        f"  data-heyjarvis-client=\"{pk}\"\n"
         "  data-heyjarvis-form=\"false\"\n"
         "  data-heyjarvis-auto-open=\"false\"\n"
         "></script>"
-    ).replace("{app_url}", app_url)
+    )
     html = (
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         "<title>Installation Guide — HeyJarvis Concierge</title>"

@@ -292,16 +292,16 @@
     <h1>HeyJarvis Admin</h1>
     <p>Sign in to manage your concierge</p>
     <form id="login-form">
-      <label>Tenant Slug</label>
-      <input type="text" id="login-tenant" placeholder="e.g. raleigh-dental-demo" value="raleigh-dental-demo" required>
+      <label>Clinic ID</label>
+      <input type="text" id="login-tenant" placeholder="e.g. raleigh-dentistry" value="raleigh-dentistry" required>
       <label>Email</label>
-      <input type="email" id="login-email" placeholder="admin@raleighdentistry.com" value="admin@raleighdentistry.com" required>
+      <input type="email" id="login-email" placeholder="owner@raleighdentistry.com" required>
       <label>Password</label>
-      <input type="password" id="login-password" placeholder="••••••••" value="password" required>
+      <input type="password" id="login-password" placeholder="••••••••" required>
       <button type="submit" id="login-btn">Sign In</button>
     </form>
     <div class="auth-error" id="auth-error"></div>
-    <div class="auth-hint">Demo login: <b>raleigh-dental-demo</b> &bull; <b>admin@raleighdentistry.com</b> / <b>password</b></div>
+    <div class="auth-hint">Enter your Clinic ID (e.g. <b>raleigh-dentistry</b>) and staff credentials.</div>
   </div>
 </div>
 
@@ -313,6 +313,7 @@
 <div class="layout">
   <!-- ── SIDEBAR ────────────────────────────────────────────────────── -->
   <nav class="sidebar" id="sidebar">
+    <a href="/frontdesk" style="display:flex;align-items:center;gap:8px;color:#4ade80;text-decoration:none;font-size:12px;margin-bottom:14px;padding:8px 10px;background:rgba(255,255,255,.07);border-radius:6px;font-weight:600">← Front Desk Inbox</a>
     <div class="sidebar-brand">HeyJarvis</div>
     <div class="sidebar-sub">Concierge Admin</div>
 
@@ -837,9 +838,9 @@ $tenant_slug = 'YOUR_TENANT_SLUG';
 // STATE
 // ═══════════════════════════════════════════════════════════════════
 const state = {
-  token: localStorage.getItem('hj_token'),
+  token: localStorage.getItem('hj_token') || localStorage.getItem('fd_jwt'),
   tenantId: localStorage.getItem('hj_tenant_id') || '',
-  tenantSlug: localStorage.getItem('hj_tenant_slug') || '',
+  tenantSlug: localStorage.getItem('hj_tenant_slug') || localStorage.getItem('fd_slug') || 'raleigh-dentistry',
   tenants: [],
   fields: [],
   businessRules: {},
@@ -964,6 +965,13 @@ function toggleSidebar(force) {
 async function loadTenants() {
   try {
     state.tenants = await api('/api/admin/tenants');
+    if (!state.tenantId && state.tenants && state.tenants.length) {
+      const match = state.tenants.find(t => t.slug === state.tenantSlug) || state.tenants[0];
+      state.tenantId = match.id;
+      state.tenantSlug = match.slug;
+      localStorage.setItem('hj_tenant_id', state.tenantId);
+      localStorage.setItem('hj_tenant_slug', state.tenantSlug);
+    }
     const sel = document.getElementById('tenant-select');
     sel.innerHTML = '<option value="">Select tenant...</option>';
     state.tenants.forEach(t => {
@@ -972,6 +980,7 @@ async function loadTenants() {
       if (t.id == state.tenantId) opt.selected = true;
       sel.appendChild(opt);
     });
+    if (state.tenantId) refreshDashboard();
   } catch (e) { console.warn('Could not load tenants:', e.message); }
 }
 

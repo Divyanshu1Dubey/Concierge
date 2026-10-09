@@ -640,12 +640,19 @@ def ensure_production_clinic() -> None:
                 create_api_key(tenant.id, "website", "prod-api-key-" + slug)
             except Exception:
                 pass
-            for d in ["localhost", "127.0.0.1", "raleighdentistry.com", "www.raleighdentistry.com"]:
-                try:
-                    dom = add_domain(tenant.id, d)
-                    verify_domain(dom.id)
-                except Exception:
-                    pass
+        for d in ["localhost", "127.0.0.1", "raleighdentistry.com", "www.raleighdentistry.com"]:
+            try:
+                dom = add_domain(tenant.id, d)
+                verify_domain(dom.id)
+            except Exception:
+                pass
+        with connect() as c:
+            has_key = row(c, "SELECT id FROM api_keys WHERE tenant_id = ? AND revoked_at IS NULL LIMIT 1", tenant.id)
+        if not has_key:
+            try:
+                create_api_key(tenant.id, "website", "prod-api-key-" + slug)
+            except Exception:
+                pass
         for email in emails:
             if not get_user_by_email(tenant.id, email):
                 create_user(tenant.id, email, password="password", display_name="Clinic Owner", role="owner")
