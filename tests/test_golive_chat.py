@@ -153,7 +153,7 @@ def test_emergency_follow_up_after_submit_repeats_call_now(client, clinic):
                                   "chipped my front tooth", "tooth got knocked out", "swelling in my cheek",
                                   "my gum is swollen", "bleeding gums", "I think it's an abscess",
                                   "I have an infection", "I can't sleep", "I cant sleep", "I can\u2019t sleep",
-                                  "severe", "this is urgent", "Emergency"])
+                                  "my crown is severely damaged", "this is urgent", "Emergency"])
 def test_emergency_words(text):
     assert _rule_fields(text, None).get("intent") == "emergency"
 
@@ -161,6 +161,51 @@ def test_emergency_words(text):
 @pytest.mark.parametrize("text", ["I live in Spain", "unbroken record", "paint color", "I want whitening"])
 def test_emergency_words_match_whole_words_only(text):
     assert _rule_fields(text, None).get("intent") != "emergency"
+
+
+# Review: inflections and phrasings origin/main caught (or should have), all missed by the go-live word list.
+URGENT = ["I have sharp pains in my back molar", "taking painkillers for my tooth since Monday",
+          "I need to be seen urgently", "I knocked my tooth out", "knocked-out tooth", "my tooth hurt all night",
+          "throbbing tooth", "my wisdom tooth is killing me", "I have a fever and my jaw is swollen",
+          "my crown fell off", "my toothaches are bad", "abscesses", "I lost a filling", "my tooth aches", "tooth-ache",
+          "it doesn't stop bleeding", "it never stops hurting", "No, it really hurts",
+          "veneers chipped and now it hurts"]
+# Review: routine requests the go-live word list flagged URGENT (negated, cosmetic, or no tooth/jaw nearby).
+ROUTINE = ["I'd like a cleaning, no pain at all", "I'd like a pain-free cleaning",
+           "It's not urgent, I just want a cleaning", "It\u2019s not urgent, I just want a cleaning",
+           "I have severe dental anxiety, need a cleaning",
+           "veneers for my chipped front teeth", "whitening for my broken smile", "bonding for a chipped tooth",
+           "painless cleaning please", "I'm not in pain", "it doesn't hurt, just a checkup", "non-urgent checkup",
+           "I don't have any pain", "I have a broken retainer", "severe"]
+
+
+@pytest.mark.parametrize("text", URGENT)
+def test_emergency_inflections_and_phrasings(text):
+    assert _rule_fields(text, None).get("intent") == "emergency"
+
+
+@pytest.mark.parametrize("text", ROUTINE)
+def test_negated_cosmetic_and_out_of_context_words_are_not_emergencies(text):
+    assert _rule_fields(text, None).get("intent") != "emergency"
+
+
+def test_widget_emergency_check_matches_the_server():
+    """widget.js shows the 'call us now' banner with its own copy of the rules: it must agree with the server."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not installed")
+    src = (Path(__file__).resolve().parents[1] / "src" / "saas" / "static" / "widget.js").read_text()
+    block = src[src.index("var EMERGENCY_RE"):src.index("// end emergency words")]
+    cases = URGENT + ROUTINE + ["I have a toothache", "bleeding gums", "I live in Spain", "pain@x.test",
+                                "my tooth is broken"]
+    script = block + f"\nprocess.stdout.write(JSON.stringify({json.dumps(cases)}.map(isEmergency)));"
+    widget = json.loads(subprocess.run([node, "-e", script], capture_output=True, text=True, check=True).stdout)
+    server = [_rule_fields(c, None).get("intent") == "emergency" for c in cases]
+    assert widget == server
+    assert all(widget[:len(URGENT)]) and not any(widget[len(URGENT):len(URGENT) + len(ROUTINE)])
 
 
 def test_email_addresses_are_ignored_for_keywords():
@@ -186,11 +231,43 @@ def test_emergency_is_never_downgraded_over_the_api(client, clinic):
     assert lead["intent"] == "emergency"
 
 
-def test_ai_reading_cannot_hide_an_emergency(monkeypatch):
+def test_keywords_decide_when_gemini_gives_no_intent(monkeypatch):
     from saas import ai_engine
-    monkeypatch.setattr(ai_engine, "extract_intake", lambda *a: {"intent": "appointment_request"})
+    monkeypatch.setattr(ai_engine, "extract_intake", lambda *a: {"email": "x@x.test"})
     eng = ConversationEngine({})
     assert eng._extract_fields("my crown broke and it hurts", {})["intent"] == "emergency"
+
+
+@pytest.mark.parametrize("ai_intent", ["appointment_request", "question"])
+def test_gemini_reading_is_not_overridden_by_keywords(monkeypatch, ai_intent):
+    """Gemini understands "my last dentist was a pain" is not urgent; the keyword rule must not overrule it."""
+    from saas import ai_engine
+    monkeypatch.setattr(ai_engine, "extract_intake", lambda *a: {"intent": ai_intent})
+    eng = ConversationEngine({})
+    assert eng._extract_fields("my last dentist was a pain to deal with", {})["intent"] == ai_intent
+    monkeypatch.setattr(ai_engine, "extract_intake", lambda *a: {"intent": "emergency"})
+    assert eng._extract_fields("I'd like a cleaning", {})["intent"] == "emergency"
+
+
+def test_routine_request_with_ai_on_is_not_flagged_urgent(client, clinic, monkeypatch):
+    from saas import ai_engine, login_codes
+    sent = []
+    monkeypatch.setattr(login_codes, "send_system_email",
+                        lambda to, subject, body, dev_note=None: sent.append(subject) or True)
+    monkeypatch.setattr(ai_engine, "extract_intake",
+                        lambda m, k, q: {"intent": "appointment_request"} if "cleaning" in m else {})
+    chat = Chat(client, clinic["key"])
+    out = chat.say("I have severe dental anxiety, need a cleaning", "Sam Lee", "sam@x.test")
+    assert out["state"] == "submitted" and "urgent" not in out["reply"].lower() and "followup" not in out
+    [lead] = _leads(clinic["id"])
+    assert lead["intent"] == "appointment_request" and sent == ["New patient request"]
+
+
+def test_negated_pain_does_not_lock_the_chat_as_urgent(client, clinic):
+    chat = Chat(client, clinic["key"])
+    out = chat.say("I'd like a cleaning, no pain at all", "Sam Lee", "sam@x.test")
+    assert out["state"] == "submitted" and out["fields"]["intent"] == "appointment_request"
+    assert _leads(clinic["id"])[0]["intent"] == "appointment_request"
 
 
 def test_first_emergency_reply_says_call_the_clinic_before_asking_name(client, clinic):
@@ -216,15 +293,20 @@ def test_call_now_is_said_once_not_every_turn(client, clinic):
     assert "(919) 555-0100" not in out["reply"] and "email" in out["reply"].lower()
 
 
-@pytest.mark.parametrize("skip", ["skip", "no", "No thanks", "nope", "just email me", "I'd rather not"])
-def test_emergency_asks_for_callback_number_and_it_can_be_skipped(client, clinic, skip):
-    chat = Chat(client, clinic["key"])
-    out = chat.say("Emergency", "Mike Chang", "mike@x.test")
-    assert out["state"] != "submitted" and "phone number" in out["reply"] and "skip" in out["reply"]
-    out = chat.say(skip)
-    assert out["state"] == "submitted"
+def test_emergency_is_sent_as_soon_as_name_and_email_are_known(client, clinic, monkeypatch):
+    """An emergency chat abandoned after the email (no callback number) still reaches the front desk, as urgent."""
+    from saas import login_codes
+    sent = []
+    monkeypatch.setattr(login_codes, "send_system_email",
+                        lambda to, subject, body, dev_note=None: sent.append(subject) or True)
+    save_clinic_profile(clinic["id"], {"phone": "(919) 555-0100"})
+    out = Chat(client, clinic["key"]).say("Emergency", "Mike Chang", "mike@x.test")
+    assert out["state"] == "submitted" and out["followup"] == "phone"
+    assert "(919) 555-0100" in out["reply"] and "phone number" in out["reply"]  # call now; callback number optional
     [lead] = _leads(clinic["id"])
     assert lead["intent"] == "emergency" and not lead["phone"]
+    assert sent == ["URGENT: New patient request"]
+    assert cadence.get_enrollment(clinic["id"], lead["id"])["status"] == "active"
 
 
 def test_emergency_callback_number_is_saved(client, clinic):
@@ -234,11 +316,48 @@ def test_emergency_callback_number_is_saved(client, clinic):
     assert _leads(clinic["id"])[0]["phone"] == "919-555-0123"
 
 
-def test_unclear_callback_answer_asks_again(client, clinic):
+def test_callback_number_after_submit_goes_on_the_same_lead(client, clinic, monkeypatch):
+    from saas import public_api
+    alerts = []
+    monkeypatch.setattr(public_api, "_alert_team_new_lead", lambda tid, lid: alerts.append(lid))
+    save_clinic_profile(clinic["id"], {"phone": "(919) 555-0100"})
+    chat = Chat(client, clinic["key"])
+    chat.say("my tooth is killing me", "Mike Chang", "mike@x.test")
+    out = chat.say("sure, it's (919) 555-0123")
+    assert out["state"] == "submitted" and "added your phone number" in out["reply"] and "followup" not in out
+    assert "(919) 555-0100" in out["reply"]
+    [lead] = _leads(clinic["id"])
+    assert lead["phone"] == "(919) 555-0123" and alerts == [lead["id"]]
+    out = chat.say("my other number is 919-555-0999")  # a number is only added once, never overwritten
+    assert "already has your request" in out["reply"]
+    with connect() as c:
+        enrolled = rows(c, "SELECT COUNT(*) n FROM cadence_enrollments WHERE tenant_id = ?", clinic["id"])[0]["n"]
+    assert len(_leads(clinic["id"])) == 1 and _leads(clinic["id"])[0]["phone"] == "(919) 555-0123" and enrolled == 1
+
+
+@pytest.mark.parametrize("answer", ["skip", "no", "No thanks", "just email me", "it really hurts"])
+def test_non_phone_reply_after_emergency_submit(client, clinic, answer):
+    save_clinic_profile(clinic["id"], {"phone": "(919) 555-0100"})
     chat = Chat(client, clinic["key"])
     chat.say("Emergency", "Mike Chang", "mike@x.test")
-    out = chat.say("it really hurts")
-    assert out["state"] != "submitted" and "skip" in out["reply"]
+    out = chat.say(answer)
+    assert out["state"] == "submitted" and "already has your request" in out["reply"]
+    assert "(919) 555-0100" in out["reply"] and "followup" not in out
+    [lead] = _leads(clinic["id"])
+    assert lead["intent"] == "emergency" and not lead["phone"]
+
+
+def test_emergency_with_phone_already_given_does_not_ask_again(client, clinic):
+    out = Chat(client, clinic["key"]).say("Emergency", "Mike Chang", "mike@x.test, 919-555-0123")
+    assert out["state"] == "submitted" and "followup" not in out and "reply with your phone" not in out["reply"]
+    assert _leads(clinic["id"])[0]["phone"] == "919-555-0123"
+
+
+def test_widget_keeps_the_box_open_for_the_callback_number():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "src" / "saas" / "static" / "widget.js").read_text()
+    assert src.count("data.followup === 'phone'") == 2  # hosted and embedded
+    assert src.count("(submitted && !awaitingPhone)") == 2
 
 
 def test_non_emergency_does_not_ask_for_phone(client, clinic):
@@ -274,6 +393,74 @@ def test_name_with_email_in_same_answer(client, clinic):
 
 def test_hurting_is_not_a_name():
     assert "name" not in _rule_fields("I'm hurting a lot", None)
+
+
+@pytest.mark.parametrize("name", ["My Tran", "An Nguyen", "Linh To", "To Lam", "Do Tran", "Kim Ok", "Bo Yes",
+                                  "Hope Severe", "Grace Sure", "Joy Cleaning", "Nguyễn Văn An", "Ok-ja Lee"])
+def test_names_that_are_also_ordinary_words_are_accepted(client, clinic, name):
+    out = Chat(client, clinic["key"]).say("Implants", name)
+    assert out["fields"]["name"] == name and "email" in out["reply"].lower()
+
+
+@pytest.mark.parametrize("said, name", [("Sean O’Brien", "Sean O'Brien"),
+                                        ("D’Angelo Russell", "D'Angelo Russell"),
+                                        ("My name is Sean O’Brien", "Sean O'Brien"),
+                                        ("My name is José Núñez", "José Núñez"), ("My name is My Tran", "My Tran"),
+                                        ("I’m An Nguyen", "An Nguyen"),
+                                        ("my name is Sam and I need a cleaning", "Sam")])
+def test_curly_apostrophes_and_accents_in_names(client, clinic, said, name):
+    out = Chat(client, clinic["key"]).say("Implants", said)
+    assert out["fields"]["name"] == name and "email" in out["reply"].lower()
+
+
+@pytest.mark.parametrize("said", ["my tooth hurts", "Sam my tooth hurts", "it hurts a lot", "I need a cleaning"])
+def test_sentences_are_not_names(said):
+    assert "name" not in _rule_fields(said, "name")
+
+
+@pytest.mark.parametrize("name", ["An", "My", "Smith, John"])
+def test_name_question_asked_once_more_then_the_answer_is_taken(client, clinic, name):
+    """Nobody is asked for a name forever: after one "didn't catch that", the patient's answer is the name."""
+    chat = Chat(client, clinic["key"])
+    chat.say("Implants")
+    out = chat.say(name)
+    assert "name" not in out["fields"] and "didn't catch your name" in out["reply"]
+    out = chat.say(name)
+    assert out["fields"]["name"] == name and "email" in out["reply"].lower()
+    assert chat.say("an@x.test")["state"] == "submitted"
+
+
+def test_symptoms_on_the_retry_are_still_not_a_name(client, clinic):
+    chat = Chat(client, clinic["key"])
+    chat.say("Implants", "ok")
+    out = chat.say("it hurts so much")
+    assert "name" not in out["fields"] and out["fields"]["intent"] == "emergency"
+
+
+def test_unusable_ai_name_falls_back_to_the_rules(monkeypatch):
+    from saas import ai_engine
+    eng = ConversationEngine({})
+    monkeypatch.setattr(ai_engine, "extract_intake", lambda *a: {"name": "Hi"})
+    assert eng._extract_fields("Hi, I'm Sam Lee", {"_asked": "name"})["name"] == "Sam Lee"
+    monkeypatch.setattr(ai_engine, "extract_intake", lambda *a: {"name": "Sean O’Brien"})
+    assert eng._extract_fields("Sean O’Brien", {"_asked": "name"})["name"] == "Sean O'Brien"
+    monkeypatch.setattr(ai_engine, "extract_intake", lambda *a: {"name": "Sure"})
+    assert "name" not in eng._extract_fields("sure", {"_asked": "name"})
+
+
+def test_turn_count_is_kept_and_max_turns_hands_off(client, clinic):
+    save_clinic_profile(clinic["id"], {"phone": "(919) 555-0100"})
+    with connect() as c:
+        flags = json.loads(rows(c, "SELECT flags FROM tenant_settings WHERE tenant_id = ?", clinic["id"])[0]["flags"])
+        c.execute("UPDATE tenant_settings SET flags = ? WHERE tenant_id = ?",
+                  (json.dumps({**flags, "max_turns": 4}), clinic["id"]))
+    chat = Chat(client, clinic["key"])
+    turns = [chat.say(m)["turn_count"] for m in ("Implants", "12345", "12345")]
+    assert turns == [1, 2, 3]
+    out = chat.say("12345")
+    assert out["state"] == "handoff" and "front desk" in out["reply"] and "(919) 555-0100" in out["reply"]
+    out = chat.say("Sam Lee, sam@x.test")  # still possible to finish the request
+    assert out["state"] == "submitted" and len(_leads(clinic["id"])) == 1
 
 
 # ── 5. Rate limits key on the address our proxy saw ──────────────────────────

@@ -357,17 +357,28 @@ def public_conversation_message(conversation_id: int, body: dict[str, Any], clie
     meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
     existing_fields = meta.get("fields") or {}
 
-    ctx = ConversationContext(conversation_id=conversation_id, tenant_id=conv["tenant_id"], fields=existing_fields)
+    ctx = ConversationContext(conversation_id=conversation_id, tenant_id=conv["tenant_id"], fields=existing_fields,
+                              turn_count=int(meta.get("turn_count") or 0))  # so the max_turns handoff can happen
     context = ConversationEngine(_tenant_config(key.tenant_id))
     if conv["lead_id"] is not None:
         # Already sent: keep the message with that request, but no second lead, staff alert or follow-up schedule.
         # "Start a new request" in the widget opens a new conversation for anything else.
-        return context.after_submit(ctx, str(body.get("message", "")))
+        had_phone = bool(ctx.fields.get("phone"))
+        result = context.after_submit(ctx, str(body.get("message", "")))
+        if ctx.fields.get("phone") and not had_phone:
+            # The optional callback number after an urgent request: add it to the request staff already have.
+            with connect() as c:
+                c.execute("UPDATE conversations SET metadata = ?, updated_at = ? WHERE id = ?",
+                          (json.dumps({**meta, "fields": ctx.fields}), now_iso(), conversation_id))
+            if conv["lead_id"]:  # 0 = another message is creating the lead right now
+                repo_update_lead(conv["lead_id"], phone=ctx.fields["phone"])
+        return result
     result = context.handle(ctx, body.get("message", ""))
 
     # Persist updated fields back to metadata
     updated_meta = dict(meta)
     updated_meta["fields"] = ctx.fields
+    updated_meta["turn_count"] = ctx.turn_count
     with connect() as c:
         c.execute("UPDATE conversations SET metadata = ?, updated_at = ? WHERE id = ?",
                   (json.dumps(updated_meta), now_iso(), conversation_id))
