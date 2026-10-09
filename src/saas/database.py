@@ -382,6 +382,7 @@ _ADDED_COLUMNS = {
                        "imap_state TEXT", "sent_folder TEXT", "last_sync_at TEXT", "last_sync_error TEXT",
                        "auth_type TEXT", "oauth_refresh_enc TEXT", "mail_provider TEXT"],
     "ai_drafts": ["cadence_step TEXT", "to_email TEXT", "source TEXT"],
+    "conversations": ["access_token TEXT", "lead_id INTEGER"],
 }
 
 

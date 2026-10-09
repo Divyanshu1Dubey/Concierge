@@ -54,6 +54,7 @@
       if (!bodyEl || !msgEl || !sendEl) return;
 
       var conversationId = null;
+      var conversationToken = null;  // this chat's own secret: the client key is public, the token is not
       var submitted = false;
       var emergencyDetected = false;
       var fields = {};
@@ -103,9 +104,11 @@
       }
 
       function api(path, options) {
+        var headers = { 'Content-Type': 'application/json' };
+        if (options && options.token) headers['X-Conversation-Token'] = options.token;
         return fetch(apiBase + path, {
           method: options && options.method || 'GET',
-          headers: { 'Content-Type': 'application/json' },
+          headers: headers,
           body: options && options.body ? JSON.stringify(options.body) : undefined,
         }).then(function (r) {
           if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -132,6 +135,7 @@
           body: {},
         }).then(function (data) {
           conversationId = data.conversation_id;
+          conversationToken = data.conversation_token || null;
           if (data.reply) appendBubble(esc(data.reply));
           hostedOptions(data.options);
           return data;
@@ -143,6 +147,7 @@
         return api('/api/v1/public/conversations/' + conversationId + '/messages?client_key=' + encodeURIComponent(clientKey), {
           method: 'POST',
           body: { message: text },
+          token: conversationToken,
         }).then(function (data) {
           return data;
         });
@@ -168,6 +173,7 @@
         bodyEl.innerHTML = '';
         submitted = false;
         conversationId = null;
+        conversationToken = null;
         fields = {};
         setDisabled(false);
         initSession();
@@ -520,6 +526,7 @@
 
     // ── State ────────────────────────────────────────────────────────────────
     var conversationId = null;
+    var conversationToken = null;  // this chat's own secret: the client key is public, the token is not
     var conversationState = null;
     var isOpen = false;
     var started = false;
@@ -810,14 +817,12 @@
       return null;
     }
 
+    // Same words the server treats as urgent (conversation.py _EMERGENCY): whole words, never inside an email.
+    var EMERGENCY_RE = /\b(?:emergency|urgent|severe|tooth ?ache|hurts|hurting|pain|painful|broken|cracked|chipped|knocked out|swelling|swollen|bleeding|abscess(?:ed)?|infection|infected|can'?t sleep|cannot sleep)\b/;
     function isEmergency(text) {
       if (!text) return false;
-      var keywords = ['emergency','urgent','severe pain','toothache','bleeding','swelling','broken tooth',' knocked out','abscess','fever'];
-      var lower = text.toLowerCase();
-      for (var i = 0; i < keywords.length; i++) {
-        if (lower.indexOf(keywords[i]) !== -1) return true;
-      }
-      return false;
+      var lower = text.toLowerCase().replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, ' ').replace(/\u2019/g, "'");
+      return EMERGENCY_RE.test(lower);
     }
 
     // Merge extracted fields into state, return newly found
@@ -968,6 +973,7 @@
             if (data.fields[keys[i]]) fields[keys[i]] = data.fields[keys[i]];
           }
         }
+        if (data.fields && data.fields.intent === 'emergency') displayEmergencyBanner();
         if (data.reply) {
           appendBubble(esc(data.reply));
         }
@@ -1020,6 +1026,7 @@
     function startNewRequest() {
       submitted = false;
       conversationId = null;
+      conversationToken = null;
       fields = {};
       errorCount = 0;
       emergencyDetected = false;
@@ -1169,9 +1176,11 @@
     function api(path, options) {
       if (!apiBase) return Promise.reject(new Error('No API base'));
       var opts = options || {};
+      var headers = { 'Content-Type': 'application/json' };
+      if (opts.token) headers['X-Conversation-Token'] = opts.token;
       return fetch(apiBase + path, {
         method: opts.method || 'GET',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         body: opts.body ? JSON.stringify(opts.body) : undefined,
       }).then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -1202,6 +1211,7 @@
         body: {},
       }).then(function (data) {
         conversationId = data.conversation_id;
+        conversationToken = data.conversation_token || null;
         conversationState = data.state || 'started';
         if (data.fields) {
           var keys = Object.keys(data.fields);
@@ -1220,6 +1230,7 @@
       return api('/api/v1/public/conversations/' + conversationId + '/messages?client_key=' + encodeURIComponent(clientKey), {
         method: 'POST',
         body: { message: text },
+        token: conversationToken,
       }).then(function (data) {
         conversationState = data.state || conversationState;
         if (data.fields) {

@@ -293,14 +293,15 @@ class TestConversationFlow:
 
     def test_send_message(self, api_client):
         ta = _make_tenant("conv2", "Conv2")
-        from saas.repositories import create_api_key, create_conversation
+        from saas.repositories import create_api_key
         k = create_api_key(ta.id, label="conv-key2", secret="test-secret")
-        conv = create_conversation(ta.id, "https://example.com", None, None, None)
+        conv = api_client.post("/api/v1/public/conversations", json={}, params={"client_key": k.public_key}).json()
 
         r = api_client.post(
-            f"/api/v1/public/conversations/{conv['id']}/messages",
+            f"/api/v1/public/conversations/{conv['conversation_id']}/messages",
             json={"text": "I need an appointment"},
             params={"client_key": k.public_key},
+            headers={"X-Conversation-Token": conv["conversation_token"]},
         )
         assert r.status_code == 200
         body = r.json()
@@ -326,6 +327,7 @@ class TestLeadCreation:
                 f"/api/v1/public/conversations/{conv_id}/messages",
                 json={"text": msg},
                 params={"client_key": k.public_key},
+                headers={"X-Conversation-Token": r.json()["conversation_token"]},
             )
 
         assert True

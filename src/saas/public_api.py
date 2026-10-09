@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import io
 import json
 import re
 import logging
 import os
+import secrets
 import zipfile
 from urllib.parse import parse_qs
 from pathlib import Path
@@ -68,9 +71,24 @@ from starlette.concurrency import run_in_threadpool
 log = logging.getLogger(__name__)
 
 
+def _client_ip(request: Request) -> str:
+    """The visitor's address as our hosting proxy saw it.
+
+    uvicorn runs with --proxy-headers --forwarded-allow-ips '*', which makes request.client the LEFTMOST
+    X-Forwarded-For entry: whatever the visitor typed into that header. The proxy appends the real address,
+    so the RIGHTMOST entry is the one to trust."""
+    hops = [h.strip() for v in request.headers.getlist("x-forwarded-for") for h in v.split(",") if h.strip()]
+    if not hops:
+        return request.client.host if request.client else "unknown"
+    ip = hops[-1]
+    if ip.startswith("["):  # "[2001:db8::1]:443"
+        return ip[1:].split("]")[0]
+    return ip.split(":")[0] if ip.count(":") == 1 else ip  # "203.0.113.9:443"; bare IPv6 stays as is
+
+
 def _limit(request: Request, bucket: str, limit: int, window: int = 60) -> None:
     """Per-IP rate limit for unauthenticated endpoints (lead spam, login guessing)."""
-    ip = request.client.host if request.client else "unknown"
+    ip = _client_ip(request)
     allowed, _ = check_rate_limit(f"rl:{bucket}:{ip}", limit, window)
     if not allowed:
         raise HTTPException(status_code=429, detail="Too many requests. Please try again shortly.",
@@ -91,7 +109,7 @@ public_app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_list,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", "X-Conversation-Token"],
 )
 
 
@@ -250,8 +268,51 @@ def public_config(client_key: str, request: Request) -> dict:
         "tenant_slug": tenant[0]["slug"],
         "greeting": cfg.get("greeting"),
         "allowed_origin": domain_ok,
-        "widget_config": cfg,
+        "widget_config": _public_widget_config(key.tenant_id, cfg),
     }
+
+
+# Look and feel the clinic sets in the widget editor. Everything else in settings stays server side.
+_WIDGET_BRANDING = ("title", "primary_color", "text_color", "accent_color", "position", "icon", "auto_open",
+                    "auto_open_delay")
+
+
+def _public_widget_config(tenant_id: int, cfg: dict[str, Any]) -> dict[str, Any]:
+    """Only what the patient-facing widget shows. The key is public, so no AI instructions or internal flags."""
+    with connect() as c:
+        r = row(c, "SELECT config FROM widget_settings WHERE tenant_id = ?", tenant_id)
+    try:
+        branding = json.loads(r["config"] or "{}") if r else {}
+    except (json.JSONDecodeError, TypeError):
+        branding = {}
+    out = {k: branding[k] for k in _WIDGET_BRANDING if isinstance(branding, dict) and k in branding}
+    out.update({
+        "greeting": cfg.get("greeting"),
+        "service_options": ConversationEngine(cfg).options_for(None),
+        "clinic": {"phone": str((cfg.get("clinic") or {}).get("phone") or "")},  # emergency "call us" banner
+    })
+    return out
+
+
+# The client key is printed in every website snippet, so it can't protect one patient's chat from another
+# visitor. Each conversation gets its own secret, returned once at start and required on every later call.
+CONVERSATION_TOKEN_HEADER = "X-Conversation-Token"
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _patient_conversation(conversation_id: int, tenant_id: int, request: Request) -> dict[str, Any]:
+    """The conversation, for the browser that started it only. Wrong clinic, token or id are all the same 404."""
+    token = request.headers.get(CONVERSATION_TOKEN_HEADER) or ""
+    with connect() as c:
+        conv = row(c, "SELECT id, tenant_id, status, metadata, access_token, lead_id FROM conversations WHERE id = ?",
+                   conversation_id)
+    if not conv or conv["tenant_id"] != tenant_id or not conv["access_token"] or not token \
+            or not hmac.compare_digest(conv["access_token"], _token_hash(token)):
+        raise HTTPException(status_code=404, detail="conversation not found")
+    return conv
 
 
 @public_app.post("/v1/public/conversations")
@@ -271,8 +332,12 @@ def public_conversation_start(client_key: str, request: Request) -> dict:
         str(request.url),
         request.headers.get("referer"),
         request.headers.get("user-agent"),
-        request.client.host if request.client else None,
+        _client_ip(request),
     )
+    token = secrets.token_urlsafe(32)
+    with connect() as c:  # only a hash is stored: staff views of the conversation row never expose a usable token
+        c.execute("UPDATE conversations SET access_token = ? WHERE id = ?", (_token_hash(token), result["conversation_id"]))
+    result["conversation_token"] = token
     track_event(key.tenant_id, "conversation_started", {"conversation_id": result["conversation_id"]})
     return result
 
@@ -284,18 +349,19 @@ def public_conversation_message(conversation_id: int, body: dict[str, Any], clie
     key = get_api_key_by_public(client_key)
     if not key or key.revoked_at:
         raise HTTPException(status_code=401, detail="invalid client key")
-    with connect() as c:
-        conv = rows(c, "SELECT id, tenant_id, status, metadata FROM conversations WHERE id = ?", (conversation_id,))
-    if not conv or conv[0]["tenant_id"] != key.tenant_id:
-        raise HTTPException(status_code=404, detail="conversation not found")
+    conv = _patient_conversation(conversation_id, key.tenant_id, request)
 
     # Load persisted fields from metadata so turns accumulate
-    meta_raw = conv[0].get("metadata") or "{}"
+    meta_raw = conv.get("metadata") or "{}"
     meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
     existing_fields = meta.get("fields") or {}
 
-    ctx = ConversationContext(conversation_id=conversation_id, tenant_id=conv[0]["tenant_id"], fields=existing_fields)
+    ctx = ConversationContext(conversation_id=conversation_id, tenant_id=conv["tenant_id"], fields=existing_fields)
     context = ConversationEngine(_tenant_config(key.tenant_id))
+    if conv["lead_id"] is not None:
+        # Already sent: keep the message with that request, but no second lead, staff alert or follow-up schedule.
+        # "Start a new request" in the widget opens a new conversation for anything else.
+        return context.after_submit(ctx, str(body.get("message", "")))
     result = context.handle(ctx, body.get("message", ""))
 
     # Persist updated fields back to metadata
@@ -305,17 +371,31 @@ def public_conversation_message(conversation_id: int, body: dict[str, Any], clie
         c.execute("UPDATE conversations SET metadata = ?, updated_at = ? WHERE id = ?",
                   (json.dumps(updated_meta), now_iso(), conversation_id))
 
-    if ctx.state == State.SUBMITTED:
-        lead = create_lead(key.tenant_id, {
-            "conversation_id": conversation_id,
-            "source": "website_widget",
-            "page_url": conv[0].get("metadata", {}).get("page_url") if isinstance(conv[0].get("metadata"), dict) else None,
-            **ctx.fields,
-        })
+    if ctx.state == State.SUBMITTED and _claim_lead_slot(conversation_id):
+        try:
+            lead = create_lead(key.tenant_id, {
+                "conversation_id": conversation_id,
+                "source": "website_widget",
+                "page_url": conv.get("metadata", {}).get("page_url") if isinstance(conv.get("metadata"), dict) else None,
+                **ctx.fields,
+            })
+        except Exception:
+            with connect() as c:  # release the claim so the patient's next message can still submit
+                c.execute("UPDATE conversations SET lead_id = NULL WHERE id = ?", (conversation_id,))
+            raise
+        with connect() as c:
+            c.execute("UPDATE conversations SET lead_id = ? WHERE id = ?", (lead["id"], conversation_id))
         _alert_team_new_lead(key.tenant_id, lead["id"])
         cadence.enroll(key.tenant_id, lead["id"])
         track_event(key.tenant_id, "lead_created", {"lead_id": lead["id"], "conversation_id": conversation_id})
     return result
+
+
+def _claim_lead_slot(conversation_id: int) -> bool:
+    """One lead per conversation, even when two last messages race (double-tapped send): first UPDATE wins."""
+    with connect() as c:
+        return c.execute("UPDATE conversations SET lead_id = 0 WHERE id = ? AND lead_id IS NULL",
+                         (conversation_id,)).rowcount == 1
 
 
 @public_app.get("/v1/public/leads")
@@ -368,7 +448,9 @@ def public_lead_create(body: dict[str, Any], client_key: str, request: Request) 
 def _alert_team_new_lead(tenant_id: int, lead_id: int) -> None:
     """Email the clinic team that a new request is waiting (HeyJarvis sender, background thread).
 
-    Only the name and what they asked for: details stay behind the front desk login."""
+    This goes through HeyJarvis's own sender, not the clinic mailbox, so it carries no patient details at all
+    (no name, contact, service or message): only that a request arrived, whether it's urgent, and a link.
+    Everything else stays behind the front desk login."""
     import threading
 
     def run() -> None:
@@ -382,11 +464,10 @@ def _alert_team_new_lead(tenant_id: int, lead_id: int) -> None:
             if not lead or not tenant or not team:
                 return
             urgent = lead.get("intent") == "emergency"
-            what = lead.get("service") or (lead.get("intent") or "appointment request").replace("_", " ")
-            subject = f"{'URGENT: ' if urgent else ''}New patient request: {lead.get('name') or 'website visitor'}"
-            body = (f"{lead.get('name') or 'A patient'} asked about: {what}.\n\n"
-                    f"{'This was flagged as an emergency. ' if urgent else ''}"
-                    f"A reply is drafted and waiting for your approval:\n"
+            subject = f"{'URGENT: ' if urgent else ''}New patient request"
+            body = ("A new patient request just came in from your website.\n\n"
+                    f"{'It was flagged as an emergency. ' if urgent else ''}"
+                    f"A reply is drafted and waiting for your approval in the front desk:\n"
                     f"{settings.app_url.rstrip('/')}/frontdesk?clinic={tenant.slug}\n")
             sent = 0
             for to in team:

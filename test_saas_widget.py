@@ -168,10 +168,12 @@ class TestMessageSending:
         client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": pub})
         conv_id = r.json()["conversation_id"]
+        tok = {"X-Conversation-Token": r.json()["conversation_token"]}
 
         r = client.post(
             f"/api/v1/public/conversations/{conv_id}/messages",
             params={"client_key": pub},
+            headers=tok,
             json={"message": "My name is Alice"},
         )
         assert r.status_code == 200
@@ -186,10 +188,12 @@ class TestMessageSending:
         client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": pub})
         conv_id = r.json()["conversation_id"]
+        tok = {"X-Conversation-Token": r.json()["conversation_token"]}
 
         client.post(
             f"/api/v1/public/conversations/{conv_id}/messages",
             params={"client_key": pub},
+            headers=tok,
             json={"message": "My name is Bob"},
         )
 
@@ -210,10 +214,12 @@ class TestMessageSending:
         client = TestClient(_main_app)
         r = client.post("/api/v1/public/conversations", params={"client_key": pub})
         conv_id = r.json()["conversation_id"]
+        tok = {"X-Conversation-Token": r.json()["conversation_token"]}
 
         r = client.post(
             f"/api/v1/public/conversations/{conv_id}/messages",
             params={"client_key": pub},
+            headers=tok,
             json={"message": "Hello"},
         )
         body = r.json()
@@ -222,6 +228,7 @@ class TestMessageSending:
         r = client.post(
             f"/api/v1/public/conversations/{conv_id}/messages",
             params={"client_key": pub},
+            headers=tok,
             json={"message": "My name is Carol"},
         )
         body = r.json()
@@ -239,6 +246,7 @@ class TestMessageSending:
         r = client.post(
             f"/api/v1/public/conversations/{conv_id}/messages",
             params={"client_key": k2},
+            headers={"X-Conversation-Token": r.json()["conversation_token"]},
             json={"message": "hack"},
         )
         assert r.status_code in (404, 422, 400)
@@ -365,6 +373,7 @@ class TestErrorHandling:
         r = client.post(
             f"/api/v1/public/conversations/{conv_id}/messages",
             params={"client_key": k2},
+            headers={"X-Conversation-Token": r.json()["conversation_token"]},
             json={"message": "hack"},
         )
         assert r.status_code in (404, 422, 400)
