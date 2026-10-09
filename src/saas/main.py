@@ -229,24 +229,14 @@ def index(request: Request) -> Response:
     accept = request.headers.get("accept", "").lower()
     format_param = request.query_params.get("format", "").lower()
     if format_param == "json" or ("application/json" in accept and "text/html" not in accept):
-        return JSONResponse({"app": "heyjarvis-platform", "docs": "/docs", "portal": "/", "frontdesk": "/frontdesk", "admin": "/admin"})
-    from saas.repositories import _demo_allowed
-    if not _demo_allowed():  # production: no developer portal (it lists demo logins)
-        return RedirectResponse(url="/frontdesk", status_code=307)
-    portal_file = ROOT / "src" / "saas" / "templates" / "portal.html"
-    if portal_file.exists():
-        return HTMLResponse(portal_file.read_text(encoding="utf-8"))
-    return JSONResponse({"app": "heyjarvis-platform", "docs": "/docs"})
+        return JSONResponse({"app": "heyjarvis-platform", "docs": "/docs", "frontdesk": "/frontdesk", "admin": "/admin"})
+    return RedirectResponse(url="/frontdesk", status_code=307)
 
 
 @app.get("/portal")
 @app.get("/portal.html")
 def portal_page() -> Response:
-    from saas.repositories import _demo_allowed
-    if not _demo_allowed():
-        return RedirectResponse(url="/frontdesk", status_code=307)
-    portal_file = ROOT / "src" / "saas" / "templates" / "portal.html"
-    return HTMLResponse(portal_file.read_text(encoding="utf-8"))
+    return RedirectResponse(url="/frontdesk", status_code=307)
 
 
 @app.get("/concierge")

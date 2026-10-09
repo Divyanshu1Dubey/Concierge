@@ -171,7 +171,7 @@ def _call_gemini(prompt: str, model: str, *, emit: Any = None, system: str = "",
     cfg_kwargs: dict[str, Any] = {
         "system_instruction": system or _SYSTEM_REPLY,
         "thinking_config": types.ThinkingConfig(include_thoughts=True, thinking_level=types.ThinkingLevel.LOW),
-        "automatic_function_calling_config": types.AutomaticFunctionCallingConfig(disable=True),
+        "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
     }
     if schema:
         cfg_kwargs.update({
