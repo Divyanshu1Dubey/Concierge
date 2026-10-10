@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   Home,
@@ -16,10 +17,11 @@ import {
   Mail,
   FileText,
   UserPlus,
-  BookOpen,
+  UserCog,
   LucideIcon
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
+import ProfileModal from './ProfileModal';
 
 interface NavItem {
   to: string;
@@ -36,6 +38,7 @@ interface NavSection {
 }
 
 export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
 
@@ -71,7 +74,6 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
             title: 'AGENCY PLATFORM',
             items: [
               { to: '/dashboard/practices', label: 'Dental Practices', icon: Building2, badge: 'All Clinics' },
-              { to: '/dashboard/settings', label: 'Platform Settings', icon: Settings },
             ],
           },
         ]
@@ -83,7 +85,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
         { to: '/dashboard/conversations', label: 'Patient Conversations', icon: MessageSquare },
         { to: '/dashboard/leads', label: 'Captured Leads', icon: UserPlus },
         { to: '/dashboard/patients', label: 'Patients Directory', icon: Users },
-        { to: '/dashboard/knowledge', label: 'Knowledge Base', icon: BookOpen },
+        { to: '/dashboard/email', label: 'Email Log', icon: Mail },
       ],
     },
     {
@@ -108,7 +110,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
               { to: '/dashboard/email-settings', label: 'Email & SMTP Delivery', icon: Mail },
               { to: '/dashboard/templates', label: 'Email Templates', icon: FileText },
               { to: '/dashboard/team', label: 'Dentists & Staff', icon: Users },
-              { to: '/dashboard/security', label: 'HIPAA & Audit Logs', icon: ShieldCheck },
+              { to: '/dashboard/security', label: 'Security & Audit Logs', icon: ShieldCheck },
               { to: '/dashboard/settings', label: 'Practice Settings', icon: Settings },
             ],
           },
@@ -119,60 +121,56 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
   return (
     <>
       {isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden" onClick={onClose} />
+        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-[2px] z-40 lg:hidden" onClick={onClose} aria-hidden="true" />
       )}
 
       <aside
-        className={`fixed top-0 left-0 z-50 h-screen bg-slate-950 text-slate-100 border-r border-slate-800/80 transition-all duration-300 lg:translate-x-0 ${
+        aria-label="Main navigation"
+        className={`fixed top-0 left-0 z-50 h-screen bg-gray-100 text-gray-800 border-r border-gray-200 transition-transform duration-300 ease-brand lg:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         } w-64 flex flex-col`}
       >
         {/* Brand Header */}
-        <div className="flex items-center gap-3 px-5 h-16 border-b border-slate-800/80 flex-shrink-0 bg-slate-950">
-          <div className="p-2 bg-gradient-to-br from-teal-400 via-teal-500 to-cyan-500 rounded-xl shadow-md flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-slate-950 font-black" />
+        <div className="flex items-center gap-3 px-5 h-16 border-b border-gray-200 flex-shrink-0">
+          <div className="w-9 h-9 bg-teal-800 rounded-[10px] flex items-center justify-center flex-shrink-0">
+            <Sparkles className="w-4 h-4 text-teal-100" aria-hidden="true" />
           </div>
-          <div className="truncate">
-            <div className="flex items-center gap-1.5">
-              <span className="text-base font-black tracking-tight text-white block">HeyJarvis</span>
-              <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30">
-                AI
-              </span>
-            </div>
-            <span className="text-[10px] font-bold text-teal-400 uppercase tracking-widest block truncate">
-              {isAgencyAdmin ? 'Agency Cloud' : 'Dental Concierge'}
+          <div className="truncate leading-tight">
+            <span className="font-display text-[19px] text-gray-900 block tracking-tight">HeyJarvis</span>
+            <span className="text-[11px] font-medium text-teal-700 block truncate">
+              {isAgencyAdmin ? 'Concierge · Agency' : 'Concierge'}
             </span>
           </div>
         </div>
 
         {/* Current Tenant / Practice Banner */}
-        <div className="px-4 py-3 bg-slate-900/70 border-b border-slate-800/70 flex items-center justify-between">
+        <div className="mx-3 mt-3 px-3 py-2.5 bg-white border border-gray-200 rounded-xl flex items-center justify-between gap-2">
           <div className="truncate">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">
-              {isAgencyAdmin ? 'Platform Role' : 'Active Practice'}
+            <span className="text-[10px] uppercase font-medium tracking-[0.12em] text-gray-500 block">
+              {isAgencyAdmin ? 'Platform role' : 'Practice'}
             </span>
-            <p className="text-xs font-bold text-white truncate">
-              {isAgencyAdmin ? 'Agency Admin' : user?.practice_name || 'Raleigh Dentistry'}
+            <p className="text-[13px] font-semibold text-gray-900 truncate">
+              {isAgencyAdmin ? 'Agency Admin' : user?.practice_name || 'Your Practice'}
             </p>
           </div>
           <span
-            className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border ${
+            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
               isAgencyAdmin
-                ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                ? 'bg-purple-100 text-purple-800'
                 : isPracticeAdmin
-                ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                : 'bg-teal-500/20 text-teal-300 border-teal-500/30'
+                ? 'bg-blue-100 text-blue-800'
+                : 'bg-teal-100 text-teal-800'
             }`}
           >
-            {isAgencyAdmin ? 'AGENCY' : isPracticeAdmin ? 'ADMIN' : 'STAFF'}
+            {isAgencyAdmin ? 'Agency' : isPracticeAdmin ? 'Admin' : 'Staff'}
           </span>
         </div>
 
         {/* Navigation Groups */}
-        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-6">
+        <nav className="flex-1 overflow-y-auto py-5 px-3 space-y-5">
           {navSections.map((group) => (
             <div key={group.title} className="space-y-1">
-              <h3 className="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+              <h3 className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-500">
                 {group.title}
               </h3>
               <ul className="space-y-0.5">
@@ -185,26 +183,17 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
                         end={item.end}
                         onClick={onClose}
                         className={({ isActive }) =>
-                          `flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                          `relative flex items-center justify-between px-3 py-2 rounded-lg text-[13px] transition-colors duration-200 ${
                             isActive
-                              ? 'bg-teal-500 text-slate-950 font-bold shadow-md'
-                              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                              ? 'bg-white text-teal-900 font-semibold shadow-card before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-teal-700'
+                              : 'text-gray-700 font-medium hover:bg-gray-200/60 hover:text-gray-900'
                           }`
                         }
                       >
                         <div className="flex items-center gap-2.5">
-                          <Icon className="w-4 h-4 flex-shrink-0" />
+                          <Icon className="w-4 h-4 flex-shrink-0 opacity-80" aria-hidden="true" />
                           <span>{item.label}</span>
                         </div>
-                        {item.badge && (
-                          <span
-                            className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded border ${
-                              item.badgeColor || 'bg-slate-800 text-teal-300 border-slate-700'
-                            }`}
-                          >
-                            {item.badge}
-                          </span>
-                        )}
                       </NavLink>
                     </li>
                   );
@@ -215,24 +204,34 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
         </nav>
 
         {/* User Footer Profile & Logout */}
-        <div className="p-3 border-t border-slate-800/80 flex-shrink-0 bg-slate-900/80">
+        <div className="p-3 border-t border-gray-200 flex-shrink-0">
           <div className="flex items-center justify-between gap-2">
-            <div className="truncate flex-1">
-              <p className="text-xs font-bold text-white truncate">
-                {user?.full_name || user?.first_name || user?.email || 'Logged User'}
-              </p>
-              <p className="text-[10px] text-slate-400 truncate">{user?.email}</p>
-            </div>
+            <button
+              onClick={() => setIsProfileOpen(true)}
+              className="truncate flex-1 text-left group p-1.5 -m-1 rounded-lg hover:bg-gray-200/60 transition"
+              title="Click to change your name & edit profile"
+            >
+              <div className="flex items-center gap-1.5">
+                <p className="text-[13px] font-semibold text-gray-900 group-hover:text-teal-800 transition truncate">
+                  {user?.full_name || user?.first_name || user?.email || 'Logged User'}
+                </p>
+                <UserCog className="w-3 h-3 text-gray-400 group-hover:text-teal-700 transition flex-shrink-0" aria-hidden="true" />
+              </div>
+              <p className="text-[11px] text-gray-500 truncate">{user?.email}</p>
+            </button>
             <button
               onClick={() => logout()}
-              className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-rose-400 rounded-lg transition"
+              className="p-2 hover:bg-gray-200/60 text-gray-500 hover:text-red-700 rounded-lg transition"
               title="Sign Out"
+              aria-label="Sign out"
             >
               <LogOut className="w-4 h-4" />
             </button>
           </div>
         </div>
       </aside>
+
+      <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
     </>
   );
 }

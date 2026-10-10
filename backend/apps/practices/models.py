@@ -135,6 +135,15 @@ class BookingRules(models.Model):
     after_hours_message = models.TextField(
         default="Our office is currently closed. Please leave your details and preferred time, and our front desk will coordinate your appointment first thing next business morning."
     )
+    emergency_phone = models.CharField(max_length=30, blank=True)
+
+    # Human handoff behaviour
+    handoff_enabled = models.BooleanField(default=True)
+    handoff_message = models.TextField(blank=True)
+
+    cancellation_notice_hours = models.PositiveIntegerField(default=24)
+    # Practice-specific guidance appended to the AI concierge system prompt.
+    custom_instructions = models.TextField(blank=True, max_length=4000)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -265,17 +274,37 @@ class EmailProvider(models.Model):
         """Decrypt password for sending email."""
         return decrypt_secret(self.smtp_password)
 
-    def test_connection(self) -> dict:
-        """Safely test connection to SMTP server."""
-        import smtplib
+    def _record_test(self, ok: bool, error: str = ''):
         from django.utils import timezone
-        
+        self.last_tested_at = timezone.now()
+        self.last_test_status = 'SUCCESS' if ok else 'FAILED'
+        self.last_test_error = error[:500]
+        self.save(update_fields=['last_tested_at', 'last_test_status', 'last_test_error'])
+
+    def test_connection(self, send_to: str = '') -> dict:
+        """Verify delivery for real: managed email sends a test message; SMTP logs in (and sends if send_to)."""
+        import smtplib
+        from django.conf import settings as dj_settings
+        from django.core.mail import send_mail
+
         if self.provider_type == 'managed':
-            self.last_tested_at = timezone.now()
-            self.last_test_status = 'SUCCESS'
-            self.last_test_error = ''
-            self.save(update_fields=['last_tested_at', 'last_test_status', 'last_test_error'])
-            return {'success': True, 'message': 'HeyJarvis Managed Email provider is active and ready.'}
+            if not getattr(dj_settings, 'EMAIL_CONFIGURED', False):
+                msg = 'Managed email is not configured on the server yet (SMTP credentials missing).'
+                self._record_test(False, msg)
+                return {'success': False, 'message': msg}
+            if not send_to:
+                return {'success': False, 'message': 'No address to send the test email to.'}
+            try:
+                send_mail(
+                    f'Test email from {self.practice.name}',
+                    'This is a test message from HeyJarvis Concierge. Email delivery for your practice is working.',
+                    dj_settings.DEFAULT_FROM_EMAIL, [send_to], fail_silently=False,
+                )
+            except Exception as e:
+                self._record_test(False, type(e).__name__)
+                return {'success': False, 'message': f'Test email could not be sent ({type(e).__name__}). Check the server email settings.'}
+            self._record_test(True)
+            return {'success': True, 'message': f'Test email sent to {send_to}. Check that inbox (and spam) to confirm delivery.'}
 
         if not self.smtp_host or not self.smtp_port:
             return {'success': False, 'message': 'SMTP host and port are required.'}
@@ -292,17 +321,20 @@ class EmailProvider(models.Model):
             if self.smtp_username and pwd:
                 server.login(self.smtp_username, pwd)
 
+            sent_note = ''
+            if send_to:
+                from email.mime.text import MIMEText
+                msg = MIMEText('This is a test message from HeyJarvis Concierge. Your SMTP settings are working.')
+                msg['Subject'] = f'Test email from {self.practice.name}'
+                msg['From'] = self.from_email or self.smtp_username
+                msg['To'] = send_to
+                server.sendmail(msg['From'], [send_to], msg.as_string())
+                sent_note = f' Test email sent to {send_to}.'
             server.quit()
-            self.last_tested_at = timezone.now()
-            self.last_test_status = 'SUCCESS'
-            self.last_test_error = ''
-            self.save(update_fields=['last_tested_at', 'last_test_status', 'last_test_error'])
-            return {'success': True, 'message': 'SMTP connection and authentication successful!'}
+            self._record_test(True)
+            return {'success': True, 'message': 'SMTP connection and authentication successful.' + sent_note}
         except Exception as e:
-            self.last_tested_at = timezone.now()
-            self.last_test_status = 'FAILED'
-            self.last_test_error = str(e)
-            self.save(update_fields=['last_tested_at', 'last_test_status', 'last_test_error'])
+            self._record_test(False, str(e))
             return {'success': False, 'message': f"SMTP connection failed: {str(e)}"}
 
 

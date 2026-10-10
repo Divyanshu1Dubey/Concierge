@@ -17,12 +17,40 @@ class BookingRulesSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'new_patient_duration', 'doctor_duration', 'hygiene_duration', 'emergency_duration',
             'confirmation_hours', 'no_show_fee', 'financing_options', 'business_hours',
-            'emergency_message', 'after_hours_message', 'created_at', 'updated_at',
+            'emergency_message', 'after_hours_message', 'emergency_phone',
+            'handoff_enabled', 'handoff_message', 'cancellation_notice_hours', 'custom_instructions',
+            'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+        extra_kwargs = {'custom_instructions': {'max_length': 4000}}
+
+    def validate_business_hours(self, value):
+        if value in (None, ''):
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('Business hours must be an object keyed by weekday.')
+        import re
+        days = {'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'}
+        time_re = re.compile(r'^([01]\d|2[0-3]):[0-5]\d$')
+        clean = {}
+        for day, cfg in value.items():
+            day_key = str(day).lower()
+            if day_key not in days or not isinstance(cfg, dict):
+                raise serializers.ValidationError(f'Invalid business hours entry for "{day}".')
+            closed = bool(cfg.get('closed', False))
+            open_t, close_t = str(cfg.get('open', '')), str(cfg.get('close', ''))
+            if not closed:
+                if not (time_re.match(open_t) and time_re.match(close_t)):
+                    raise serializers.ValidationError(f'{day_key.title()}: times must be HH:MM.')
+                if open_t >= close_t:
+                    raise serializers.ValidationError(f'{day_key.title()}: opening time must be before closing time.')
+            clean[day_key] = {'open': open_t, 'close': close_t, 'closed': closed}
+        return clean
 
 
 class PracticeSettingsSerializer(serializers.ModelSerializer):
+    practice_name = serializers.ReadOnlyField(source='practice.name')
+
     class Meta:
         model = PracticeSettings
         fields = [
@@ -33,9 +61,39 @@ class PracticeSettingsSerializer(serializers.ModelSerializer):
             'notification_emails', 'follow_up_enabled', 'follow_up_intervals',
             'widget_title', 'widget_subtitle', 'widget_primary_color', 'widget_position',
             'widget_auto_open', 'widget_auto_open_delay_sec',
-            'created_at', 'updated_at',
+            'practice_name', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'practice_name', 'created_at', 'updated_at']
+
+    def validate_widget_primary_color(self, value):
+        import re
+        if value and not re.match(r'^#[0-9a-fA-F]{6}$', value):
+            raise serializers.ValidationError('Use a hex color such as #0d9488.')
+        return value
+
+    def validate_widget_position(self, value):
+        if value not in ('left', 'right'):
+            raise serializers.ValidationError('Position must be "left" or "right".')
+        return value
+
+    def validate_notification_emails(self, value):
+        from django.core.validators import validate_email
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        if value in (None, ''):
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('Notification emails must be an object, e.g. {"general": "desk@practice.com"}.')
+        clean = {}
+        for key, email in value.items():
+            email = str(email or '').strip()
+            if not email:
+                continue
+            try:
+                validate_email(email)
+            except DjangoValidationError:
+                raise serializers.ValidationError(f'"{email}" is not a valid email address.')
+            clean[str(key)] = email
+        return clean
 
 
 class EmailProviderSerializer(serializers.ModelSerializer):

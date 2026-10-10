@@ -43,7 +43,27 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'assigned_to', 'assigned_name',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'confirmation_code', 'created_at', 'updated_at']
+        # Tenant ownership and lifecycle timestamps are server-controlled.
+        read_only_fields = [
+            'id', 'practice', 'conversation', 'confirmation_code', 'confirmed_at', 'cancelled_at',
+            'response_sent_at', 'created_at', 'updated_at',
+        ]
+
+    def _practice_id(self):
+        if self.instance is not None:
+            return self.instance.practice_id
+        practice = self.context.get('practice')
+        return practice.id if practice else None
+
+    def validate_service(self, service):
+        if service and service.practice_id != self._practice_id():
+            raise serializers.ValidationError('Service does not belong to this practice.')
+        return service
+
+    def validate_assigned_to(self, user):
+        if user and user.practice_id != self._practice_id():
+            raise serializers.ValidationError('Assignee must belong to the same practice.')
+        return user
 
     def get_service_title(self, obj):
         if obj.service_name:
@@ -68,13 +88,13 @@ class AIDraftRequestSerializer(serializers.Serializer):
         choices=['draft', 'professional', 'shorter', 'warmer', 'translate', 'summarize', 'explain', 'next_action'],
         default='draft'
     )
-    current_text = serializers.CharField(required=False, allow_blank=True)
-    target_language = serializers.CharField(required=False, default='Spanish')
+    current_text = serializers.CharField(required=False, allow_blank=True, max_length=20000)
+    target_language = serializers.CharField(required=False, default='Spanish', max_length=50)
 
 
 class SendReplySerializer(serializers.Serializer):
     to_email = serializers.EmailField()
-    subject = serializers.CharField()
-    body = serializers.CharField()
+    subject = serializers.CharField(max_length=500)
+    body = serializers.CharField(max_length=20000)
     reply_to = serializers.EmailField(required=False, allow_blank=True)
     notes = serializers.CharField(required=False, allow_blank=True)

@@ -37,6 +37,7 @@ def send_practice_email(
     # 2. Find or create email thread
     patient_name = appointment.patient_name if appointment else ""
     thread, _ = EmailThread.objects.get_or_create(
+        practice=practice,
         patient_email=to_email,
         subject=subject,
         defaults={
@@ -59,6 +60,7 @@ def send_practice_email(
         body=body,
         body_html=body_html or "",
         provider=(provider.provider_type if provider else 'managed'),
+        is_staff_reply=appointment is not None,
     )
 
     # 4. Attempt delivery
@@ -113,15 +115,13 @@ def send_practice_email(
                 reply_to=[effective_reply_to] if effective_reply_to else None,
                 headers=headers,
             )
-            try:
-                msg.send(fail_silently=False)
-            except OSError as oe:
-                logger.warning(f"Console email stream warning: {oe}. Email delivery recorded.")
+            msg.send(fail_silently=False)
 
         # 5. Success update
         email_record.status = Email.STATUS_SENT
         email_record.sent_at = timezone.now()
-        email_record.provider_message_id = f"<{timezone.now().timestamp()}@{practice.slug}.heyjarvis.ai>"
+        import uuid as _uuid
+        email_record.provider_message_id = f"<{_uuid.uuid4().hex}@{practice.slug}.heyjarvis.ai>"
         email_record.save(update_fields=['status', 'sent_at', 'provider_message_id'])
 
         thread.last_message_at = timezone.now()
@@ -141,13 +141,15 @@ def send_practice_email(
         }
 
     except Exception as e:
-        logger.error(f"Failed to send practice email: {e}")
+        # Log the failure class only: messages from SMTP servers can echo addresses/credentials.
+        logger.error("Failed to send practice email (practice=%s): %s", practice.id, type(e).__name__)
         email_record.status = Email.STATUS_FAILED
         email_record.save(update_fields=['status'])
         return {
             'success': False,
             'status': 'failed',
-            'error': str(e),
+            'error': 'Email delivery failed. Check the email provider settings and try again.',
+            'error_type': type(e).__name__,
             'provider': email_record.provider,
         }
 
@@ -155,6 +157,7 @@ def send_practice_email(
 def get_or_create_thread(patient_email: str, patient_name: str, subject: str, practice=None, appointment=None) -> EmailThread:
     """Get or create an email thread for a patient."""
     thread, _ = EmailThread.objects.get_or_create(
+        practice=practice,
         patient_email=patient_email,
         subject=subject,
         defaults={
@@ -186,11 +189,9 @@ def create_email_record(thread: EmailThread, direction: str, from_email: str, to
 
 def send_appointment_email(email_record: Email) -> Optional[str]:
     """Send an existing email record."""
-    practice = None
-    if email_record.thread and email_record.thread.metadata.get('practice_id'):
-        practice = Practice.objects.filter(id=email_record.thread.metadata['practice_id']).first()
+    practice = email_record.thread.practice if email_record.thread else None
     if not practice:
-        practice = Practice.objects.filter(active=True).first()
+        raise Exception('Email thread is not linked to a practice')
 
     res = send_practice_email(
         practice=practice,
@@ -203,3 +204,94 @@ def send_appointment_email(email_record: Email) -> Optional[str]:
         raise Exception(res.get('error', 'Delivery failed'))
     return res.get('message_id')
 
+
+NOTIFY_FLAG_BY_INTENT = {
+    'emergency': 'notify_on_emergency',
+    'new_patient': 'notify_on_appointment',
+    'cleaning': 'notify_on_appointment',
+    'appointment': 'notify_on_appointment',
+    'question': 'notify_on_question',
+    'reschedule': 'notify_on_reschedule',
+    'cancel': 'notify_on_cancel',
+    'handoff': 'notify_on_handoff',
+}
+
+
+def notify_practice_of_request(appointment) -> bool:
+    """
+    Email the practice's front desk about a new patient request, honouring the
+    practice's notification toggles. Sends only minimal details plus a dashboard
+    link; never raises (patient-facing flows must not fail on notification errors).
+    """
+    practice = getattr(appointment, 'practice', None)
+    if not practice:
+        return False
+    try:
+        ps = getattr(practice, 'settings', None)
+        if ps is not None:
+            if not ps.notify_on_new_request:
+                return False
+            flag = NOTIFY_FLAG_BY_INTENT.get(appointment.intent or '')
+            if flag and not getattr(ps, flag, True):
+                return False
+        emails_cfg = (ps.notification_emails if ps is not None else None) or {}
+        if not isinstance(emails_cfg, dict):
+            emails_cfg = {}
+        is_emergency = appointment.intent == 'emergency' or appointment.urgency == 'URGENT'
+        intent = appointment.intent or ''
+        if is_emergency:
+            route = 'emergency'
+        elif intent == 'handoff':
+            route = 'handoff'
+        elif intent in ('new_patient', 'cleaning', 'appointment', 'reschedule', 'cancel'):
+            route = 'appointment'
+        else:
+            route = 'general'
+        recipient = emails_cfg.get(route) or emails_cfg.get('general') or practice.email
+        if not recipient:
+            return False
+
+        base = (getattr(settings, 'FRONTEND_URL', '') or getattr(settings, 'APP_PUBLIC_URL', '')).rstrip('/')
+        link = f"{base}/dashboard/requests/{appointment.id}" if base else f"/dashboard/requests/{appointment.id}"
+        label = (appointment.intent or 'appointment').replace('_', ' ').title()
+        subject = f"{'URGENT: ' if is_emergency else ''}New {label} request ({appointment.confirmation_code})"
+        body = (
+            f"A new patient request was received via the HeyJarvis concierge.\n\n"
+            f"Type: {label}\n"
+            f"Patient: {appointment.patient_name or 'Not provided'}\n"
+            f"Preferred: {appointment.preferred_date or 'Flexible'} {appointment.preferred_time or ''}\n"
+            f"Reference: {appointment.confirmation_code}\n\n"
+            f"Review and respond in the dashboard: {link}\n"
+        )
+        send_mail(subject, body, getattr(settings, 'DEFAULT_FROM_EMAIL', None), [recipient], fail_silently=False)
+        return True
+    except Exception as e:
+        logger.warning("Practice notification failed (practice=%s): %s", practice.id, type(e).__name__)
+        return False
+
+
+def queue_practice_notification(appointment) -> None:
+    """
+    Notify the practice after the current transaction commits, in a background thread
+    when EMAIL_ASYNC is on, so slow SMTP never delays the patient's chat reply.
+    """
+    from django.db import transaction
+
+    appointment_id = appointment.id
+
+    def _send():
+        from django.db import close_old_connections
+        from apps.appointments.models import Appointment
+        try:
+            appt = Appointment.objects.select_related('practice').filter(id=appointment_id).first()
+            if appt:
+                notify_practice_of_request(appt)
+        finally:
+            close_old_connections()
+
+    if getattr(settings, 'EMAIL_ASYNC', False):
+        import threading
+
+        transaction.on_commit(lambda: threading.Thread(target=_send, daemon=True, name='practice-notify').start())
+    else:
+        transaction.on_commit(lambda: notify_practice_of_request(appointment))

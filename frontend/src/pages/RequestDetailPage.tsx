@@ -1,13 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { requestsApi } from '@/services/api';
 import {
   ArrowLeft, Send, Sparkles, Save,
   MessageSquare, AlertTriangle,
-  Languages, CheckCircle2, RotateCw
+  Languages, CheckCircle2, RotateCw, Clock
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { apiErrorMessage } from '@/utils/api';
+import { useAuthStore } from '@/stores/authStore';
 
 export default function RequestDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -20,6 +22,13 @@ export default function RequestDetailPage() {
   const [newNote, setNewNote] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [sendSuccessMessage, setSendSuccessMessage] = useState('');
+  const [selectedTime, setSelectedTime] = useState('');
+  const [customTime, setCustomTime] = useState('');
+  const [aiSuggestion, setAiSuggestion] = useState('');
+  const currentUser = useAuthStore((s) => s.user);
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleteConversation, setDeleteConversation] = useState(true);
+  const initializedFor = useRef<string | null>(null);
 
   const { data: request, isLoading, refetch } = useQuery({
     queryKey: ['appointment-request', id],
@@ -27,8 +36,17 @@ export default function RequestDetailPage() {
     enabled: !!id,
   });
 
+  const invalidateLists = () => {
+    queryClient.invalidateQueries({ queryKey: ['appointment-requests'] });
+    queryClient.invalidateQueries({ queryKey: ['requests-stats'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
+  };
+
+  // Initialise the composer once per request so refetches (after notes/status changes)
+  // never wipe what the staff member is typing.
   useEffect(() => {
-    if (request) {
+    if (request && initializedFor.current !== request.id) {
+      initializedFor.current = request.id;
       setRecipientEmail(request.patient_email || '');
       setSubject(`Your appointment with ${request.practice_name || 'our practice'}`);
       if (request.response_draft) {
@@ -46,6 +64,26 @@ export default function RequestDetailPage() {
     }
   }, [request]);
 
+  const handleSelectTimeSlot = (time: string) => {
+    setSelectedTime(time);
+    const dateText = request?.preferred_date || 'your requested day';
+    const timeOfferSentence = `We have reserved an opening for you on ${dateText} at ${time}. Please reply to confirm if this time works for you!`;
+
+    const placeholderRegex = /(?:Please let us know what time works best for you and our front desk will help coordinate the visit\.|We have reserved an opening for you on [^\n.]+\.|We have an opening available for you on [^\n.]+\.|We would love to offer you [^\n.]+\.|We have scheduled an opening for you at [^\n.]+\.)/i;
+
+    let updatedBody = replyBody;
+    if (placeholderRegex.test(updatedBody)) {
+      updatedBody = updatedBody.replace(placeholderRegex, timeOfferSentence);
+    } else if (updatedBody.includes('Best regards,')) {
+      updatedBody = updatedBody.replace('Best regards,', `${timeOfferSentence}\n\nBest regards,`);
+    } else {
+      updatedBody = `${updatedBody.trim()}\n\n${timeOfferSentence}`;
+    }
+
+    setReplyBody(updatedBody);
+    toast.success(`Selected ${time} — updated in email body!`);
+  };
+
   // AI draft mutation
   const handleAiAction = async (action: string) => {
     if (!id) return;
@@ -53,14 +91,20 @@ export default function RequestDetailPage() {
     try {
       const res = await requestsApi.aiDraft(id, {
         action,
-        current_text: replyBody,
+        // A fresh draft starts from the practice's saved template; refinements work on the current text.
+        current_text: action === 'draft' ? '' : replyBody,
         target_language: 'Spanish',
       });
-      if (res.result) {
+      if (action === 'next_action' || action === 'explain' || action === 'summarize') {
+        setAiSuggestion(res.result || '');
+      } else if (res.result) {
         setReplyBody(res.result);
       }
-    } catch (e) {
-      console.error('AI Draft failed:', e);
+      if (res.ai_unavailable) {
+        toast('AI assistant is unavailable right now; showing the template draft.', { icon: '⚠️' });
+      }
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'AI assistant request failed.'));
     } finally {
       setIsAiLoading(false);
     }
@@ -68,10 +112,12 @@ export default function RequestDetailPage() {
 
   // Save draft mutation
   const saveDraftMutation = useMutation({
-    mutationFn: () => requestsApi.saveDraft(id!, replyBody),
+    mutationFn: () => requestsApi.saveDraft(id!, replyBody, selectedTime || undefined),
     onSuccess: () => {
+      toast.success('Draft saved successfully!');
       queryClient.invalidateQueries({ queryKey: ['appointment-request', id] });
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not save draft.')),
   });
 
   // Send reply mutation
@@ -81,18 +127,23 @@ export default function RequestDetailPage() {
         to_email: recipientEmail,
         subject: subject,
         body: replyBody,
+        offered_time: selectedTime || undefined,
       }),
     onSuccess: (data: any) => {
-      const msg = data?.message || `Reply email successfully sent to ${recipientEmail}!`;
+      const msg = data?.message || `Reply email sent to ${recipientEmail}.`;
       setSendSuccessMessage(msg);
-      toast.success(msg);
+      if (data?.delivery?.warning) {
+        // e.g. development console backend: recorded but not delivered to an inbox.
+        toast(msg, { icon: '⚠️', duration: 8000 });
+      } else {
+        toast.success(msg);
+      }
       refetch();
-      queryClient.invalidateQueries({ queryKey: ['requests'] });
+      invalidateLists();
       setTimeout(() => setSendSuccessMessage(''), 8000);
     },
     onError: (err: any) => {
-      const errMsg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to send reply to patient';
-      toast.error(errMsg);
+      toast.error(err?.response?.data?.message || apiErrorMessage(err, 'Failed to send reply to patient'));
     },
   });
 
@@ -101,25 +152,41 @@ export default function RequestDetailPage() {
     mutationFn: (text: string) => requestsApi.addNote(id!, text),
     onSuccess: () => {
       setNewNote('');
+      toast.success('Note added');
       refetch();
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not add note.')),
   });
 
   // Update Status mutation
   const updateStatusMutation = useMutation({
     mutationFn: (newStatus: string) => requestsApi.updateStatus(id!, { status: newStatus }),
     onSuccess: () => {
+      toast.success('Status updated');
       refetch();
-      queryClient.invalidateQueries({ queryKey: ['requests'] });
+      invalidateLists();
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not update status.')),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => requestsApi.remove(id!, deleteConversation),
+    onSuccess: () => {
+      toast.success('Request permanently deleted');
+      invalidateLists();
+      navigate('/dashboard/requests');
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not delete this request.')),
   });
 
   const updatePriorityMutation = useMutation({
     mutationFn: (newPriority: string) => requestsApi.updateStatus(id!, { priority: newPriority }),
     onSuccess: () => {
+      toast.success('Priority updated');
       refetch();
-      queryClient.invalidateQueries({ queryKey: ['requests'] });
+      invalidateLists();
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not update priority.')),
   });
 
   if (isLoading) {
@@ -142,11 +209,15 @@ export default function RequestDetailPage() {
   }
 
   const isEmergency = request.urgency === 'URGENT' || request.intent === 'emergency';
+  const canDelete = Boolean(
+    currentUser?.is_agency_admin || currentUser?.is_practice_admin ||
+    ['PRACTICE_ADMIN', 'ADMIN', 'OWNER', 'AGENCY_ADMIN'].includes((currentUser?.role || '').toUpperCase())
+  );
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate('/dashboard/requests')}
@@ -180,7 +251,7 @@ export default function RequestDetailPage() {
         </div>
 
         {/* Status Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             value={request.status}
             onChange={(e) => updateStatusMutation.mutate(e.target.value)}
@@ -204,8 +275,45 @@ export default function RequestDetailPage() {
             <option value="HIGH">High Priority</option>
             <option value="URGENT">Urgent Priority</option>
           </select>
+
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => setShowDelete(true)}
+              className="text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 font-medium"
+            >
+              Delete
+            </button>
+          )}
         </div>
       </div>
+
+      {showDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <h2 id="delete-title" className="text-lg font-semibold text-gray-900">Delete this request permanently?</h2>
+            <p className="text-sm text-gray-600">
+              Use this for patient data-deletion requests. The request ({request.confirmation_code}) and its notes cannot be recovered.
+              The deletion is recorded in the audit log without patient details. Emails already sent to the patient are not deleted and remain in the Email Log.
+            </p>
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input type="checkbox" checked={deleteConversation} onChange={(e) => setDeleteConversation(e.target.checked)} className="rounded" />
+              Also delete the chat conversation
+            </label>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setShowDelete(false)} className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50">Cancel</button>
+              <button
+                type="button"
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                className="px-4 py-2 text-sm rounded-lg bg-red-700 hover:bg-red-800 text-white font-medium disabled:opacity-50"
+              >
+                {deleteMutation.isPending ? 'Deleting…' : 'Delete permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {sendSuccessMessage && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl flex items-center gap-2 text-sm">
@@ -215,9 +323,9 @@ export default function RequestDetailPage() {
       )}
 
       {/* Main 2-Column Command Center */}
-      <div className="grid lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Details & Context (5 cols) */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-5 space-y-6 min-w-0">
           {/* Patient Details Card */}
           <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
             <h2 className="text-base font-semibold text-gray-900 border-b pb-3">Patient & Request Information</h2>
@@ -228,7 +336,7 @@ export default function RequestDetailPage() {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Email</p>
-                <p className="font-medium text-gray-900 mt-0.5">{request.patient_email || 'None provided'}</p>
+                <p className="font-medium text-gray-900 mt-0.5 break-all">{request.patient_email || 'None provided'}</p>
               </div>
               <div>
                 <p className="text-xs text-gray-500">Service / Reason</p>
@@ -337,7 +445,7 @@ export default function RequestDetailPage() {
         </div>
 
         {/* Right Column: AI-Powered Reply Workspace (7 cols) */}
-        <div className="lg:col-span-7 space-y-4">
+        <div className="lg:col-span-7 min-w-0 space-y-4">
           <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5 shadow-sm">
             <div className="flex items-center justify-between border-b pb-4">
               <div>
@@ -448,6 +556,12 @@ export default function RequestDetailPage() {
                   Suggest Next Step
                 </button>
               </div>
+              {aiSuggestion && (
+                <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start justify-between gap-2">
+                  <span><strong>Suggested next step:</strong> {aiSuggestion}</span>
+                  <button type="button" onClick={() => setAiSuggestion('')} className="text-amber-700 underline flex-shrink-0">Dismiss</button>
+                </div>
+              )}
             </div>
 
             {/* Editable Response Editor */}
@@ -460,6 +574,92 @@ export default function RequestDetailPage() {
                 className="w-full text-sm font-sans border border-gray-300 rounded-xl p-4 mt-1 leading-relaxed focus:ring-2 focus:ring-teal-500 focus:outline-none"
                 placeholder="Compose reply..."
               />
+            </div>
+
+            {/* Quick Propose Appointment Time Slots */}
+            <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-teal-600" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                    Propose Visit Time
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    (Click any time slot to auto-insert into email message)
+                  </span>
+                </div>
+                {selectedTime && (
+                  <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-800 border border-teal-200 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />
+                    Proposed: {selectedTime}
+                  </span>
+                )}
+              </div>
+
+              {/* Morning Slots */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider w-16">Morning:</span>
+                {['8:30 AM', '9:00 AM', '9:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM'].map((slot) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() => handleSelectTimeSlot(slot)}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition shadow-2xs ${
+                      selectedTime === slot
+                        ? 'bg-teal-600 text-white border-teal-600 shadow-sm ring-2 ring-teal-200'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-teal-50 hover:border-teal-300 hover:text-teal-900'
+                    }`}
+                  >
+                    {slot}
+                  </button>
+                ))}
+              </div>
+
+              {/* Afternoon Slots */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider w-16">Afternoon:</span>
+                {['1:00 PM', '1:30 PM', '2:00 PM', '2:30 PM', '3:00 PM', '3:30 PM', '4:00 PM', '4:30 PM'].map((slot) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() => handleSelectTimeSlot(slot)}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition shadow-2xs ${
+                      selectedTime === slot
+                        ? 'bg-teal-600 text-white border-teal-600 shadow-sm ring-2 ring-teal-200'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-teal-50 hover:border-teal-300 hover:text-teal-900'
+                    }`}
+                  >
+                    {slot}
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom Time */}
+              <div className="flex items-center gap-2 pt-1.5 border-t border-slate-200/70 text-xs">
+                <span className="text-slate-500 font-medium">Custom time:</span>
+                <input
+                  type="text"
+                  placeholder="e.g. 11:15 AM or Tomorrow 3:00 PM"
+                  value={customTime}
+                  onChange={(e) => setCustomTime(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (customTime.trim()) handleSelectTimeSlot(customTime.trim());
+                    }
+                  }}
+                  className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs w-52 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customTime.trim()) handleSelectTimeSlot(customTime.trim());
+                  }}
+                  className="px-3 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-semibold transition"
+                >
+                  Set Time
+                </button>
+              </div>
             </div>
 
             {/* Action Buttons */}

@@ -1,11 +1,19 @@
 """Tenant administration views for HeyJarvis Concierge Cloud."""
 import io
+import re
+import secrets
 import zipfile
 import csv
 import logging
+from html import escape as html_escape
 from rest_framework import generics, status, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from django.conf import settings
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
 from django.utils import timezone
@@ -16,7 +24,13 @@ from .serializers import (
     PracticeSettingsSerializer, EmailProviderSerializer, EmailTemplateSerializer,
     AuditLogSerializer, TeamMemberSerializer
 )
-from apps.core.permissions import IsTenantViewer, IsTenantMember, IsTenantAdmin, IsTenantOwner, IsAgencyAdmin, IsPracticeAdmin
+from apps.core.permissions import (
+    IsTenantViewer, IsTenantMember, IsTenantAdmin, IsTenantOwner, IsAgencyAdmin, IsPracticeAdmin,
+    get_request_practice, is_agency_user, is_practice_admin_user, can_manage_user,
+    PRACTICE_ASSIGNABLE_ROLES,
+)
+from apps.core.security import redact_dict
+from apps.users.account_emails import provision_access, send_set_password_email
 from apps.users.models import User
 from apps.conversations.models import Conversation
 from apps.appointments.models import Appointment
@@ -24,21 +38,69 @@ from apps.appointments.models import Appointment
 logger = logging.getLogger(__name__)
 
 
+HOSTNAME_RE = re.compile(r'^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*$')
+# Fields a practice administrator may edit on their own practice record.
+PRACTICE_ADMIN_EDITABLE_FIELDS = {
+    'name', 'email', 'phone', 'address', 'city', 'state', 'zip_code', 'timezone', 'website', 'logo_url',
+}
+
+
 def resolve_user_practice(request):
-    """Resolve practice with agency override support."""
-    user = request.user
-    if not (user and user.is_authenticated):
-        return None
-    if user.is_superuser or user.role == 'AGENCY_ADMIN':
-        p_id = request.headers.get('X-Practice-ID') or request.query_params.get('practice_id')
-        if p_id:
-            p = Practice.objects.filter(id=p_id).first()
-            if p:
-                return p
-        if user.practice:
-            return user.practice
-        return Practice.objects.first()
-    return user.practice
+    """Resolve practice with agency override support (agency admins fall back to the first practice)."""
+    practice = get_request_practice(request)
+    if practice is None and is_agency_user(request.user) and not (
+        request.headers.get('X-Practice-ID') or request.query_params.get('practice_id')
+    ):
+        practice = Practice.objects.order_by('id').first()
+    return practice
+
+
+def practice_or_404(request):
+    practice = resolve_user_practice(request)
+    if not practice:
+        return None, Response({'error': 'No practice selected or assigned to this account.'}, status=status.HTTP_404_NOT_FOUND)
+    return practice, None
+
+
+def audit(practice, request, action, details=None):
+    """Write an audit entry with secrets redacted and values JSON-safe."""
+    clean = {}
+    items = details.items() if hasattr(details, 'items') else []
+    for k, v in items:
+        clean[str(k)] = v if isinstance(v, (str, int, float, bool, type(None), list, dict)) else str(v)
+    AuditLog.objects.create(
+        practice=practice,
+        actor=request.user if request.user.is_authenticated else None,
+        action=action,
+        details=redact_dict(clean),
+        ip_address=request.META.get('REMOTE_ADDR'),
+    )
+
+
+def password_errors(password, user=None):
+    try:
+        validate_password(password, user=user)
+    except DjangoValidationError as exc:
+        return list(exc.messages)
+    return None
+
+
+def csv_safe(value):
+    """Neutralise spreadsheet formula injection in exported cells."""
+    if value is None:
+        return ''
+    text = str(value)
+    if text and text[0] in ('=', '+', '-', '@', '\t', '\r'):
+        return "'" + text
+    return text
+
+
+def normalize_team_role(value):
+    """Map a requested team role onto an allowed practice-level role (never AGENCY_ADMIN)."""
+    role = str(value or '').strip().upper()
+    legacy = {'MEMBER': 'FRONT_DESK', 'VIEWER': 'FRONT_DESK', 'DOCTOR': 'PRACTICE_ADMIN'}
+    role = legacy.get(role, role)
+    return role if role in PRACTICE_ASSIGNABLE_ROLES else None
 
 
 class CurrentTenantView(APIView):
@@ -56,21 +118,22 @@ class CurrentTenantView(APIView):
         practice = resolve_user_practice(request)
         if not practice:
             return Response({'error': 'No practice assigned to user'}, status=status.HTTP_404_NOT_FOUND)
-        if not (request.user.is_superuser or request.user.role in ('AGENCY_ADMIN', 'PRACTICE_ADMIN', 'ADMIN', 'OWNER')):
+        if not is_practice_admin_user(request.user):
             return Response({'error': 'Practice administrator permissions required'}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = PracticeSerializer(practice, data=request.data, partial=True)
+        data = dict(request.data.items())
+        if not is_agency_user(request.user):
+            # Practice admins cannot change tenant status, subscription or slug.
+            data = {k: v for k, v in data.items() if k in PRACTICE_ADMIN_EDITABLE_FIELDS}
+        serializer = PracticeSerializer(practice, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        AuditLog.objects.create(
-            practice=practice,
-            actor=request.user,
-            action='BUSINESS_SETTINGS_UPDATED',
-            details=request.data,
-            ip_address=request.META.get('REMOTE_ADDR')
-        )
+        audit(practice, request, 'BUSINESS_SETTINGS_UPDATED', data)
         return Response(serializer.data)
+
+    def patch(self, request):
+        return self.put(request)
 
 
 class AgencyPracticeListView(APIView):
@@ -107,12 +170,30 @@ class AgencyPracticeListView(APIView):
 
     def post(self, request):
         data = request.data
-        name = data.get('name', '').strip()
-        email = data.get('email', '').strip()
+        name = str(data.get('name', '')).strip()
+        email = str(data.get('email', '')).strip().lower()
         if not name or not email:
             return Response({'error': 'Practice name and email are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            return Response({'error': 'Enter a valid practice email address.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        import re
+        admin_email = str(data.get('admin_email', '')).strip().lower()
+        admin_name = str(data.get('admin_name', '')).strip()
+        admin_password = str(data.get('admin_password', '') or '')
+        if admin_email:
+            try:
+                validate_email(admin_email)
+            except DjangoValidationError:
+                return Response({'error': 'Enter a valid administrator email address.'}, status=status.HTTP_400_BAD_REQUEST)
+            if User.objects.filter(email__iexact=admin_email).exists():
+                return Response({'error': f"A user with email '{admin_email}' already exists."}, status=status.HTTP_400_BAD_REQUEST)
+            if admin_password:
+                errors = password_errors(admin_password, User(email=admin_email))
+                if errors:
+                    return Response({'error': ' '.join(errors)}, status=status.HTTP_400_BAD_REQUEST)
+
         slug = re.sub(r'[^a-zA-Z0-9]+', '-', name.lower()).strip('-')
         base_slug = slug or 'practice'
         c = 1
@@ -120,6 +201,17 @@ class AgencyPracticeListView(APIView):
             slug = f"{base_slug}-{c}"
             c += 1
 
+        with transaction.atomic():
+            practice = self._create_practice(request, data, name, slug, email, admin_email, admin_name, admin_password)
+
+        data_out = PracticeSerializer(practice).data
+        if admin_email:
+            admin_user = User.objects.filter(email__iexact=admin_email, practice=practice).first()
+            if admin_user:
+                data_out['admin_access'] = provision_access(admin_user, admin_password, request)
+        return Response(data_out, status=status.HTTP_201_CREATED)
+
+    def _create_practice(self, request, data, name, slug, email, admin_email, admin_name, admin_password):
         practice = Practice.objects.create(
             name=name,
             slug=slug,
@@ -131,7 +223,7 @@ class AgencyPracticeListView(APIView):
             zip_code=data.get('zip_code', '27601'),
             timezone=data.get('timezone', 'America/New_York'),
             website=data.get('website', ''),
-            active=data.get('active', True),
+            active=str(data.get('active', True)).lower() not in ('false', '0'),
             subscription_status=data.get('subscription_status', 'active'),
         )
 
@@ -145,41 +237,24 @@ class AgencyPracticeListView(APIView):
             }
         )
 
-        admin_email = data.get('admin_email', '').strip()
-        admin_name = data.get('admin_name', '').strip()
-        admin_password = data.get('admin_password', 'Password123!')
         if admin_email:
             first_name = admin_name.split()[0] if admin_name else 'Admin'
-            last_name = ' '.join(admin_name.split()[1:]) if ' ' in admin_name else 'Dentist'
-            admin_user, created = User.objects.get_or_create(
+            last_name = ' '.join(admin_name.split()[1:]) if ' ' in admin_name else ''
+            User.objects.create_user(
                 email=admin_email,
-                defaults={
-                    'username': admin_email,
-                    'first_name': first_name,
-                    'last_name': last_name,
-                    'role': 'PRACTICE_ADMIN',
-                    'practice': practice,
-                    'is_active': True,
-                }
+                username=admin_email,
+                password=admin_password or None,
+                first_name=first_name,
+                last_name=last_name,
+                role='PRACTICE_ADMIN',
+                practice=practice,
+                is_active=True,
             )
-            if created:
-                admin_user.set_password(admin_password)
-                admin_user.save()
-            else:
-                admin_user.practice = practice
-                admin_user.role = 'PRACTICE_ADMIN'
-                admin_user.save(update_fields=['practice', 'role'])
 
-        AuditLog.objects.create(
-            practice=practice,
-            actor=request.user,
-            action='PRACTICE_ONBOARDED',
-            details={'created_by': request.user.email, 'practice': name},
-            ip_address=request.META.get('REMOTE_ADDR')
-        )
-
-        serializer = PracticeSerializer(practice)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        audit(practice, request, 'PRACTICE_ONBOARDED', {
+            'created_by': request.user.email, 'practice': name, 'admin_email': admin_email or None,
+        })
+        return practice
 
 
 class AgencyPracticeToggleStatusView(APIView):
@@ -245,28 +320,34 @@ class AgencyPracticeUsersView(APIView):
             return Response({'error': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
 
         data = request.data
-        email = data.get('email', '').strip().lower()
-        password = data.get('password', '').strip()
-        first_name = data.get('first_name', '').strip()
-        last_name = data.get('last_name', '').strip()
-        role = data.get('role', 'FRONT_DESK').upper()
-        phone = data.get('phone', '').strip()
+        email = str(data.get('email', '')).strip().lower()
+        password = str(data.get('password', '') or '')
+        first_name = str(data.get('first_name', '')).strip()
+        last_name = str(data.get('last_name', '')).strip()
+        role = str(data.get('role', 'FRONT_DESK') or 'FRONT_DESK').upper()
+        phone = str(data.get('phone', '')).strip()
 
         if not email:
             return Response({'error': 'Email (login ID) is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        if not password:
-            return Response({'error': 'Password is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            return Response({'error': 'Enter a valid email address.'}, status=status.HTTP_400_BAD_REQUEST)
+        if password:
+            errors = password_errors(password, User(email=email, first_name=first_name, last_name=last_name))
+            if errors:
+                return Response({'error': ' '.join(errors)}, status=status.HTTP_400_BAD_REQUEST)
 
-        if role not in ('PRACTICE_ADMIN', 'FRONT_DESK', 'OWNER', 'ADMIN'):
-            role = 'FRONT_DESK'
+        if role not in PRACTICE_ASSIGNABLE_ROLES:
+            return Response({'error': 'Invalid role. Choose PRACTICE_ADMIN or FRONT_DESK.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if User.objects.filter(email=email).exists():
+        if User.objects.filter(email__iexact=email).exists():
             return Response({'error': f"User with email '{email}' already exists."}, status=status.HTTP_400_BAD_REQUEST)
 
         user = User.objects.create_user(
             email=email,
             username=email,
-            password=password,
+            password=password or None,
             first_name=first_name,
             last_name=last_name,
             phone=phone,
@@ -275,15 +356,11 @@ class AgencyPracticeUsersView(APIView):
             is_active=True
         )
 
-        AuditLog.objects.create(
-            practice=practice,
-            actor=request.user,
-            action='USER_CREATED_BY_AGENCY',
-            details={'email': email, 'role': role, 'created_by': request.user.email},
-            ip_address=request.META.get('REMOTE_ADDR')
-        )
+        audit(practice, request, 'USER_CREATED_BY_AGENCY', {'email': email, 'role': role, 'created_by': request.user.email})
+        access = provision_access(user, password, request)
 
         return Response({
+            **access,
             'id': str(user.id),
             'email': user.email,
             'full_name': user.full_name,
@@ -293,7 +370,10 @@ class AgencyPracticeUsersView(APIView):
             'normalized_role': user.normalized_role,
             'is_active': user.is_active,
             'practice_id': practice.id,
-            'message': f"Doctor / Staff account for {email} created successfully."
+            'message': (
+                f"Invite email sent to {email}." if access.get('invite_sent')
+                else f"Account for {email} created."
+            ),
         }, status=status.HTTP_201_CREATED)
 
 
@@ -311,6 +391,8 @@ class AgencyPracticeUserActionView(APIView):
         else:
             return None, None
         target_user = get_object_or_404(User, id=user_id, practice=practice)
+        if not can_manage_user(user, target_user):
+            return None, None
         return practice, target_user
 
     def post(self, request, practice_id, user_id):
@@ -319,34 +401,35 @@ class AgencyPracticeUserActionView(APIView):
         if not target_user:
             return Response({'error': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
 
+        if action == 'send_password_link':
+            invite = not target_user.has_usable_password()
+            if not send_set_password_email(target_user, request, invite=invite):
+                return Response({'success': False, 'error': 'The email could not be sent. Check the server email settings.'},
+                                status=status.HTTP_502_BAD_GATEWAY)
+            audit(practice, request, 'USER_PASSWORD_LINK_SENT', {'target_email': target_user.email})
+            return Response({'success': True, 'message': f"A {'set-password' if invite else 'password reset'} link was emailed to {target_user.email}."})
+
         if action == 'reset_password':
-            new_password = request.data.get('password', '').strip()
+            new_password = str(request.data.get('password', '') or '')
             if not new_password:
                 return Response({'error': 'New password is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            errors = password_errors(new_password, target_user)
+            if errors:
+                return Response({'error': ' '.join(errors)}, status=status.HTTP_400_BAD_REQUEST)
             target_user.set_password(new_password)
             target_user.save()
-            AuditLog.objects.create(
-                practice=practice,
-                actor=request.user,
-                action='USER_PASSWORD_RESET',
-                details={'target_email': target_user.email, 'reset_by': request.user.email},
-                ip_address=request.META.get('REMOTE_ADDR')
-            )
+            audit(practice, request, 'USER_PASSWORD_RESET', {'target_email': target_user.email, 'reset_by': request.user.email})
             return Response({'success': True, 'message': f"Password for {target_user.email} updated successfully."})
 
         elif action == 'toggle_status':
+            if target_user == request.user:
+                return Response({'error': 'You cannot deactivate your own account.'}, status=status.HTTP_400_BAD_REQUEST)
             target_user.is_active = not target_user.is_active
             target_user.save(update_fields=['is_active'])
-            AuditLog.objects.create(
-                practice=practice,
-                actor=request.user,
-                action='USER_STATUS_TOGGLED',
-                details={'target_email': target_user.email, 'is_active': target_user.is_active},
-                ip_address=request.META.get('REMOTE_ADDR')
-            )
+            audit(practice, request, 'USER_STATUS_TOGGLED', {'target_email': target_user.email, 'is_active': target_user.is_active})
             return Response({'id': str(target_user.id), 'is_active': target_user.is_active, 'email': target_user.email})
 
-        return Response({'error': 'Invalid action. Supported actions: reset_password, toggle_status'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'error': 'Invalid action. Supported actions: send_password_link, reset_password, toggle_status'}, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, practice_id, user_id):
         practice, target_user = self._get_target(request, practice_id, user_id)
@@ -357,13 +440,7 @@ class AgencyPracticeUserActionView(APIView):
 
         target_user.is_active = False
         target_user.save(update_fields=['is_active'])
-        AuditLog.objects.create(
-            practice=practice,
-            actor=request.user,
-            action='USER_DEACTIVATED',
-            details={'target_email': target_user.email},
-            ip_address=request.META.get('REMOTE_ADDR')
-        )
+        audit(practice, request, 'USER_DEACTIVATED', {'target_email': target_user.email})
         return Response({'status': 'deactivated', 'id': str(target_user.id)})
 
 
@@ -381,8 +458,8 @@ class AgencyPracticeIntegrationView(APIView):
         else:
             return Response({'error': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
 
-        backend_url = getattr(settings, 'APP_PUBLIC_URL', None) or request.build_absolute_uri('/').rstrip('/')
-        frontend_url = getattr(settings, 'FRONTEND_URL', None) or os.environ.get('FRONTEND_URL') or backend_url
+        backend_url = (getattr(settings, 'APP_PUBLIC_URL', None) or request.build_absolute_uri('/')).rstrip('/')
+        frontend_url = (getattr(settings, 'FRONTEND_URL', None) or backend_url).rstrip('/')
 
         script_tag = f'<script async src="{backend_url}/widget.js" data-api-url="{backend_url}" data-practice="{practice.slug}" data-heyjarvis-client="{practice.api_key}"></script>'
         iframe_tag = f'<iframe src="{frontend_url}/concierge/{practice.slug}" width="100%" height="700" frameborder="0" style="border:none;border-radius:16px;"></iframe>'
@@ -410,7 +487,9 @@ class RegenerateClientKeyView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantAdmin]
 
     def post(self, request):
-        practice = request.user.practice
+        practice, error = practice_or_404(request)
+        if error:
+            return error
         new_key = practice.regenerate_api_key(
             actor=request.user,
             ip_address=request.META.get('REMOTE_ADDR')
@@ -427,20 +506,27 @@ class DomainListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantAdmin]
 
     def get(self, request):
-        domains = request.user.practice.domains.all()
-        serializer = DomainSerializer(domains, many=True)
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        serializer = DomainSerializer(practice.domains.all(), many=True)
         return Response(serializer.data)
 
     def post(self, request):
-        practice = request.user.practice
-        hostname = request.data.get('hostname', '').strip().lower()
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        hostname = str(request.data.get('hostname', '')).strip().lower()
         if not hostname:
             return Response({'error': 'Hostname is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Clean protocol if present
+        # Clean protocol / path / port if present
+        from urllib.parse import urlparse
         if '://' in hostname:
-            from urllib.parse import urlparse
-            hostname = urlparse(hostname).hostname or hostname
+            hostname = urlparse(hostname).hostname or ''
+        hostname = hostname.split('/')[0].split(':')[0].strip('.')
+        if not HOSTNAME_RE.match(hostname):
+            return Response({'error': 'Enter a valid domain name, e.g. www.example.com'}, status=status.HTTP_400_BAD_REQUEST)
 
         domain, created = Domain.objects.get_or_create(
             practice=practice,
@@ -448,15 +534,10 @@ class DomainListCreateView(APIView):
             defaults={'status': 'CONNECTED'}
         )
 
-        AuditLog.objects.create(
-            practice=practice,
-            actor=request.user,
-            action='DOMAIN_ADDED',
-            details={'hostname': hostname},
-            ip_address=request.META.get('REMOTE_ADDR')
-        )
+        if created:
+            audit(practice, request, 'DOMAIN_ADDED', {'hostname': hostname})
         serializer = DomainSerializer(domain)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
 class DomainDeleteView(APIView):
@@ -464,18 +545,13 @@ class DomainDeleteView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantAdmin]
 
     def delete(self, request, id):
-        practice = request.user.practice
+        practice, error = practice_or_404(request)
+        if error:
+            return error
         domain = get_object_or_404(Domain, id=id, practice=practice)
         hostname = domain.hostname
         domain.delete()
-
-        AuditLog.objects.create(
-            practice=practice,
-            actor=request.user,
-            action='DOMAIN_REMOVED',
-            details={'hostname': hostname},
-            ip_address=request.META.get('REMOTE_ADDR')
-        )
+        audit(practice, request, 'DOMAIN_REMOVED', {'hostname': hostname})
         return Response({'status': 'deleted', 'hostname': hostname})
 
 
@@ -484,25 +560,34 @@ class BookingRulesView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
 
     def get(self, request):
-        rules, _ = BookingRules.objects.get_or_create(practice=request.user.practice)
-        return Response(BookingRulesSerializer(rules).data)
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        rules, _ = BookingRules.objects.get_or_create(practice=practice)
+        data = BookingRulesSerializer(rules).data
+        data['hours'] = data.get('business_hours') or {}
+        return Response(data)
 
     def put(self, request):
-        if request.user.role.upper() not in ('ADMIN', 'OWNER'):
-            return Response({'error': 'Admin permissions required'}, status=status.HTTP_403_FORBIDDEN)
-        rules, _ = BookingRules.objects.get_or_create(practice=request.user.practice)
-        serializer = BookingRulesSerializer(rules, data=request.data, partial=True)
+        if not is_practice_admin_user(request.user):
+            return Response({'error': 'Practice administrator permissions required'}, status=status.HTTP_403_FORBIDDEN)
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        rules, _ = BookingRules.objects.get_or_create(practice=practice)
+        payload = dict(request.data.items())
+        if 'hours' in payload and 'business_hours' not in payload:
+            payload['business_hours'] = payload.pop('hours')
+        serializer = BookingRulesSerializer(rules, data=payload, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        audit(practice, request, 'BOOKING_RULES_UPDATED', payload)
+        data = serializer.data
+        data['hours'] = data.get('business_hours') or {}
+        return Response(data)
 
-        AuditLog.objects.create(
-            practice=request.user.practice,
-            actor=request.user,
-            action='BOOKING_RULES_UPDATED',
-            details=request.data,
-            ip_address=request.META.get('REMOTE_ADDR')
-        )
-        return Response(serializer.data)
+    def patch(self, request):
+        return self.put(request)
 
 
 class TenantSettingsView(APIView):
@@ -510,25 +595,27 @@ class TenantSettingsView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
 
     def get(self, request):
-        st, _ = PracticeSettings.objects.get_or_create(practice=request.user.practice)
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        st, _ = PracticeSettings.objects.get_or_create(practice=practice)
         return Response(PracticeSettingsSerializer(st).data)
 
     def put(self, request):
-        if request.user.role.upper() not in ('ADMIN', 'OWNER'):
-            return Response({'error': 'Admin permissions required'}, status=status.HTTP_403_FORBIDDEN)
-        st, _ = PracticeSettings.objects.get_or_create(practice=request.user.practice)
+        if not is_practice_admin_user(request.user):
+            return Response({'error': 'Practice administrator permissions required'}, status=status.HTTP_403_FORBIDDEN)
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        st, _ = PracticeSettings.objects.get_or_create(practice=practice)
         serializer = PracticeSettingsSerializer(st, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-
-        AuditLog.objects.create(
-            practice=request.user.practice,
-            actor=request.user,
-            action='SETTINGS_UPDATED',
-            details=request.data,
-            ip_address=request.META.get('REMOTE_ADDR')
-        )
+        audit(practice, request, 'SETTINGS_UPDATED', request.data)
         return Response(serializer.data)
+
+    def patch(self, request):
+        return self.put(request)
 
 
 class EmailConfigView(APIView):
@@ -536,28 +623,40 @@ class EmailConfigView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantAdmin]
 
     def get(self, request):
-        provider = request.user.practice.email_providers.first()
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        provider = practice.email_providers.first()
         if not provider:
             provider = EmailProvider.objects.create(
-                practice=request.user.practice,
+                practice=practice,
                 provider_type='managed',
                 is_active=True,
                 is_default=True,
-                from_name=request.user.practice.name,
-                from_email=request.user.practice.email,
+                from_name=practice.name,
+                from_email=practice.email,
             )
-        return Response(EmailProviderSerializer(provider).data)
+        data = dict(EmailProviderSerializer(provider).data)
+        # Lets the UI show whether platform ("managed") email can actually send.
+        data['platform_email_configured'] = bool(getattr(settings, 'EMAIL_CONFIGURED', False))
+        return Response(data)
 
     def put(self, request):
-        practice = request.user.practice
+        practice, error = practice_or_404(request)
+        if error:
+            return error
         provider = practice.email_providers.first()
         if not provider:
             provider = EmailProvider(practice=practice)
 
-        data = request.data.copy()
+        data = dict(request.data.items())
         raw_pwd = data.pop('smtp_password', None)
         if isinstance(raw_pwd, list):
-            raw_pwd = raw_pwd[0]
+            raw_pwd = raw_pwd[0] if raw_pwd else None
+        effective_type = data.get('provider_type', provider.provider_type)
+        if effective_type == 'smtp':
+            if not (data.get('smtp_host') or provider.smtp_host) or not (data.get('smtp_port') or provider.smtp_port):
+                return Response({'error': 'SMTP host and port are required for custom SMTP.'}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = EmailProviderSerializer(provider, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -567,14 +666,11 @@ class EmailConfigView(APIView):
             provider.set_smtp_password(raw_pwd)
             provider.save(update_fields=['smtp_password'])
 
-        AuditLog.objects.create(
-            practice=practice,
-            actor=request.user,
-            action='EMAIL_CONFIG_UPDATED',
-            details={'provider_type': provider.provider_type, 'from_email': provider.from_email},
-            ip_address=request.META.get('REMOTE_ADDR')
-        )
+        audit(practice, request, 'EMAIL_CONFIG_UPDATED', {'provider_type': provider.provider_type, 'from_email': provider.from_email})
         return Response(EmailProviderSerializer(provider).data)
+
+    def patch(self, request):
+        return self.put(request)
 
 
 class TestEmailConnectionView(APIView):
@@ -582,12 +678,19 @@ class TestEmailConnectionView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantAdmin]
 
     def post(self, request):
-        practice = request.user.practice
+        practice, error = practice_or_404(request)
+        if error:
+            return error
         provider = practice.email_providers.first()
         if not provider:
-            return Response({'success': False, 'message': 'No email provider configured'})
+            # Same default the Email Settings page creates: HeyJarvis managed email.
+            provider = EmailProvider.objects.create(
+                practice=practice, provider_type='managed', is_active=True, is_default=True,
+                from_name=practice.name, from_email=practice.email,
+            )
 
-        test_result = provider.test_connection()
+        test_result = provider.test_connection(send_to=request.user.email)
+        audit(practice, request, 'EMAIL_TEST_SENT', {'success': test_result.get('success'), 'to': request.user.email})
         return Response(test_result)
 
 
@@ -596,11 +699,47 @@ class EmailTemplateListView(generics.ListCreateAPIView):
     serializer_class = EmailTemplateSerializer
     permission_classes = [permissions.IsAuthenticated, IsTenantAdmin]
 
+    DEFAULT_TEMPLATES = [
+        {
+            'template_type': 'new_patient',
+            'subject': 'Your appointment request with {{practice}}',
+            'body': "Hi {{patient_name}},\n\nThank you for your request. We have you down for {{preferred_date}} "
+                    "({{preferred_time}}) and our front desk will confirm the exact time with you shortly.\n\n"
+                    "Thank you,\n{{practice}}",
+        },
+        {
+            'template_type': 'question',
+            'subject': 'Your visit to {{practice}}',
+            'body': "Hi {{patient_name}},\n\nThank you for reaching out to us. We would be delighted to coordinate your visit.\n\n"
+                    "Best regards,\n{{practice}} Front Desk",
+        },
+    ]
+
     def get_queryset(self):
-        return EmailTemplate.objects.filter(practice=self.request.user.practice)
+        practice = resolve_user_practice(self.request)
+        if not practice:
+            return EmailTemplate.objects.none()
+        qs = EmailTemplate.objects.filter(practice=practice)
+        if not qs.exists():
+            # Seed sensible starting templates the first time a practice opens the page.
+            for tpl in self.DEFAULT_TEMPLATES:
+                EmailTemplate.objects.get_or_create(practice=practice, template_type=tpl['template_type'], defaults=tpl)
+            qs = EmailTemplate.objects.filter(practice=practice)
+        return qs
+
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.filter_queryset(self.get_queryset()), many=True)
+        return Response({'templates': serializer.data, 'results': serializer.data, 'count': len(serializer.data)})
 
     def perform_create(self, serializer):
-        serializer.save(practice=self.request.user.practice)
+        from rest_framework.exceptions import ValidationError, NotFound
+        practice = resolve_user_practice(self.request)
+        if not practice:
+            raise NotFound('No practice selected or assigned to this account.')
+        template_type = serializer.validated_data.get('template_type')
+        if EmailTemplate.objects.filter(practice=practice, template_type=template_type).exists():
+            raise ValidationError({'template_type': ['A template of this type already exists. Edit the existing one instead.']})
+        serializer.save(practice=practice)
 
 
 class EmailTemplateDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -610,7 +749,15 @@ class EmailTemplateDetailView(generics.RetrieveUpdateDestroyAPIView):
     lookup_field = 'id'
 
     def get_queryset(self):
-        return EmailTemplate.objects.filter(practice=self.request.user.practice)
+        return EmailTemplate.objects.filter(practice=resolve_user_practice(self.request))
+
+    def perform_update(self, serializer):
+        from rest_framework.exceptions import ValidationError
+        instance = serializer.instance
+        template_type = serializer.validated_data.get('template_type', instance.template_type)
+        if EmailTemplate.objects.filter(practice=instance.practice, template_type=template_type).exclude(id=instance.id).exists():
+            raise ValidationError({'template_type': ['A template of this type already exists.']})
+        serializer.save()
 
 
 class TeamListView(APIView):
@@ -618,63 +765,93 @@ class TeamListView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantAdmin]
 
     def get(self, request):
-        members = User.objects.filter(practice=request.user.practice)
-        return Response(TeamMemberSerializer(members, many=True).data)
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        members = User.objects.filter(practice=practice).order_by('-created_at')
+        data = TeamMemberSerializer(members, many=True).data
+        return Response({'team': data, 'results': data, 'count': len(data)})
 
     def post(self, request):
-        email = request.data.get('email', '').strip().lower()
-        role = request.data.get('role', 'MEMBER').upper()
-        first_name = request.data.get('first_name', '')
-        last_name = request.data.get('last_name', '')
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        email = str(request.data.get('email', '')).strip().lower()
+        role = normalize_team_role(request.data.get('role') or 'FRONT_DESK')
+        first_name = str(request.data.get('first_name', '')).strip()
+        last_name = str(request.data.get('last_name', '')).strip()
+        password = str(request.data.get('password', '') or '')
 
         if not email:
             return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-        if User.objects.filter(email=email).exists():
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            return Response({'error': 'Enter a valid email address.'}, status=status.HTTP_400_BAD_REQUEST)
+        if role is None:
+            return Response({'error': 'Invalid role. Choose PRACTICE_ADMIN or FRONT_DESK.'}, status=status.HTTP_400_BAD_REQUEST)
+        if User.objects.filter(email__iexact=email).exists():
             return Response({'error': 'User with this email already exists'}, status=status.HTTP_400_BAD_REQUEST)
 
-        import secrets
-        temp_pwd = secrets.token_urlsafe(12)
+        if password:
+            errors = password_errors(password, User(email=email, first_name=first_name, last_name=last_name))
+            if errors:
+                return Response({'error': ' '.join(errors)}, status=status.HTTP_400_BAD_REQUEST)
+
         new_user = User.objects.create_user(
             email=email,
             username=email,
-            password=temp_pwd,
+            password=password or None,
             first_name=first_name,
             last_name=last_name,
             role=role,
-            practice=request.user.practice,
+            practice=practice,
             is_active=True
         )
-
-        AuditLog.objects.create(
-            practice=request.user.practice,
-            actor=request.user,
-            action='TEAM_MEMBER_INVITED',
-            details={'email': email, 'role': role},
-            ip_address=request.META.get('REMOTE_ADDR')
-        )
-        return Response(TeamMemberSerializer(new_user).data, status=status.HTTP_201_CREATED)
+        audit(practice, request, 'TEAM_MEMBER_INVITED', {'email': email, 'role': role})
+        data = TeamMemberSerializer(new_user).data
+        # invite_sent, or a one-time temporary_password when the invite email could not be sent.
+        data.update(provision_access(new_user, password, request))
+        return Response(data, status=status.HTTP_201_CREATED)
 
 
 class TeamMemberDetailView(APIView):
     """Update role or remove team member."""
     permission_classes = [permissions.IsAuthenticated, IsTenantAdmin]
 
+    def _member(self, request, id):
+        practice = resolve_user_practice(request)
+        member = get_object_or_404(User, id=id, practice=practice)
+        if not can_manage_user(request.user, member):
+            return practice, None
+        return practice, member
+
     def put(self, request, id):
-        member = get_object_or_404(User, id=id, practice=request.user.practice)
-        new_role = request.data.get('role')
-        if new_role and new_role.upper() in ('OWNER', 'ADMIN', 'MEMBER', 'FRONT_DESK', 'VIEWER'):
-            member.role = new_role.upper()
-            member.save(update_fields=['role'])
-            return Response(TeamMemberSerializer(member).data)
-        return Response({'error': 'Invalid role'}, status=status.HTTP_400_BAD_REQUEST)
+        practice, member = self._member(request, id)
+        if member is None:
+            return Response({'error': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+        if member == request.user:
+            return Response({'error': 'You cannot change your own role.'}, status=status.HTTP_400_BAD_REQUEST)
+        new_role = normalize_team_role(request.data.get('role'))
+        if not new_role:
+            return Response({'error': 'Invalid role'}, status=status.HTTP_400_BAD_REQUEST)
+        member.role = new_role
+        member.save(update_fields=['role'])
+        audit(practice, request, 'TEAM_MEMBER_ROLE_CHANGED', {'email': member.email, 'role': new_role})
+        return Response(TeamMemberSerializer(member).data)
+
+    def patch(self, request, id):
+        return self.put(request, id)
 
     def delete(self, request, id):
-        member = get_object_or_404(User, id=id, practice=request.user.practice)
+        practice, member = self._member(request, id)
+        if member is None:
+            return Response({'error': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
         if member == request.user:
             return Response({'error': 'Cannot remove yourself'}, status=status.HTTP_400_BAD_REQUEST)
         member.is_active = False
         member.save(update_fields=['is_active'])
+        audit(practice, request, 'TEAM_MEMBER_DISABLED', {'email': member.email})
         return Response({'status': 'disabled', 'id': str(member.id)})
 
 
@@ -684,7 +861,7 @@ class AuditLogListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantAdmin]
 
     def get_queryset(self):
-        return AuditLog.objects.filter(practice=self.request.user.practice).order_by('-created_at')[:100]
+        return AuditLog.objects.filter(practice=resolve_user_practice(self.request)).select_related('actor').order_by('-created_at')
 
 
 class TenantMetricsView(APIView):
@@ -692,7 +869,7 @@ class TenantMetricsView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
 
     def get(self, request):
-        practice = request.user.practice
+        practice = resolve_user_practice(request)
         if not practice:
             return Response({})
 
@@ -708,6 +885,13 @@ class TenantMetricsView(APIView):
 
         conv_rate = round((total_leads / total_conv * 100), 1) if total_conv > 0 else 0.0
 
+        from apps.emails.models import Email
+        email_qs = Email.objects.filter(thread__practice=practice, direction=Email.DIRECTION_OUTGOING)
+        emails_sent = email_qs.filter(status=Email.STATUS_SENT).count()
+        emails_failed = email_qs.filter(status=Email.STATUS_FAILED).count()
+        attempted = emails_sent + emails_failed
+        email_delivery = round(emails_sent / attempted * 100, 1) if attempted else None
+
         return Response({
             'conversations': total_conv,
             'new_leads': total_leads,
@@ -716,6 +900,9 @@ class TenantMetricsView(APIView):
             'appointment_requests': appointment_reqs,
             'human_handoffs': handoffs,
             'completion_rate': f"{conv_rate}%",
+            'emails_sent': emails_sent,
+            'emails_failed': emails_failed,
+            'email_delivery': email_delivery,
             'system_status': 'operational',
             'client_key': practice.api_key,
             'practice_name': practice.name,
@@ -725,23 +912,31 @@ class TenantMetricsView(APIView):
 
 class WordPressDownloadView(APIView):
     """Dynamically build and return the configured WordPress plugin zip."""
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
 
     def get(self, request, tenant_id=None):
         if tenant_id:
-            practice = get_object_or_404(Practice, id=tenant_id)
-        elif request.user and request.user.is_authenticated and request.user.practice:
-            practice = request.user.practice
+            if request.user.is_agency_admin or request.user.is_superuser:
+                practice = get_object_or_404(Practice, id=tenant_id)
+            elif request.user.practice and str(request.user.practice.id) == str(tenant_id):
+                practice = request.user.practice
+            else:
+                return Response({'error': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+        elif resolve_user_practice(request):
+            practice = resolve_user_practice(request)
         else:
-            practice = Practice.objects.first()
-            if not practice:
-                return Response({'error': 'No practice found.'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'error': 'No practice associated with your account.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not practice:
+            return Response({'error': 'No practice found.'}, status=status.HTTP_404_NOT_FOUND)
 
         client_key = practice.api_key
         slug = practice.slug
-        practice_name = practice.name
+        # The name is interpolated into PHP source: keep only safe characters so a
+        # crafted practice name can never inject PHP/HTML into the generated plugin.
+        practice_name = html_escape(re.sub(r"[^\w\s&.,()-]", '', practice.name))
 
-        base_url = request.build_absolute_uri('/').rstrip('/')
+        base_url = (getattr(settings, 'APP_PUBLIC_URL', '') or request.build_absolute_uri('/')).rstrip('/')
 
         # PHP plugin code
         plugin_php = f"""<?php
@@ -758,6 +953,7 @@ if (!defined('ABSPATH')) exit;
 
 define('HEYJARVIS_CLIENT_KEY', '{client_key}');
 define('HEYJARVIS_PUBLIC_URL', '{base_url}');
+define('HEYJARVIS_PRACTICE_SLUG', '{slug}');
 
 add_action('wp_enqueue_scripts', function() {{
     $client_key = get_option('heyjarvis_client_key', HEYJARVIS_CLIENT_KEY);
@@ -770,8 +966,18 @@ add_action('wp_enqueue_scripts', function() {{
         '1.0.0',
         true
     );
-    wp_script_add_data('heyjarvis-concierge-widget', 'data-heyjarvis-client', $client_key);
 }});
+
+// wp_script_add_data() does not render data-* attributes, so add them to the tag here.
+add_filter('script_loader_tag', function($tag, $handle, $src) {{
+    if ($handle !== 'heyjarvis-concierge-widget') return $tag;
+    $client_key = get_option('heyjarvis_client_key', HEYJARVIS_CLIENT_KEY);
+    $public_url = get_option('heyjarvis_public_url', HEYJARVIS_PUBLIC_URL);
+    return sprintf(
+        '<script async src="%s" data-api-url="%s" data-practice="%s" data-heyjarvis-client="%s"></script>' . "\n",
+        esc_url($src), esc_attr($public_url), esc_attr(HEYJARVIS_PRACTICE_SLUG), esc_attr($client_key)
+    );
+}}, 10, 3);
 
 add_action('admin_menu', function() {{
     add_options_page('HeyJarvis Concierge', 'HeyJarvis', 'manage_options', 'heyjarvis-settings', function() {{
@@ -826,15 +1032,22 @@ class ExportDataView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantAdmin]
 
     def get(self, request, export_type):
-        practice = request.user.practice
+        practice = resolve_user_practice(request)
+
+        if not practice:
+            return Response({'error': 'No practice selected or found for export.'}, status=status.HTTP_400_BAD_REQUEST)
+
         response = HttpResponse(content_type='text/csv')
+
+        if export_type in ('leads', 'conversations'):
+            audit(practice, request, 'DATA_EXPORTED', {'export_type': export_type})
 
         if export_type == 'leads':
             response['Content-Disposition'] = f'attachment; filename="leads-{practice.slug}.csv"'
             writer = csv.writer(response)
             writer.writerow(['Patient Name', 'Email', 'Phone', 'Service', 'Intent', 'Preferred Date', 'Preferred Time', 'Status', 'Urgency', 'Created At'])
             for a in Appointment.objects.filter(practice=practice):
-                writer.writerow([a.patient_name, a.patient_email, a.patient_phone, a.service_name, a.intent, a.preferred_date, a.preferred_time, a.status, a.urgency, a.created_at.strftime('%Y-%m-%d %H:%M')])
+                writer.writerow([csv_safe(v) for v in (a.patient_name, a.patient_email, a.patient_phone, a.service_name, a.intent, a.preferred_date, a.preferred_time, a.status, a.urgency, a.created_at.strftime('%Y-%m-%d %H:%M'))])
             return response
 
         elif export_type == 'conversations':
@@ -842,7 +1055,7 @@ class ExportDataView(APIView):
             writer = csv.writer(response)
             writer.writerow(['Conversation ID', 'Patient Name', 'Email', 'Phone', 'Intent', 'State', 'Status', 'Started At', 'Summary'])
             for c in Conversation.objects.filter(practice=practice):
-                writer.writerow([str(c.id), c.patient_name, c.patient_email, c.patient_phone, c.intent, c.state, c.status, c.started_at.strftime('%Y-%m-%d %H:%M'), c.summary])
+                writer.writerow([csv_safe(v) for v in (str(c.id), c.patient_name, c.patient_email, c.patient_phone, c.intent, c.state, c.status, c.started_at.strftime('%Y-%m-%d %H:%M'), c.summary)])
             return response
 
         return Response({'error': 'Invalid export type. Use "leads" or "conversations"'}, status=status.HTTP_400_BAD_REQUEST)

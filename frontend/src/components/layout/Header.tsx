@@ -1,39 +1,63 @@
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import {
   User,
   LogOut,
-  Bot,
   Layers,
+  Menu,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
+import ProfileModal from './ProfileModal';
 
 interface HeaderProps {
   onMenuToggle: () => void;
 }
 
+// Page context shown in the header (matches the sidebar labels).
+const SECTION_TITLES: Record<string, string> = {
+  '': 'Overview',
+  practices: 'Dental practices',
+  requests: 'Appointment requests',
+  conversations: 'Patient conversations',
+  leads: 'Captured leads',
+  patients: 'Patients',
+  email: 'Email log',
+  messages: 'Email log',
+  concierge: 'AI concierge',
+  installation: 'Plugin & embed',
+  'widget-settings': 'Widget customizer',
+  'business-rules': 'Hours & services',
+  'email-settings': 'Email delivery',
+  templates: 'Email templates',
+  team: 'Team',
+  security: 'Security & audit log',
+  settings: 'Practice settings',
+};
+
 export default function Header({ onMenuToggle }: HeaderProps) {
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const { pathname } = useLocation();
+  const section = pathname.replace(/^\/dashboard\/?/, '').split('/')[0] || '';
+  const sectionTitle = SECTION_TITLES[section] ?? 'Overview';
   const { user, logout, activePracticeId, activePracticeName, setActivePractice } = useAuthStore();
 
   return (
-    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-6 shadow-sm sticky top-0 z-30">
-      {/* Left: Mobile Toggle & Product Mode Switcher */}
-      <div className="flex items-center gap-3">
+    <header className="h-16 bg-gray-50/85 backdrop-blur border-b border-gray-200/80 flex items-center justify-between gap-3 px-4 lg:px-8 sticky top-0 z-30">
+      {/* Left: mobile menu + page context */}
+      <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={onMenuToggle}
-          className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-gray-100 text-gray-600"
-          aria-label="Toggle Navigation"
+          className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-gray-200/60 text-gray-700"
+          aria-label="Open navigation"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
+          <Menu className="w-5 h-5" />
         </button>
-
-        {/* Inbound Concierge Active Pill */}
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 border border-teal-200/80 rounded-xl text-xs font-bold text-teal-900">
-          <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
-          <Bot className="w-3.5 h-3.5 text-teal-600" />
-          <span>Inbound AI Concierge</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded bg-teal-100/80 text-teal-800 uppercase font-extrabold">Active</span>
+        <div className="min-w-0">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-gray-500 leading-none mb-1 hidden sm:block">
+            HeyJarvis Concierge
+          </p>
+          <h2 className="text-[15px] font-semibold text-gray-900 truncate leading-tight">{sectionTitle}</h2>
         </div>
       </div>
 
@@ -41,38 +65,34 @@ export default function Header({ onMenuToggle }: HeaderProps) {
       <div className="hidden lg:flex items-center gap-3 text-xs">
         {user?.is_agency_admin || user?.role === 'AGENCY_ADMIN' ? (
           activePracticeId ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 border border-purple-200 rounded-xl text-purple-900 shadow-sm animate-in fade-in">
+            <div className="flex items-center gap-2 pl-3 pr-1.5 py-1 bg-white border border-purple-200 rounded-full text-purple-900">
               <Layers className="w-3.5 h-3.5 text-purple-600" />
-              <span>Workspace:</span>
-              <span className="font-black text-purple-950">{activePracticeName || 'Selected Dentistry'}</span>
+              <span className="text-gray-500">Workspace</span>
+              <span className="font-semibold text-purple-900">{activePracticeName || 'Selected practice'}</span>
               <button
                 onClick={() => {
                   setActivePractice(null, null);
                   window.location.reload();
                 }}
-                className="ml-1 text-[11px] px-2 py-0.5 rounded bg-purple-200/80 hover:bg-purple-300 text-purple-900 font-bold transition"
+                className="ml-1 text-[11px] px-2.5 py-1 rounded-full bg-purple-100 hover:bg-purple-200 text-purple-900 font-semibold transition"
                 title="Switch back to Agency Overview of all practices"
               >
-                Reset to All Clinics
+                All practices
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-full">
               <Layers className="w-3.5 h-3.5 text-purple-600" />
-              <span className="font-extrabold text-slate-900">HeyJarvis Platform Agency</span>
-              <span className="text-gray-400">&bull;</span>
-              <span className="text-purple-700 font-bold bg-purple-100 px-1.5 py-0.5 rounded text-[10px]">ALL PRACTICES</span>
+              <span className="font-semibold text-gray-900">Agency workspace</span>
+              <span className="text-gray-300">/</span>
+              <span className="text-gray-600">All practices</span>
             </div>
           )
         ) : (
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl">
-            <Layers className="w-3.5 h-3.5 text-slate-600" />
-            <span className="font-extrabold text-slate-900">
-              {user?.practice_name || 'Raleigh Comprehensive Dentistry'}
-            </span>
-            <span className="text-gray-400">&bull;</span>
-            <span className="text-gray-600 font-medium">
-              {user?.role ? user.role.replace('_', ' ') : 'Dental Staff'}
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-full max-w-[22rem]">
+            <span className="w-1.5 h-1.5 rounded-full bg-teal-500 flex-shrink-0" aria-hidden="true" />
+            <span className="font-semibold text-gray-900 truncate">
+              {user?.practice_name || 'Your Practice'}
             </span>
           </div>
         )}
@@ -83,46 +103,57 @@ export default function Header({ onMenuToggle }: HeaderProps) {
         {(user?.is_agency_admin || ['ADMIN', 'OWNER', 'PRACTICE_ADMIN', 'AGENCY_ADMIN'].includes(user?.role || '')) && (
           <Link
             to="/dashboard/installation"
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm"
+            className="hidden xl:flex items-center gap-1.5 px-3.5 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-200/60 rounded-full text-xs font-semibold transition"
             title="Get live widget snippet and plugin"
           >
-            <span>Plugin &amp; Embed</span>
+            <span>Plugin &amp; embed</span>
           </Link>
         )}
 
+        {user?.practice_slug && (
         <a
-          href="/concierge/raleigh-dentistry"
+          href={`/concierge/${user.practice_slug}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold transition"
-          title="Open live hosted concierge page"
+          className="hidden md:flex items-center gap-1.5 px-3.5 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-full text-xs font-semibold transition shadow-card"
+          title="Open live patient concierge page"
         >
-          <span>Live Demo</span>
+          <span>Patient concierge</span>
+          <ExternalLink className="w-3.5 h-3.5 opacity-80" aria-hidden="true" />
         </a>
+        )}
 
         {/* User Pill */}
-        <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-          <div className="w-8 h-8 bg-slate-900 text-teal-400 rounded-xl flex items-center justify-center font-bold text-xs shadow-sm">
-            <User className="w-4 h-4" />
+        <button
+          onClick={() => setIsProfileOpen(true)}
+          className="flex items-center gap-2.5 pl-3 border-l border-gray-200 text-left transition group"
+          title="Click to edit profile / change name"
+          aria-label="Edit your profile"
+        >
+          <div className="w-8 h-8 bg-teal-100 text-teal-800 group-hover:bg-teal-700 group-hover:text-white rounded-full flex items-center justify-center font-semibold text-xs transition">
+            {(user?.first_name || user?.email || '?').charAt(0).toUpperCase() || <User className="w-4 h-4" />}
           </div>
           <div className="hidden sm:block text-left">
-            <p className="text-xs font-bold text-gray-900 leading-tight">
-              {user?.email?.split('@')[0] || 'Front Desk'}
+            <p className="text-xs font-semibold text-gray-900 group-hover:text-teal-700 transition leading-tight truncate max-w-[130px]">
+              {user?.full_name || user?.first_name || user?.email?.split('@')[0] || 'Front Desk'}
             </p>
-            <p className="text-[10px] text-gray-500 font-medium capitalize">
-              {user?.role || 'Practice Staff'}
+            <p className="text-[11px] text-gray-500 capitalize truncate max-w-[130px]">
+              {user?.role ? user.role.replace('_', ' ').toLowerCase() : 'practice staff'}
             </p>
           </div>
-        </div>
+        </button>
 
         <button
           onClick={logout}
-          className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 hover:text-gray-900 transition-colors"
+          className="p-2 rounded-full hover:bg-gray-200/60 text-gray-500 hover:text-gray-900 transition-colors"
           title="Sign out of HeyJarvis"
+          aria-label="Sign out"
         >
           <LogOut className="w-4 h-4" />
         </button>
       </div>
+
+      <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
     </header>
   );
 }

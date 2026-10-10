@@ -3,6 +3,7 @@ Serializers for the users app.
 """
 from rest_framework import serializers
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
 from .models import User
 
 
@@ -23,7 +24,11 @@ class UserSerializer(serializers.ModelSerializer):
             'practice', 'practice_name', 'practice_slug',
             'avatar_url', 'is_verified', 'last_login', 'created_at',
         ]
-        read_only_fields = ['id', 'last_login', 'created_at']
+        # Identity, role and tenant membership are managed by administrators only;
+        # a user must never be able to change them through the self-service profile.
+        read_only_fields = [
+            'id', 'email', 'role', 'practice', 'is_verified', 'last_login', 'created_at',
+        ]
 
     def get_practice_name(self, obj):
         return obj.practice.name if obj.practice else ("HeyJarvis Platform" if obj.is_agency_admin else "No Practice Assigned")
@@ -31,9 +36,21 @@ class UserSerializer(serializers.ModelSerializer):
     def get_practice_slug(self, obj):
         return obj.practice.slug if obj.practice else ""
 
+    def update(self, instance, validated_data):
+        request = self.context.get('request')
+        is_admin = bool(
+            request and request.user and request.user.is_authenticated and
+            (getattr(request.user, 'is_agency_admin', False) or getattr(request.user, 'is_superuser', False))
+        )
+        if not is_admin:
+            validated_data.pop('role', None)
+            validated_data.pop('practice', None)
+            validated_data.pop('email', None)
+        return super().update(instance, validated_data)
+
 
 class UserCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating users."""
+    """Serializer for creating users with role protection."""
     password = serializers.CharField(write_only=True, min_length=8)
     password_confirm = serializers.CharField(write_only=True)
 
@@ -44,14 +61,41 @@ class UserCreateSerializer(serializers.ModelSerializer):
             'role', 'password', 'password_confirm',
         ]
 
+    def validate_role(self, value):
+        # Prevent privilege escalation through unauthenticated or non-admin registration
+        request = self.context.get('request')
+        is_authenticated_admin = bool(
+            request and request.user and request.user.is_authenticated and
+            (request.user.is_agency_admin or request.user.is_superuser)
+        )
+        if not is_authenticated_admin and value in ['AGENCY_ADMIN', 'ADMIN', 'OWNER', 'PRACTICE_ADMIN']:
+            raise serializers.ValidationError("Administrative roles can only be assigned by a platform administrator.")
+        return value
+
     def validate(self, data):
         if data['password'] != data['password_confirm']:
             raise serializers.ValidationError("Passwords don't match.")
+        validate_password(data['password'], user=User(email=data.get('email', '')))
         return data
 
     def create(self, validated_data):
-        validated_data.pop('password_confirm')
+        validated_data.pop('password_confirm', None)
         password = validated_data.pop('password')
+        
+        request = self.context.get('request')
+        is_authenticated_admin = bool(
+            request and request.user and request.user.is_authenticated and
+            (request.user.is_agency_admin or request.user.is_superuser)
+        )
+        if not is_authenticated_admin:
+            role = validated_data.get('role', 'FRONT_DESK')
+            if role in ['AGENCY_ADMIN', 'ADMIN', 'OWNER', 'PRACTICE_ADMIN']:
+                role = 'FRONT_DESK'
+            validated_data['role'] = role
+            validated_data['is_staff'] = False
+            validated_data['is_superuser'] = False
+
+        validated_data.setdefault('username', validated_data.get('email'))
         user = User(**validated_data)
         user.set_password(password)
         user.save()
@@ -80,15 +124,27 @@ class LoginSerializer(serializers.Serializer):
                 user = db_user
 
         if not user:
-            # 4. Self-healing check for demo/seed accounts
-            from .seed_data import ensure_demo_account
-            user = ensure_demo_account(raw_email, requested_password=password)
-
-        if not user:
-            raise serializers.ValidationError("Invalid credentials.")
+            raise serializers.ValidationError("Invalid email or password.")
         if not user.is_active:
             raise serializers.ValidationError("Account is disabled.")
+        from .authentication import practice_suspended, SUSPENDED_MESSAGE
+        if practice_suspended(user):
+            raise serializers.ValidationError(SUSPENDED_MESSAGE)
         data['user'] = user
+        return data
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """Serializer for authenticated password changes."""
+    old_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    new_password_confirm = serializers.CharField(write_only=True)
+
+    def validate(self, data):
+        if data['new_password'] != data['new_password_confirm']:
+            raise serializers.ValidationError("New passwords do not match.")
+        request = self.context.get('request')
+        validate_password(data['new_password'], user=getattr(request, 'user', None))
         return data
 
 

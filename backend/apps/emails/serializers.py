@@ -6,11 +6,11 @@ from .models import EmailThread, Email, EmailCadence
 
 
 class EmailSerializer(serializers.ModelSerializer):
-    """Serializer for Email model."""
+    """Serializer for Email model (read-only over the API; emails are created by the send service)."""
     class Meta:
         model = Email
         fields = '__all__'
-        read_only_fields = ['id', 'created_at', 'sent_at']
+        read_only_fields = [f.name for f in Email._meta.fields]
 
 
 class EmailCreateSerializer(serializers.ModelSerializer):
@@ -28,11 +28,17 @@ class EmailThreadSerializer(serializers.ModelSerializer):
     class Meta:
         model = EmailThread
         fields = [
-            'id', 'patient_email', 'patient_name', 'subject', 'status',
+            'id', 'practice', 'patient_email', 'patient_name', 'subject', 'status',
             'assigned_to', 'metadata', 'last_message_at', 'created_at',
             'emails', 'latest_email',
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['id', 'practice', 'patient_email', 'metadata', 'last_message_at', 'created_at']
+
+    def validate_assigned_to(self, user):
+        thread = self.instance
+        if user and thread and user.practice_id != thread.practice_id:
+            raise serializers.ValidationError('Assignee must belong to the same practice.')
+        return user
 
     def get_emails(self, obj):
         return EmailSerializer(obj.emails.all()[:10], many=True).data
@@ -47,4 +53,4 @@ class EmailCadenceSerializer(serializers.ModelSerializer):
     class Meta:
         model = EmailCadence
         fields = '__all__'
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'practice', 'created_at', 'updated_at']

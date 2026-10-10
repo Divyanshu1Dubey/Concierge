@@ -3,24 +3,79 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── HeyJarvis Concierge base layer ───────────────────────────────── */
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-800 font-sans;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  /* Page titles use the editorial serif; body copy and data stay in Inter. */
+  h1 {
+    @apply font-display;
+    letter-spacing: -0.015em;
+  }
+  h1.font-bold,
+  h1.font-black,
+  h1.font-extrabold {
+    font-weight: 500;
+  }
+
+  /* Visible, consistent keyboard focus everywhere. */
+  :focus-visible {
+    outline: 2px solid theme('colors.forest.500');
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: none;
+  }
+}
+
+@layer components {
+  .eyebrow {
+    @apply inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-forest-700;
+  }
+  .display {
+    @apply font-display font-normal text-forest-900;
+    letter-spacing: -0.02em;
+  }
+  .surface-card {
+    @apply rounded-card border border-gray-200 bg-white shadow-card;
+  }
+  .link-quiet {
+    @apply underline decoration-forest-300 underline-offset-4 hover:decoration-forest-700 transition-colors;
+  }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
-  border-radius: 3px;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
+  background: #D4CDBF;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #A9A193;
+  background-clip: content-box;
 }
 
 /* Animations */
@@ -79,6 +134,18 @@ input[type='number'] {
 
 /* Text selection */
 ::selection {
-  background-color: #dbeafe;
-  color: #1e40af;
+  background-color: #C5D6C8;
+  color: #142C20;
+}
+
+/* Respect users who prefer less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

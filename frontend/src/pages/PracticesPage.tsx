@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { practicesApi } from '@/services/api';
+import { apiErrorMessage, downloadFile } from '@/utils/api';
 import { useAuthStore } from '@/stores/authStore';
 import {
   Building2,
@@ -48,34 +49,56 @@ export default function PracticesPage() {
   // New practice form
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('919-555-0100');
-  const [address, setAddress] = useState('100 Medical Park Blvd');
-  const [city, setCity] = useState('Raleigh');
-  const [state, setState] = useState('NC');
+  const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
   const [adminName, setAdminName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
-  const [adminPassword, setAdminPassword] = useState('Password123!');
+  const [adminPassword, setAdminPassword] = useState('');
 
   // New staff / doctor form
   const [newStaffFirstName, setNewStaffFirstName] = useState('');
   const [newStaffLastName, setNewStaffLastName] = useState('');
   const [newStaffEmail, setNewStaffEmail] = useState('');
-  const [newStaffPassword, setNewStaffPassword] = useState('DoctorPass123!');
+  const [newStaffPassword, setNewStaffPassword] = useState('');
   const [newStaffRole, setNewStaffRole] = useState<'PRACTICE_ADMIN' | 'FRONT_DESK'>('PRACTICE_ADMIN');
   const [newStaffPhone, setNewStaffPhone] = useState('');
 
   // Reset password state
   const [resetTargetUser, setResetTargetUser] = useState<any | null>(null);
-  const [newResetPassword, setNewResetPassword] = useState('NewPass123!');
+  const [newResetPassword, setNewResetPassword] = useState('');
 
   // Copy feedback state
   const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
 
-  const handleCopy = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
+  const handleCopy = async (text: string, label: string) => {
+    if (!text) {
+      toast.error(`${label} is not available yet.`);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      toast.error('Copy failed. Select the text and copy it manually.');
+      return;
+    }
     setCopiedSnippet(label);
     toast.success(`${label} copied to clipboard!`);
     setTimeout(() => setCopiedSnippet(null), 2500);
+  };
+
+  const [confirmDeactivateId, setConfirmDeactivateId] = useState<string | null>(null);
+  const [downloadingPlugin, setDownloadingPlugin] = useState(false);
+  const handleDownloadPlugin = async (practice: any) => {
+    setDownloadingPlugin(true);
+    try {
+      await downloadFile(`/practices/${practice.id}/integration/wordpress/`, `heyjarvis-concierge-${practice.slug}.zip`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Plugin download failed.'));
+    } finally {
+      setDownloadingPlugin(false);
+    }
   };
 
   // Queries
@@ -117,15 +140,25 @@ export default function PracticesPage() {
     mutationFn: (newPractice: any) => practicesApi.createPractice(newPractice),
     onSuccess: (res: any) => {
       toast.success(`Practice "${res.name || name}" onboarded successfully!`);
+      if (res.admin_access?.invite_sent) {
+        toast.success(`Invite email sent to ${adminEmail}`);
+      } else if (res.admin_access?.temporary_password) {
+        toast(`Invite email failed. One-time password for ${adminEmail}: ${res.admin_access.temporary_password}`, { duration: 30000, icon: '🔑' });
+      }
       setShowCreateModal(false);
       setName('');
       setEmail('');
+      setPhone('');
+      setAddress('');
+      setCity('');
+      setState('');
       setAdminName('');
       setAdminEmail('');
+      setAdminPassword('');
       queryClient.invalidateQueries({ queryKey: ['agency-practices'] });
     },
     onError: (err: any) => {
-      toast.error(err?.response?.data?.error || 'Failed to onboard practice');
+      toast.error(apiErrorMessage(err, 'Failed to onboard practice'));
     },
   });
 
@@ -145,11 +178,14 @@ export default function PracticesPage() {
       practicesApi.addPracticeUser(selectedStaffPractice.id, payload),
     onSuccess: (res: any) => {
       toast.success(res.message || 'Staff member added successfully!');
+      if (res.temporary_password) {
+        toast(`Invite email failed. One-time password for ${res.email}: ${res.temporary_password}`, { duration: 30000, icon: '🔑' });
+      }
       setNewStaffEmail('');
       setNewStaffFirstName('');
       setNewStaffLastName('');
       setNewStaffPhone('');
-      setNewStaffPassword('DoctorPass123!');
+      setNewStaffPassword('');
       refetchStaff();
       queryClient.invalidateQueries({ queryKey: ['agency-practices'] });
     },
@@ -190,28 +226,37 @@ export default function PracticesPage() {
       toast.error('Please enter practice name and email');
       return;
     }
-    createMutation.mutate({
-      name,
-      email,
-      phone,
-      address,
-      city,
-      state,
-      admin_name: adminName,
-      admin_email: adminEmail,
-      admin_password: adminPassword,
-    });
+    if (adminEmail.trim() && adminPassword && adminPassword.length < 8) {
+      toast.error('The initial password must be at least 8 characters (or leave it blank to email an invite).');
+      return;
+    }
+    const payload: Record<string, unknown> = { name: name.trim(), email: email.trim() };
+    // Only send optional fields that were filled in; the backend applies defaults otherwise.
+    if (phone.trim()) payload.phone = phone.trim();
+    if (address.trim()) payload.address = address.trim();
+    if (city.trim()) payload.city = city.trim();
+    if (state.trim()) payload.state = state.trim();
+    if (adminEmail.trim()) {
+      payload.admin_name = adminName.trim();
+      payload.admin_email = adminEmail.trim();
+      payload.admin_password = adminPassword;
+    }
+    createMutation.mutate(payload);
   };
 
   const handleAddStaffSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newStaffEmail.trim() || !newStaffPassword.trim()) {
-      toast.error('Email ID and password are required');
+    if (!newStaffEmail.trim()) {
+      toast.error('Email is required');
+      return;
+    }
+    if (newStaffPassword && newStaffPassword.length < 8) {
+      toast.error('Password must be at least 8 characters (or leave it blank to email an invite).');
       return;
     }
     addStaffMutation.mutate({
       email: newStaffEmail.trim(),
-      password: newStaffPassword.trim(),
+      password: newStaffPassword,
       role: newStaffRole,
       first_name: newStaffFirstName.trim(),
       last_name: newStaffLastName.trim(),
@@ -635,14 +680,14 @@ export default function PracticesPage() {
 
                     <div>
                       <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                        Initial Password *
+                        Initial Password (optional)
                       </label>
                       <div className="relative">
                         <input
                           type="text"
-                          required
                           value={newStaffPassword}
                           onChange={(e) => setNewStaffPassword(e.target.value)}
+                          placeholder="Leave blank to email an invite"
                           className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
                         />
                       </div>
@@ -795,12 +840,20 @@ export default function PracticesPage() {
                                 <button
                                   onClick={() => {
                                     setResetTargetUser(u);
-                                    setNewResetPassword('DoctorPass2026!');
+                                    setNewResetPassword('');
                                   }}
                                   className="px-2 py-1 rounded-lg border border-gray-200 hover:bg-gray-100 text-gray-700 font-semibold text-[11px] flex items-center gap-1 transition"
                                   title="Reset password"
                                 >
-                                  <Key className="w-3 h-3 text-amber-600" /> Reset Password
+                                  <Key className="w-3 h-3 text-amber-600" /> Set Password
+                                </button>
+                                <button
+                                  onClick={() => staffActionMutation.mutate({ userId: u.id, action: 'send_password_link' })}
+                                  disabled={staffActionMutation.isPending}
+                                  className="px-2 py-1 rounded-lg border border-gray-200 hover:bg-gray-100 text-gray-700 font-semibold text-[11px] transition"
+                                  title="Email a password reset / set-password link"
+                                >
+                                  Email Link
                                 </button>
                                 <button
                                   onClick={() =>
@@ -820,14 +873,22 @@ export default function PracticesPage() {
                                 </button>
                                 <button
                                   onClick={() => {
-                                    if (confirm(`Are you sure you want to deactivate ${u.email}?`)) {
+                                    if (confirmDeactivateId === u.id) {
                                       deleteStaffMutation.mutate(u.id);
+                                      setConfirmDeactivateId(null);
+                                    } else {
+                                      setConfirmDeactivateId(u.id);
                                     }
                                   }}
-                                  className="px-2 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-[11px] font-semibold transition"
+                                  onBlur={() => setConfirmDeactivateId(null)}
+                                  className={`px-2 py-1 rounded-lg border text-[11px] font-semibold transition ${
+                                    confirmDeactivateId === u.id
+                                      ? 'bg-red-600 border-red-600 text-white'
+                                      : 'border-red-200 text-red-600 hover:bg-red-50'
+                                  }`}
                                   title="Deactivate account"
                                 >
-                                  Remove
+                                  {confirmDeactivateId === u.id ? 'Confirm?' : 'Remove'}
                                 </button>
                               </div>
                             </td>
@@ -934,14 +995,15 @@ export default function PracticesPage() {
                         </p>
                       </div>
 
-                      <a
-                        href={practicesApi.getWordPressPluginUrl(selectedIntegrationPractice.id)}
-                        download
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadPlugin(selectedIntegrationPractice)}
+                        disabled={downloadingPlugin}
                         className="px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-2 flex-shrink-0"
                       >
                         <Download className="w-4 h-4" />
-                        Download Plugin (.zip)
-                      </a>
+                        {downloadingPlugin ? 'Preparing…' : 'Download Plugin (.zip)'}
+                      </button>
                     </div>
 
                     <div className="mt-4 pt-3 border-t border-teal-200/80 text-xs text-gray-600">
@@ -1210,12 +1272,13 @@ export default function PracticesPage() {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Initial Password
+                        Initial Password (optional)
                       </label>
                       <input
                         type="text"
                         value={adminPassword}
                         onChange={(e) => setAdminPassword(e.target.value)}
+                        placeholder="Leave blank to email an invite"
                         className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:outline-none font-mono"
                       />
                     </div>

@@ -82,7 +82,8 @@ class TenantIsolationMixin:
                     self.request.query_params.get('practice_id')
                 )
                 if practice_id:
-                    return qs.filter(practice_id=practice_id)
+                    practice = get_request_practice(self.request)
+                    return qs.filter(practice=practice) if practice else qs.none()
                 # If agency admin has a default practice, scope to it when requested
                 scoped = self.request.query_params.get('scoped')
                 if scoped and user.practice:
@@ -95,3 +96,55 @@ class TenantIsolationMixin:
             return qs.filter(practice=user.practice)
 
         return qs
+
+
+PRACTICE_ADMIN_ROLES = ('PRACTICE_ADMIN', 'ADMIN', 'OWNER')
+# Roles a practice administrator may assign inside their own practice.
+PRACTICE_ASSIGNABLE_ROLES = ('PRACTICE_ADMIN', 'FRONT_DESK', 'OWNER', 'ADMIN')
+
+
+def is_agency_user(user) -> bool:
+    return bool(user and user.is_authenticated and (user.is_superuser or (user.role or '').upper() == 'AGENCY_ADMIN'))
+
+
+def is_practice_admin_user(user) -> bool:
+    if not (user and user.is_authenticated):
+        return False
+    if is_agency_user(user):
+        return True
+    return bool(user.practice_id) and (user.role or '').upper() in PRACTICE_ADMIN_ROLES
+
+
+def get_request_practice(request):
+    """
+    Resolve the tenant for a request from trusted server-side state.
+
+    Tenant staff are always pinned to ``request.user.practice``; any client-supplied
+    practice id is ignored. Agency admins may scope to a practice with the
+    ``X-Practice-ID`` header or ``practice_id`` query param, falling back to their
+    own assigned practice.
+    """
+    from apps.practices.models import Practice
+
+    user = getattr(request, 'user', None)
+    if not (user and user.is_authenticated):
+        return None
+    if is_agency_user(user):
+        practice_id = request.headers.get('X-Practice-ID') or request.GET.get('practice_id')
+        if practice_id:
+            try:
+                return Practice.objects.filter(id=int(practice_id)).first()
+            except (TypeError, ValueError):
+                return None
+        return user.practice
+    return user.practice
+
+
+def can_manage_user(actor, target) -> bool:
+    """Whether ``actor`` may modify ``target`` (password reset, role change, deactivate)."""
+    if is_agency_user(actor):
+        return True
+    if is_agency_user(target):
+        # Practice-level admins can never act on platform administrators.
+        return False
+    return is_practice_admin_user(actor) and actor.practice_id is not None and actor.practice_id == target.practice_id

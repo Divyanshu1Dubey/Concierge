@@ -7,17 +7,12 @@ import DashboardPage from './pages/DashboardPage';
 import PracticesPage from './pages/PracticesPage';
 import ConciergePage from './pages/ConciergePage';
 import ConversationsPage from './pages/ConversationsPage';
-import MessagesPage from './pages/MessagesPage';
 import RequestsPage from './pages/RequestsPage';
 import RequestDetailPage from './pages/RequestDetailPage';
-import RequestReview from './pages/RequestReview';
 import PatientsPage from './pages/PatientsPage';
 import LeadsPage from './pages/LeadsPage';
-import KnowledgePage from './pages/KnowledgePage';
 import SettingsPage from './pages/SettingsPage';
-import ChatPage from './pages/ChatPage';
 import NotFoundPage from './pages/NotFoundPage';
-import WidgetPreview from './components/WidgetPreview/WidgetPreview';
 import EmailComposerPage from './pages/EmailComposerPage';
 import InstallationPage from './pages/InstallationPage';
 import WidgetSettingsPage from './pages/WidgetSettingsPage';
@@ -27,6 +22,8 @@ import EmailTemplatesPage from './pages/EmailTemplatesPage';
 import TeamPage from './pages/TeamPage';
 import SecurityPage from './pages/SecurityPage';
 import HostedConciergePage from './pages/HostedConciergePage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import { useAuthStore } from './stores/authStore';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -106,8 +103,11 @@ function App() {
       <Route path="/portal" element={<LandingPage />} />
       <Route path="/landing" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/chat" element={<ChatPage />} />
-      <Route path="/widget" element={<WidgetPreview />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
+      {/* Legacy demo URLs: the working, tenant-aware versions live in the dashboard */}
+      <Route path="/chat" element={<Navigate to="/dashboard/concierge" replace />} />
+      <Route path="/widget" element={<Navigate to="/dashboard/installation" replace />} />
       <Route path="/concierge/:slug" element={<HostedConciergePage />} />
 
       {/* Protected dashboard routes */}
@@ -135,14 +135,14 @@ function App() {
         {/* Front Desk & Common Operational Workflows */}
         <Route path="conversations" element={<ConversationsPage />} />
         <Route path="concierge" element={<ConciergePage />} />
-        <Route path="messages" element={<MessagesPage />} />
+        <Route path="messages" element={<EmailComposerPage />} />
         <Route path="requests" element={<RequestsPage />} />
         <Route path="requests/:id" element={<RequestDetailPage />} />
-        <Route path="requests/:id/review" element={<RequestReview />} />
+        <Route path="requests/:id/review" element={<RequestDetailPage />} />
         <Route path="patients" element={<PatientsPage />} />
         <Route path="leads" element={<LeadsPage />} />
         <Route path="email" element={<EmailComposerPage />} />
-        <Route path="knowledge" element={<KnowledgePage />} />
+        <Route path="knowledge" element={<Navigate to="/dashboard/templates" replace />} />
 
         {/* Practice Admin & Agency Admin Only: Configuration, Security, Team, Integrations */}
         <Route

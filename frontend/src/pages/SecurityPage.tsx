@@ -1,25 +1,41 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { practicesApi } from '@/services/api';
+import { apiErrorMessage, downloadFile } from '@/utils/api';
 import {
   ShieldCheck, Download, History, Lock,
   FileSpreadsheet
 } from 'lucide-react';
 
 export default function SecurityPage() {
-  // Fetch audit logs
-  const { data: auditData, isLoading } = useQuery({
-    queryKey: ['auditLogs'],
-    queryFn: () => practicesApi.auditLogs(),
+  const [page, setPage] = useState(1);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const { data: auditData, isLoading, isError } = useQuery({
+    queryKey: ['auditLogs', page],
+    queryFn: () => practicesApi.auditLogs(page),
   });
 
-  const logs: any[] = auditData?.audit_logs || [];
+  const logs: any[] = auditData?.results || [];
+  const totalPages = Math.max(1, Math.ceil((auditData?.count || 0) / 20));
+
+  const handleExport = async (type: 'leads' | 'conversations') => {
+    setDownloading(type);
+    try {
+      await downloadFile(`/practices/export/${type}/`, `${type}.csv`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Export failed.'));
+    } finally {
+      setDownloading(null);
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-5xl">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Security, Audit Trail & Exports</h1>
-        <p className="text-gray-500 mt-1">Tenant isolation status, tamper-evident audit history, and data exports.</p>
+        <p className="text-gray-500 mt-1">Tenant isolation status, audit history, and data exports.</p>
       </div>
 
       {/* Security Status Cards */}
@@ -59,22 +75,24 @@ export default function SecurityPage() {
             Download your practice data in standard CSV format for offsite compliance backups.
           </p>
           <div className="flex gap-2 mt-2">
-            <a
-              href="/api/practices/export/leads/"
-              download="leads.csv"
+            <button
+              type="button"
+              onClick={() => handleExport('leads')}
+              disabled={downloading !== null}
               className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-800 px-2.5 py-1 rounded font-semibold flex items-center gap-1"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
-              Leads CSV
-            </a>
-            <a
-              href="/api/practices/export/conversations/"
-              download="conversations.csv"
+              {downloading === 'leads' ? 'Exporting…' : 'Leads CSV'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleExport('conversations')}
+              disabled={downloading !== null}
               className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-800 px-2.5 py-1 rounded font-semibold flex items-center gap-1"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-teal-600" />
-              Conversations CSV
-            </a>
+              {downloading === 'conversations' ? 'Exporting…' : 'Conversations CSV'}
+            </button>
           </div>
         </div>
       </div>
@@ -91,6 +109,8 @@ export default function SecurityPage() {
 
         {isLoading ? (
           <div className="p-12 text-center text-gray-400 text-sm">Loading audit trail...</div>
+        ) : isError ? (
+          <div className="p-12 text-center text-red-600 text-sm">Could not load the audit trail.</div>
         ) : logs.length === 0 ? (
           <div className="p-12 text-center text-gray-400 text-sm">
             No audit records yet. All sensitive actions will be cataloged here automatically.
@@ -114,7 +134,7 @@ export default function SecurityPage() {
                       {new Date(log.created_at).toLocaleString()}
                     </td>
                     <td className="px-6 py-3.5 font-semibold text-gray-800">
-                      {log.user_email || 'System'}
+                      {log.actor_name || log.actor_email || 'System'}
                     </td>
                     <td className="px-6 py-3.5">
                       <span className="font-mono text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded font-bold">
@@ -131,6 +151,13 @@ export default function SecurityPage() {
                 ))}
               </tbody>
             </table>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-gray-100 text-xs">
+                <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="px-2 py-1 border rounded disabled:opacity-40">Previous</button>
+                <span>Page {page} of {totalPages}</span>
+                <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} className="px-2 py-1 border rounded disabled:opacity-40">Next</button>
+              </div>
+            )}
           </div>
         )}
       </div>

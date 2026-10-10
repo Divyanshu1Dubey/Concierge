@@ -4,6 +4,7 @@ export interface User {
   first_name: string;
   last_name: string;
   full_name?: string;
+  phone?: string;
   role: string;
   normalized_role?: 'AGENCY_ADMIN' | 'PRACTICE_ADMIN' | 'FRONT_DESK';
   is_agency_admin?: boolean;

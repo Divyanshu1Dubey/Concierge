@@ -1,13 +1,20 @@
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { leadsApi } from '@/services/api';
 import { UserPlus, Search } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export default function LeadsPage() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
-  const { data, isLoading } = useQuery({
-    queryKey: ['leads', search],
-    queryFn: () => leadsApi.getAll(),
+  const [debounced, setDebounced] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['leads', debounced],
+    queryFn: () => leadsApi.getAll(debounced ? { search: debounced } : undefined),
   });
 
   const leads: any[] = Array.isArray(data) ? data : (data?.results ?? []);
@@ -56,6 +63,8 @@ export default function LeadsPage() {
             <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto" />
             <p className="text-gray-500 mt-3">Loading leads...</p>
           </div>
+        ) : isError ? (
+          <div className="p-12 text-center text-sm text-red-600">Could not load leads.</div>
         ) : leads.length === 0 ? (
           <div className="p-12 text-center">
             <UserPlus className="w-12 h-12 text-gray-300 mx-auto mb-3" />
@@ -77,7 +86,7 @@ export default function LeadsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {leads.map((lead: any) => (
-                  <tr key={lead.id} className="hover:bg-gray-50">
+                  <tr key={lead.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/dashboard/requests/${lead.id}`)}>
                     <td className="px-6 py-3 text-sm font-medium text-gray-900">
                       {lead.patient_name || lead.name || 'Anonymous Patient'}
                     </td>

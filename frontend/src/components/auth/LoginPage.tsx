@@ -1,151 +1,175 @@
-import { useState } from 'react';
-import { Bot } from 'lucide-react';
-import { api } from '@/utils/api';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Sparkles } from 'lucide-react';
+import { api, apiErrorMessage } from '@/utils/api';
 import type { User } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 
+interface DemoAccount {
+  email: string;
+  password: string;
+  role: string;
+  label: string;
+}
+
 export default function LoginPage() {
-  const [email, setEmail] = useState('admin@raleighdentistry.com');
-  const [password, setPassword] = useState('Password123!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('suspended')) return 'Your practice account is suspended. Please contact your HeyJarvis administrator.';
+    if (params.get('expired')) return 'Your session expired. Please sign in again.';
+    return '';
+  });
+  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>([]);
   const login = useAuthStore((state) => state.login);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    // Demo logins are only offered when the backend explicitly enables demo mode.
+    api.get('/auth/config/')
+      .then((res) => setDemoAccounts(res.data?.demo_accounts_enabled ? res.data.demo_accounts || [] : []))
+      .catch(() => setDemoAccounts([]));
+  }, []);
+
+  const signIn = async (loginEmail: string, loginPassword: string) => {
     setIsLoading(true);
     setError('');
 
     try {
-      const response = await api.post('/auth/login/', { email, password });
-      const { access } = response.data;
-      localStorage.setItem('auth_token', access);
-
-      const userRes = await api.get('/auth/me/');
-      const user: User = userRes.data;
-      login(access, user);
+      const response = await api.post('/auth/login/', { email: loginEmail, password: loginPassword });
+      const { access, refresh, user } = response.data as { access: string; refresh: string; user: User };
+      login(access, user, refresh);
       window.location.href = '/dashboard';
     } catch (err: any) {
-      console.error('Login error:', err);
-      const detail =
-        err?.response?.data?.non_field_errors?.[0] ||
-        err?.response?.data?.detail ||
-        'Login failed. Check your credentials.';
-      setError(detail);
+      if (err?.response?.status === 429) {
+        setError('Too many sign-in attempts. Please wait a minute and try again.');
+      } else {
+        setError(apiErrorMessage(err, 'Login failed. Check your credentials.'));
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    signIn(email, password);
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4">
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-teal-500/10 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
-      </div>
-
-      <div className="relative w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl mb-4 shadow-lg shadow-teal-500/30">
-            <Bot className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">HeyJarvis</h1>
-          <p className="text-slate-400 mt-2 text-sm">AI Dental Front Desk Platform</p>
+    <div className="min-h-screen bg-cream grid lg:grid-cols-[1fr_1.05fr]">
+      {/* Brand panel */}
+      <aside className="hidden lg:flex flex-col justify-between bg-forest-900 text-forest-100 p-12 xl:p-16">
+        <Link to="/" className="flex items-center gap-2.5 w-fit" aria-label="HeyJarvis Concierge home">
+          <span className="w-9 h-9 rounded-[10px] bg-forest-700 flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-forest-100" aria-hidden="true" />
+          </span>
+          <span className="leading-tight">
+            <span className="font-display text-[19px] text-white block">HeyJarvis</span>
+            <span className="text-[11px] text-forest-300 block">Concierge</span>
+          </span>
+        </Link>
+        <div className="max-w-md">
+          <p className="font-display text-[40px] leading-[1.1] text-white tracking-tight">
+            Every patient inquiry deserves an answer.
+          </p>
+          <p className="mt-5 text-[15px] leading-relaxed text-forest-200">
+            Your practice's requests, conversations and settings, all in one calm workspace.
+          </p>
         </div>
+        <p className="text-[12.5px] text-forest-400">A HeyJarvis.ai product · Made for care teams</p>
+      </aside>
 
-        <div className="bg-white/5 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/10 p-8">
-          <div className="text-center mb-8">
-            <h2 className="text-xl font-semibold text-white">Welcome back</h2>
-            <p className="text-sm text-slate-400 mt-1">Sign in to your practice dashboard</p>
-          </div>
+      {/* Sign-in form */}
+      <main className="flex items-center justify-center px-5 py-12 sm:px-8">
+        <div className="w-full max-w-[400px] animate-rise">
+          <Link to="/" className="lg:hidden flex items-center gap-2.5 mb-10 w-fit" aria-label="HeyJarvis Concierge home">
+            <span className="w-9 h-9 rounded-[10px] bg-forest-800 flex items-center justify-center">
+              <Sparkles className="w-4 h-4 text-forest-100" aria-hidden="true" />
+            </span>
+            <span className="font-display text-[19px] text-forest-900">HeyJarvis Concierge</span>
+          </Link>
 
-          <form onSubmit={handleLogin} className="space-y-4">
+          <h1 className="text-[32px] leading-tight font-normal text-forest-900">Welcome back</h1>
+          <p className="text-[15px] text-stone-600 mt-2">Sign in to your practice dashboard.</p>
+
+          <form onSubmit={handleLogin} className="mt-8 space-y-5" noValidate={false}>
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">Email</label>
+              <label htmlFor="login-email" className="block text-[13px] font-medium text-stone-700 mb-1.5">Email</label>
               <input
+                id="login-email"
                 name="email"
                 type="email"
+                autoComplete="email"
+                required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500/50 text-sm transition-all"
-                placeholder="you@practice.com"
+                className="w-full px-4 py-3 bg-white border border-stone-300 rounded-xl text-[15px] text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-forest-500/30 focus:border-forest-500 transition"
+                placeholder="name@practice.com"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">Password</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor="login-password" className="block text-[13px] font-medium text-stone-700">Password</label>
+                <Link to="/forgot-password" className="text-[12.5px] text-forest-700 hover:text-forest-900 link-quiet">Forgot password?</Link>
+              </div>
               <input
+                id="login-password"
                 name="password"
                 type="password"
+                autoComplete="current-password"
+                required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500/50 text-sm transition-all"
+                className="w-full px-4 py-3 bg-white border border-stone-300 rounded-xl text-[15px] text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-forest-500/30 focus:border-forest-500 transition"
                 placeholder="••••••••"
               />
             </div>
 
             {error && (
-              <p className="text-sm text-red-400 bg-red-400/10 rounded-lg px-3 py-2">{error}</p>
+              <p role="alert" className="text-[13.5px] text-red-800 bg-red-50 border border-red-200 rounded-xl px-3.5 py-2.5">{error}</p>
             )}
 
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-xl font-medium text-sm hover:from-teal-600 hover:to-cyan-700 transition-all shadow-lg shadow-teal-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-forest-800 hover:bg-forest-900 text-white rounded-full font-medium text-[15px] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isLoading ? (
-                <div className="animate-spin rounded-full h-5 w-5 border-2 border-white/30 border-t-white" />
+                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white/30 border-t-white" aria-label="Signing in" />
               ) : (
-                'Sign In'
+                'Sign in'
               )}
             </button>
           </form>
 
-          <div className="mt-6 pt-5 border-t border-white/10">
-            <p className="text-xs text-center text-slate-400 mb-2 font-medium">Quick Demo Accounts (click to fill):</p>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail('admin@raleighdentistry.com');
-                  setPassword('Password123!');
-                  setError('');
-                }}
-                className="px-2 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs text-slate-300 text-center transition-all truncate"
-                title="Agency Admin"
-              >
-                👑 Agency
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail('brody@raleighdentistry.com');
-                  setPassword('Password123!');
-                  setError('');
-                }}
-                className="px-2 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs text-slate-300 text-center transition-all truncate"
-                title="Dr. Sarah Brody"
-              >
-                🩺 Doctor
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail('desk@raleighdentistry.com');
-                  setPassword('Password123!');
-                  setError('');
-                }}
-                className="px-2 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs text-slate-300 text-center transition-all truncate"
-                title="Front Desk"
-              >
-                💻 Front Desk
-              </button>
+          {demoAccounts.length > 0 && (
+            <div className="mt-8 pt-7 border-t border-stone-200">
+              <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-stone-500 mb-3">Demo environment</p>
+              <div className="grid gap-2">
+                {demoAccounts.map((acct) => (
+                  <button
+                    key={acct.email}
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => signIn(acct.email, acct.password)}
+                    className="w-full text-left px-4 py-3 bg-white hover:border-forest-400 border border-stone-200 rounded-xl text-[14px] text-stone-800 transition-colors disabled:opacity-50"
+                  >
+                    <span className="font-medium">{acct.label}</span>
+                    <span className="block text-[12px] text-stone-500">{acct.email}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-            <p className="text-[11px] text-center text-slate-500 mt-2">Password: <code className="text-teal-400">Password123!</code></p>
-          </div>
-        </div>
+          )}
 
-        <p className="text-center text-xs text-slate-600 mt-6">HeyJarvis — AI Dental Concierge Platform</p>
-      </div>
+          <p className="mt-10 text-[13px] text-stone-500">
+            New to Concierge? <a href="https://www.heyjarvis.ai/#pilot" className="link-quiet text-forest-800">Request access</a>
+          </p>
+        </div>
+      </main>
     </div>
   );
 }

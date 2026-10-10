@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { practicesApi } from '@/services/api';
+import { apiErrorMessage } from '@/utils/api';
 import {
   Calendar, Clock, AlertTriangle, Headphones, Save, Check, ShieldCheck
 } from 'lucide-react';
@@ -21,64 +23,61 @@ export default function BusinessRulesPage() {
   });
 
   // Emergency & Triage rules
-  const [emergencyPhone, setEmergencyPhone] = useState('(919) 555-0199');
-  const [emergencyMessage, setEmergencyMessage] = useState(
-    'If you are experiencing severe swelling, uncontrollable bleeding, or difficulty breathing, please call 911 or visit the nearest ER immediately. For urgent dental pain, our on-call team has been alerted.'
-  );
-  const [requireMinimalEmergencyInfo, setRequireMinimalEmergencyInfo] = useState(true);
+  const [emergencyPhone, setEmergencyPhone] = useState('');
+  const [emergencyMessage, setEmergencyMessage] = useState('');
 
   // Human handoff rules
   const [handoffEnabled, setHandoffEnabled] = useState(true);
-  const [handoffMessage, setHandoffMessage] = useState(
-    "I'm connecting you with our front desk team. A coordinator will review your conversation history and follow up shortly."
-  );
+  const [handoffMessage, setHandoffMessage] = useState('');
 
   // Appointment & Custom AI rules
   const [cancellationNoticeHours, setCancellationNoticeHours] = useState(24);
-  const [customInstructions, setCustomInstructions] = useState(
-    'We are Raleigh Comprehensive & Cosmetic Dentistry. Always be warm and welcoming. We offer free cosmetic consultations and accepted CareCredit financing. Never invent dentist availability or confirm an appointment date without front desk verification.'
-  );
+  const [customInstructions, setCustomInstructions] = useState('');
 
-  // Fetch from backend
-  const { data: rulesData } = useQuery({
-    queryKey: ['bookingRules'],
+  const { data: rulesData, isLoading, isError } = useQuery({
+    queryKey: ['booking-rules'],
     queryFn: () => practicesApi.bookingRules(),
   });
 
   useEffect(() => {
-    if (rulesData?.rules) {
-      const r = rulesData.rules;
-      if (r.hours) setHours(r.hours);
-      if (r.emergency_phone) setEmergencyPhone(r.emergency_phone);
-      if (r.emergency_message) setEmergencyMessage(r.emergency_message);
-      if (r.handoff_enabled !== undefined) setHandoffEnabled(Boolean(r.handoff_enabled));
-      if (r.handoff_message) setHandoffMessage(r.handoff_message);
-      if (r.cancellation_notice_hours) setCancellationNoticeHours(Number(r.cancellation_notice_hours));
-      if (r.custom_instructions) setCustomInstructions(r.custom_instructions);
+    if (!rulesData) return;
+    const r = rulesData;
+    if (r.business_hours && Object.keys(r.business_hours).length) {
+      setHours((prev) => ({ ...prev, ...r.business_hours }));
     }
+    setEmergencyPhone(r.emergency_phone ?? '');
+    setEmergencyMessage(r.emergency_message ?? '');
+    setHandoffEnabled(r.handoff_enabled !== false);
+    setHandoffMessage(r.handoff_message ?? '');
+    setCancellationNoticeHours(Number(r.cancellation_notice_hours ?? 24));
+    setCustomInstructions(r.custom_instructions ?? '');
   }, [rulesData]);
 
   const saveMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => practicesApi.updateBookingRules(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bookingRules'] });
+      queryClient.invalidateQueries({ queryKey: ['booking-rules'] });
+      toast.success('Business rules saved');
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not save business rules.')),
   });
 
   const handleSave = () => {
     saveMutation.mutate({
-      hours,
+      business_hours: hours,
       emergency_phone: emergencyPhone,
       emergency_message: emergencyMessage,
-      require_minimal_emergency_info: requireMinimalEmergencyInfo,
       handoff_enabled: handoffEnabled,
       handoff_message: handoffMessage,
       cancellation_notice_hours: cancellationNoticeHours,
       custom_instructions: customInstructions,
     });
   };
+
+  if (isLoading) return <div className="p-8 text-sm text-gray-500">Loading business rules…</div>;
+  if (isError) return <div className="p-8 text-sm text-red-600">Could not load business rules. Please refresh the page.</div>;
 
   const updateDay = (day: string, field: 'open' | 'close' | 'closed', val: any) => {
     setHours((prev) => ({
@@ -185,20 +184,9 @@ export default function BusinessRulesPage() {
             />
           </div>
 
-          <div>
-            <label className="flex items-center justify-between cursor-pointer">
-              <div>
-                <span className="text-sm font-semibold text-gray-800">Fast-Track Emergency Triage</span>
-                <p className="text-xs text-gray-400">Collect only name and phone before immediate notification</p>
-              </div>
-              <input
-                type="checkbox"
-                checked={requireMinimalEmergencyInfo}
-                onChange={(e) => setRequireMinimalEmergencyInfo(e.target.checked)}
-                className="w-4 h-4 text-teal-600 rounded"
-              />
-            </label>
-          </div>
+          <p className="text-xs text-gray-500">
+            Emergency requests are always fast-tracked: the concierge only asks for a callback number before alerting your team.
+          </p>
 
           <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-amber-600 flex-shrink-0" />

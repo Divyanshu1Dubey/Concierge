@@ -5,6 +5,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views import View
 from django.utils import timezone
 from django.db import connection
+from django.views.decorators.clickjacking import xframe_options_exempt
 
 class HealthCheckView(View):
     """Liveness probe: verifies process is alive and database is reachable."""
@@ -25,12 +26,22 @@ class HealthCheckView(View):
         }, status=status_code)
 
 class ReadyCheckView(View):
-    """Readiness probe: verifies system is ready to receive visitor traffic."""
+    """Readiness probe: database reachable and migrations applied."""
     def get(self, request):
+        checks = {'database': True, 'migrations': True}
+        try:
+            from django.db.migrations.executor import MigrationExecutor
+            executor = MigrationExecutor(connection)
+            checks['migrations'] = not executor.migration_plan(executor.loader.graph.leaf_nodes())
+        except Exception:
+            checks['database'] = False
+            checks['migrations'] = False
+        ready = all(checks.values())
         return JsonResponse({
-            'status': 'ready',
+            'status': 'ready' if ready else 'not_ready',
+            'checks': checks,
             'timestamp': timezone.now().isoformat(),
-        })
+        }, status=200 if ready else 503)
 
 class VersionCheckView(View):
     """Platform version and environment details."""
@@ -39,7 +50,7 @@ class VersionCheckView(View):
             'platform': 'HeyJarvis Concierge Cloud',
             'version': '1.0.0',
             'environment': 'development' if settings.DEBUG else 'production',
-            'public_url': getattr(settings, 'APP_PUBLIC_URL', 'https://web-production-21c4f.up.railway.app'),
+            'public_url': getattr(settings, 'APP_PUBLIC_URL', '') or request.build_absolute_uri('/').rstrip('/'),
         })
 
 def serve_widget_js(request):
@@ -119,7 +130,12 @@ def serve_spa(request, *args, **kwargs):
     if dist_dir:
         index_file = os.path.join(dist_dir, 'index.html')
         with open(index_file, 'r', encoding='utf-8') as f:
-            return HttpResponse(f.read(), content_type='text/html')
+            response = HttpResponse(f.read(), content_type='text/html')
+        response['Cache-Control'] = 'no-cache'
+        if request.path.startswith('/concierge/'):
+            # The hosted concierge is designed to be embedded in practice websites via iframe.
+            response.xframe_options_exempt = True
+        return response
 
     return HttpResponse(
         "<h1>HeyJarvis: Frontend build not found</h1><p>Please run <code>npm run build</code> in the frontend folder.</p>",
@@ -145,6 +161,9 @@ class RootIndexView(View):
             portal_link = f"{frontend_url.rstrip('/')}/portal"
 
         if 'text/html' in request.META.get('HTTP_ACCEPT', ''):
+            # Browsers get the public marketing site (React SPA) when the build is present.
+            if get_frontend_dist():
+                return serve_spa(request)
             html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>

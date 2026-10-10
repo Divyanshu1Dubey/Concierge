@@ -17,15 +17,11 @@ export default function RequestsPage() {
     queryFn: () => requestsApi.stats(),
   });
 
-  const { data: requestsData, isLoading } = useQuery({
+  const { data: requestsData, isLoading, isError } = useQuery({
     queryKey: ['appointment-requests', activeTab, statusFilter, search],
     queryFn: () => {
       const params: Record<string, string> = {};
-      if (activeTab !== 'all') {
-        if (activeTab === 'new') params.status = 'pending';
-        else if (activeTab === 'emergency') params.urgency = 'URGENT';
-        else params.intent = activeTab;
-      }
+      if (activeTab !== 'all') params.tab = activeTab;
       if (statusFilter) params.status = statusFilter;
       if (search) params.search = search;
       return requestsApi.list(params);
@@ -141,6 +137,8 @@ export default function RequestsPage() {
             <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto" />
             <p className="text-gray-500 text-sm mt-3">Loading requests...</p>
           </div>
+        ) : isError ? (
+          <div className="p-16 text-center text-sm text-red-600">Could not load requests. Please refresh.</div>
         ) : requests.length === 0 ? (
           <div className="p-16 text-center space-y-3">
             <CalendarCheck className="w-12 h-12 text-gray-300 mx-auto" />

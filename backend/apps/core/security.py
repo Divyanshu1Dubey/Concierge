@@ -1,5 +1,6 @@
 """Security utilities for credential encryption, secret masking, and origin validation."""
 import base64
+import os
 import re
 from urllib.parse import urlparse
 from django.conf import settings
@@ -17,7 +18,7 @@ def encrypt_secret(plain_text: str) -> str:
         return ""
     key = _get_encryption_key()
     aesgcm = AESGCM(key)
-    nonce = hashlib.sha256(f"nonce:{plain_text[:5]}".encode('utf-8')).digest()[:12]
+    nonce = os.urandom(12)
     encrypted = aesgcm.encrypt(nonce, plain_text.encode('utf-8'), None)
     payload = nonce + encrypted
     return base64.b64encode(payload).decode('utf-8')

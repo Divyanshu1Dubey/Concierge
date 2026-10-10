@@ -15,9 +15,14 @@ class AIInteractionLog(models.Model):
         ('intent_classification', 'Intent Classification'),
         ('appointment_booking', 'Appointment Booking'),
         ('summary', 'Summary'),
+        ('escalation', 'Escalation'),
+        ('error', 'Error'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    practice = models.ForeignKey(
+        'practices.Practice', null=True, blank=True, on_delete=models.SET_NULL, related_name='ai_logs'
+    )
     provider = models.CharField(max_length=50, db_index=True)
     model = models.CharField(max_length=100, db_index=True)
     interaction_type = models.CharField(max_length=30, choices=INTERACTION_TYPE_CHOICES)
@@ -37,6 +42,7 @@ class AIInteractionLog(models.Model):
         indexes = [
             models.Index(fields=['provider', 'created_at']),
             models.Index(fields=['interaction_type', 'created_at']),
+            models.Index(fields=['practice', 'created_at']),
         ]
 
     def __str__(self):

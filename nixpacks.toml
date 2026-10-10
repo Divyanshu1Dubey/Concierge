@@ -8,8 +8,8 @@ cmds = [
 
 [phases.build]
 cmds = [
-  "python backend/manage.py collectstatic --noinput"
+  "if [ -f backend/manage.py ]; then python backend/manage.py collectstatic --noinput; elif [ -f manage.py ]; then python manage.py collectstatic --noinput; fi"
 ]
 
 [start]
-cmd = "python backend/manage.py migrate --noinput && python backend/manage.py seed_raleigh && gunicorn --chdir backend config.wsgi:application --bind 0.0.0.0:$PORT"
+cmd = "bash start.sh"

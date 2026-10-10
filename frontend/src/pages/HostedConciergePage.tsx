@@ -18,9 +18,7 @@ export default function HostedConciergePage() {
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [quickOptions, setQuickOptions] = useState<string[]>([
-    'New Patient', 'Emergency', 'Cleaning', 'Question'
-  ]);
+  const [quickOptions, setQuickOptions] = useState<{ label: string; value: string }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -36,6 +34,7 @@ export default function HostedConciergePage() {
             timestamp: new Date(),
           },
         ]);
+        setQuickOptions(Array.isArray(data.quick_replies) ? data.quick_replies : []);
         setLoading(false);
       })
       .catch(() => {
@@ -65,13 +64,11 @@ export default function HostedConciergePage() {
           setConversationId(data.conversation_id);
         }
 
-        if (data.quick_options && Array.isArray(data.quick_options) && data.quick_options.length > 0) {
-          setQuickOptions(data.quick_options);
-        } else if (data.quick_replies && Array.isArray(data.quick_replies) && data.quick_replies.length > 0) {
-          setQuickOptions(data.quick_replies.map((r: any) => r.label || r));
-        } else {
-          setQuickOptions([]);
-        }
+        setQuickOptions(
+          Array.isArray(data.quick_replies)
+            ? data.quick_replies.map((r: any) => (typeof r === 'string' ? { label: r, value: r } : r))
+            : []
+        );
 
         const reply: Message = {
           role: 'assistant',
@@ -83,7 +80,7 @@ export default function HostedConciergePage() {
       .catch(() => {
         const fallback: Message = {
           role: 'assistant',
-          content: "I'm having trouble connecting right now. Please leave your phone number and our front desk will contact you.",
+          content: `Sorry, your message could not be sent. Please try again${config?.phone ? ` or call us at ${config.phone}` : ''}.`,
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, fallback]);
@@ -200,11 +197,11 @@ export default function HostedConciergePage() {
           <div className="px-4 py-2 bg-white border-t border-gray-100 flex flex-wrap gap-2">
             {quickOptions.map((opt) => (
               <button
-                key={opt}
-                onClick={() => handleSend(opt)}
+                key={opt.label}
+                onClick={() => handleSend(opt.value)}
                 className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-full text-xs font-medium transition"
               >
-                {opt}
+                {opt.label}
               </button>
             ))}
           </div>

@@ -1,6 +1,7 @@
 # Environment & secrets
 .env
 .env.*
+!.env.example
 *.env
 backend/.env
 frontend/.env
@@ -21,6 +22,7 @@ backend/venv/
 backend/.venv/
 
 # Databases
+backups/
 *.db
 *.sqlite3
 heyjarvis.sqlite3
@@ -61,3 +63,5 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+*.sqlite3-wal
+*.sqlite3-shm

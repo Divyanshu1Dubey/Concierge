@@ -1,0 +1,15 @@
+[phases.setup]
+nixPkgs = ["python312"]
+
+[phases.install]
+cmds = [
+  "pip install -r requirements.txt"
+]
+
+[phases.build]
+cmds = [
+  "if [ -f backend/manage.py ]; then python backend/manage.py collectstatic --noinput; elif [ -f manage.py ]; then python manage.py collectstatic --noinput; fi"
+]
+
+[start]
+cmd = "bash start.sh"

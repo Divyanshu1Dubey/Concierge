@@ -1,70 +1,90 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { practicesApi } from '@/services/api';
+import { apiErrorMessage, asList } from '@/utils/api';
 import {
   FileText, Save, Check, Eye, Code
 } from 'lucide-react';
 
+// Only variables the backend substitutes when drafting replies (appointments AIDraftView).
 const AVAILABLE_VARIABLES = [
   '{{patient_name}}',
-  '{{phone}}',
   '{{email}}',
+  '{{phone}}',
   '{{service}}',
   '{{intent}}',
   '{{preferred_date}}',
   '{{preferred_time}}',
-  '{{insurance}}',
-  '{{financing}}',
   '{{message}}',
-  '{{conversation_summary}}',
-  '{{page_url}}',
-  '{{conversation_id}}',
+  '{{practice}}',
+];
+
+// Mirrors EmailTemplate.TEMPLATE_TYPES on the backend.
+const TEMPLATE_TYPES: { type: string; label: string }[] = [
+  { type: 'new_patient', label: 'New Patient Request' },
+  { type: 'emergency', label: 'Emergency Request' },
+  { type: 'cleaning', label: 'Cleaning & Checkup' },
+  { type: 'reschedule', label: 'Reschedule Request' },
+  { type: 'cancel', label: 'Cancellation Request' },
+  { type: 'question', label: 'General Question' },
+  { type: 'handoff', label: 'Human Handoff Request' },
 ];
 
 export default function EmailTemplatesPage() {
   const queryClient = useQueryClient();
-  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const [selectedType, setSelectedType] = useState<string>(TEMPLATE_TYPES[0].type);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [previewMode, setPreviewMode] = useState(false);
   const [saved, setSaved] = useState(false);
 
   // Fetch templates from API
-  const { data: templatesData, isLoading } = useQuery({
+  const { data: templatesData, isLoading, isError } = useQuery({
     queryKey: ['templates'],
     queryFn: () => practicesApi.templates(),
   });
 
-  const templates: any[] = templatesData?.templates || [];
-
-  // When templates load, pick first
-  const activeTemplate = templates.find((t) => t.id === selectedTemplateId) || templates[0];
-
-  const handleSelect = (tmpl: any) => {
-    setSelectedTemplateId(tmpl.id);
-    setSubject(tmpl.subject);
-    setBody(tmpl.body);
-  };
-
-  // If first render and activeTemplate exists
-  useState(() => {
-    if (activeTemplate && !subject) {
-      setSubject(activeTemplate.subject);
-      setBody(activeTemplate.body);
-    }
+  const saved_templates: any[] = asList(templatesData);
+  const templates = TEMPLATE_TYPES.map(({ type, label }) => {
+    const existing = saved_templates.find((t) => t.template_type === type);
+    return existing
+      ? { ...existing, name: label, exists: true }
+      : { id: null, template_type: type, name: label, subject: '', body: '', exists: false };
   });
+  const activeTemplate = templates.find((t) => t.template_type === selectedType) || templates[0];
+
+  useEffect(() => {
+    setSubject(activeTemplate?.subject ?? '');
+    setBody(activeTemplate?.body ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedType, templatesData]);
+
+  const handleSelect = (tmpl: any) => setSelectedType(tmpl.template_type);
 
   const saveMutation = useMutation({
     mutationFn: () => {
-      if (!activeTemplate) return Promise.resolve();
-      return practicesApi.updateTemplate(activeTemplate.id, { subject, body });
+      const data = { subject: subject.trim(), body };
+      return activeTemplate.exists
+        ? practicesApi.updateTemplate(activeTemplate.id, data)
+        : practicesApi.createTemplate({ ...data, template_type: activeTemplate.template_type });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['templates'] });
+      toast.success('Template saved');
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not save template.')),
   });
+
+  const handleSave = () => {
+    if (!subject.trim() || !body.trim()) {
+      toast.error('Subject and body are required.');
+      return;
+    }
+    saveMutation.mutate();
+  };
 
   const insertVariable = (variable: string) => {
     setBody((prev) => prev + ' ' + variable);
@@ -79,12 +99,8 @@ export default function EmailTemplatesPage() {
       .replace(/{{intent}}/g, 'Cleaning')
       .replace(/{{preferred_date}}/g, 'Thursday')
       .replace(/{{preferred_time}}/g, 'Afternoon (around 3:00 PM)')
-      .replace(/{{insurance}}/g, 'Delta Dental PPO')
-      .replace(/{{financing}}/g, 'Not requested')
       .replace(/{{message}}/g, 'Looking for an appointment sometime next week')
-      .replace(/{{conversation_summary}}/g, 'Patient is requesting a routine cleaning. Prefers Thursday afternoon.')
-      .replace(/{{page_url}}/g, 'https://raleighdentistry.com/services/cleaning')
-      .replace(/{{conversation_id}}/g, 'conv_9182a4');
+      .replace(/{{practice}}/g, 'Your Practice');
   };
 
   return (
@@ -104,7 +120,7 @@ export default function EmailTemplatesPage() {
             {previewMode ? 'Edit Template' : 'Preview with Sample Data'}
           </button>
           <button
-            onClick={() => saveMutation.mutate()}
+            onClick={handleSave}
             disabled={saveMutation.isPending || !activeTemplate}
             className="flex items-center gap-2 px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-semibold transition shadow-sm disabled:opacity-50"
           >
@@ -122,13 +138,15 @@ export default function EmailTemplatesPage() {
           </div>
           {isLoading ? (
             <div className="p-8 text-center text-sm text-gray-400">Loading templates...</div>
+          ) : isError ? (
+            <div className="p-8 text-center text-sm text-red-600">Could not load templates.</div>
           ) : (
             <div className="divide-y divide-gray-100">
               {templates.map((t: any) => {
-                const isSelected = activeTemplate?.id === t.id;
+                const isSelected = activeTemplate?.template_type === t.template_type;
                 return (
                   <button
-                    key={t.id}
+                    key={t.template_type}
                     onClick={() => handleSelect(t)}
                     className={`w-full text-left p-4 hover:bg-gray-50 transition flex items-start gap-3 ${
                       isSelected ? 'bg-teal-50/60 border-l-4 border-teal-600' : ''
@@ -138,7 +156,7 @@ export default function EmailTemplatesPage() {
                     <div>
                       <span className="text-sm font-bold text-gray-900 block">{t.name}</span>
                       <span className="text-xs text-gray-400 uppercase tracking-wider font-semibold">
-                        Intent: {t.intent}
+                        {t.exists ? (t.is_active ? 'Active' : 'Inactive') : 'Not set up yet'}
                       </span>
                     </div>
                   </button>
@@ -166,12 +184,12 @@ export default function EmailTemplatesPage() {
                 <label className="text-xs font-semibold text-gray-700 block mb-1">Email Subject Line</label>
                 {previewMode ? (
                   <div className="p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-semibold text-gray-900">
-                    {getInterpolatedPreview(subject || activeTemplate.subject)}
+                    {getInterpolatedPreview(subject)}
                   </div>
                 ) : (
                   <input
                     type="text"
-                    value={subject || activeTemplate.subject}
+                    value={subject}
                     onChange={(e) => setSubject(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
@@ -204,12 +222,12 @@ export default function EmailTemplatesPage() {
                 <label className="text-xs font-semibold text-gray-700 block mb-1">Email Body Content</label>
                 {previewMode ? (
                   <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-800 whitespace-pre-wrap leading-relaxed font-sans min-h-[220px]">
-                    {getInterpolatedPreview(body || activeTemplate.body)}
+                    {getInterpolatedPreview(body)}
                   </div>
                 ) : (
                   <textarea
                     rows={10}
-                    value={body || activeTemplate.body}
+                    value={body}
                     onChange={(e) => setBody(e.target.value)}
                     className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
