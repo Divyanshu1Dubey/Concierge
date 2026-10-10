@@ -1,9 +1,36 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Eye, EyeOff, Sparkles } from 'lucide-react';
+import { Eye, EyeOff, Sparkles, Check, ArrowRight } from 'lucide-react';
 import { api, apiErrorMessage } from '@/utils/api';
 import type { User } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
+
+const DEMO_LOGINS = [
+  {
+    role: 'Agency Admin',
+    email: 'divyanshu@heyjarvis.ai',
+    password: 'avisirheyjarvis2026',
+    description: 'Every practice, onboarding, access requests',
+    badge: 'Superuser',
+    badgeColor: 'bg-purple-100 text-purple-800 border-purple-200',
+  },
+  {
+    role: 'Doctor (Practice Admin)',
+    email: 'doctor@heyjarvis-demo.com',
+    password: 'DemoDoctor#2026',
+    description: '"HeyJarvis Demo Dental": settings, team, requests',
+    badge: 'Demo Dental',
+    badgeColor: 'bg-teal-100 text-teal-800 border-teal-200',
+  },
+  {
+    role: 'Front Desk',
+    email: 'frontdesk@heyjarvis-demo.com',
+    password: 'DemoFrontDesk#2026',
+    description: 'Requests, conversations, replies',
+    badge: 'Care Staff',
+    badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  },
+];
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -48,6 +75,12 @@ export default function LoginPage() {
     signIn(email.trim(), password);
   };
 
+  const fillDemoAccount = (demoEmail: string, demoPassword: string) => {
+    setEmail(demoEmail);
+    setPassword(demoPassword);
+    setError('');
+  };
+
   return (
     <div className="min-h-screen bg-cream grid lg:grid-cols-[1fr_1.05fr]">
       {/* Brand panel */}
@@ -68,14 +101,24 @@ export default function LoginPage() {
           <p className="mt-5 text-[15px] leading-relaxed text-forest-200">
             Your practice's requests, conversations and settings, all in one calm workspace.
           </p>
+
+          <div className="mt-8 p-4 rounded-xl bg-forest-800/80 border border-forest-700/80 text-xs">
+            <p className="font-semibold text-white flex items-center gap-1.5 mb-1">
+              <Sparkles className="w-3.5 h-3.5 text-forest-200" aria-hidden="true" />
+              Live Testing Logins Configured
+            </p>
+            <p className="text-forest-200 leading-relaxed">
+              Use the demo account presets to test the platform as an Agency Administrator, Practice Doctor, or Front Desk staff.
+            </p>
+          </div>
         </div>
         <p className="text-[12.5px] text-forest-400">A HeyJarvis.ai product · Made for care teams</p>
       </aside>
 
       {/* Sign-in form */}
       <main className="flex items-center justify-center px-5 py-12 sm:px-8">
-        <div className="w-full max-w-[400px] animate-rise">
-          <Link to="/" className="lg:hidden flex items-center gap-2.5 mb-10 w-fit" aria-label="HeyJarvis Concierge home">
+        <div className="w-full max-w-[420px] animate-rise">
+          <Link to="/" className="lg:hidden flex items-center gap-2.5 mb-8 w-fit" aria-label="HeyJarvis Concierge home">
             <span className="w-9 h-9 rounded-[10px] bg-forest-800 flex items-center justify-center">
               <Sparkles className="w-4 h-4 text-forest-100" aria-hidden="true" />
             </span>
@@ -85,7 +128,7 @@ export default function LoginPage() {
           <h1 className="text-[32px] leading-tight font-normal text-forest-900">Welcome back</h1>
           <p className="text-[15px] text-stone-600 mt-2">Sign in to your practice dashboard.</p>
 
-          <form onSubmit={handleLogin} className="mt-8 space-y-5" noValidate>
+          <form onSubmit={handleLogin} className="mt-6 space-y-4" noValidate>
             <div>
               <label htmlFor="login-email" className="block text-[13px] font-medium text-stone-700 mb-1.5">Email</label>
               <input
@@ -136,7 +179,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-forest-800 hover:bg-forest-900 text-white rounded-full font-medium text-[15px] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-forest-800 hover:bg-forest-900 text-white rounded-full font-medium text-[15px] transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
             >
               {isLoading ? (
                 <span className="animate-spin rounded-full h-5 w-5 border-2 border-white/30 border-t-white" aria-label="Signing in" />
@@ -146,8 +189,62 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p className="mt-10 text-[13px] text-stone-500">
-            New to Concierge? <Link to="/request-access" className="link-quiet text-forest-800">Request access for your practice</Link>
+          {/* Quick Demo Credentials Panel for Production Testing */}
+          <div className="mt-7 pt-5 border-t border-stone-200/80">
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-500">
+                Demo & Testing Logins
+              </span>
+              <span className="text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                1-Click Preset
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {DEMO_LOGINS.map((demo) => {
+                const isSelected = email === demo.email;
+                return (
+                  <button
+                    key={demo.email}
+                    type="button"
+                    onClick={() => fillDemoAccount(demo.email, demo.password)}
+                    className={`w-full text-left p-2.5 rounded-xl border transition-all text-xs group ${
+                      isSelected
+                        ? 'border-forest-700 bg-forest-50/70 shadow-sm ring-1 ring-forest-700'
+                        : 'border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-50/70'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="font-semibold text-stone-900 text-[12.5px]">{demo.role}</span>
+                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${demo.badgeColor}`}>
+                        {demo.badge}
+                      </span>
+                    </div>
+                    <p className="text-stone-500 text-[11px] font-mono mt-0.5 truncate">{demo.email}</p>
+                    <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-stone-100 text-[10.5px] text-stone-600">
+                      <span className="truncate pr-1 text-stone-500">{demo.description}</span>
+                      <span className={`font-semibold shrink-0 flex items-center gap-0.5 ${isSelected ? 'text-forest-800 font-bold' : 'text-stone-700 group-hover:text-forest-800'}`}>
+                        {isSelected ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span>Selected</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Select</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <p className="mt-6 text-[13px] text-stone-500 text-center">
+            New to Concierge? <Link to="/request-access" className="link-quiet text-forest-800 font-medium">Request access for your practice</Link>
           </p>
         </div>
       </main>

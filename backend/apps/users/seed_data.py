@@ -85,6 +85,18 @@ DEMO_PRACTICES: Dict[str, Dict[str, Any]] = {
         'website': 'https://raleighcomprehensive.com',
         'active': True,
     },
+    'heyjarvis-demo-dental': {
+        'name': 'HeyJarvis Demo Dental',
+        'email': 'divyanshu@heyjarvis.ai',
+        'phone': '(919) 555-0100',
+        'address': '123 Demo Street',
+        'city': 'Raleigh',
+        'state': 'NC',
+        'zip_code': '27601',
+        'timezone': 'America/New_York',
+        'website': 'https://web-production-41fc3c.up.railway.app',
+        'active': True,
+    },
 }
 
 

@@ -902,26 +902,29 @@
   </div>
 
   <!-- ========================================================================= -->
-  <!-- 🤖 PASTE YOUR HEYJARVIS CONCIERGE WIDGET SCRIPT HERE                      -->
+  <!-- 🤖 HEYJARVIS CONCIERGE WIDGET SCRIPT                                      -->
   <!-- ========================================================================= -->
   <!-- 
-    OPTION 1 (Local development):
-    <script async src="http://localhost:8000/widget.js" 
-            data-heyjarvis-client="351936c601d0a11d6f757cf6c45ad55513a5dad1b488a82404b477a619ef76c8">
+    OPTION 1 (Railway Production Testing):
+    <script async src="https://web-production-41fc3c.up.railway.app/widget.js"
+            data-api-url="https://web-production-41fc3c.up.railway.app"
+            data-practice="heyjarvis-demo-dental"
+            data-heyjarvis-client="94b4671d4a41289d4f552a4737a87bc3faa1ce0ae3057813a17452377a5212e8">
     </script>
 
-    OPTION 2 (Railway / Production deployment):
-    <script async src="https://YOUR-RAILWAY-DOMAIN.railway.app/widget.js" 
-            data-heyjarvis-client="YOUR_PRACTICE_API_KEY">
+    OPTION 2 (Local Development):
+    <script async src="http://localhost:8000/widget.js"
+            data-api-url="http://localhost:8000"
+            data-practice="heyjarvis-demo-dental"
+            data-heyjarvis-client="94b4671d4a41289d4f552a4737a87bc3faa1ce0ae3057813a17452377a5212e8">
     </script>
   -->
 
-  <!-- ACTIVE WIDGET SCRIPT (Configured for local backend testing): -->
-  <!-- You can change src to your Railway URL or replace data-heyjarvis-client with your key -->
+  <!-- ACTIVE WIDGET SCRIPT (Configured for HeyJarvis Demo Dental): -->
   <script async src="http://localhost:8000/widget.js"
           data-api-url="http://localhost:8000"
-          data-practice="raleigh-dentistry"
-          data-heyjarvis-client="351936c601d0a11d6f757cf6c45ad55513a5dad1b488a82404b477a619ef76c8">
+          data-practice="heyjarvis-demo-dental"
+          data-heyjarvis-client="94b4671d4a41289d4f552a4737a87bc3faa1ce0ae3057813a17452377a5212e8">
   </script>
 
 </body>

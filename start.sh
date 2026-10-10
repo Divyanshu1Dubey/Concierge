@@ -10,6 +10,8 @@ if [ -f "backend/manage.py" ]; then
     python backend/manage.py migrate --noinput
     echo "==> Running demo seed (if enabled)..."
     python backend/manage.py seed_raleigh || true
+    echo "==> Ensuring HeyJarvis demo & testing logins exist..."
+    python backend/manage.py seed_production_logins || true
     echo "==> Starting Gunicorn on port ${PORT:-8000}..."
     exec gunicorn --chdir backend config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${WEB_CONCURRENCY:-3} --threads ${GUNICORN_THREADS:-4} --timeout ${GUNICORN_TIMEOUT:-60} --access-logfile -
 elif [ -f "manage.py" ]; then
@@ -18,6 +20,8 @@ elif [ -f "manage.py" ]; then
     python manage.py migrate --noinput
     echo "==> Running demo seed (if enabled)..."
     python manage.py seed_raleigh || true
+    echo "==> Ensuring HeyJarvis demo & testing logins exist..."
+    python manage.py seed_production_logins || true
     echo "==> Starting Gunicorn on port ${PORT:-8000}..."
     exec gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${WEB_CONCURRENCY:-3} --threads ${GUNICORN_THREADS:-4} --timeout ${GUNICORN_TIMEOUT:-60} --access-logfile -
 else
