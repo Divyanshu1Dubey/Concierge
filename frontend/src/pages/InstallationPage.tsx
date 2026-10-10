@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { practicesApi } from '@/services/api';
+import { apiErrorMessage, downloadFile } from '@/utils/api';
 import {
   Key, Globe, Download, Copy, Check, RefreshCw, AlertTriangle,
   Code2, ExternalLink, ShieldCheck, Plus, Trash2, CheckCircle2
@@ -16,7 +18,7 @@ export default function InstallationPage() {
   const [newDomain, setNewDomain] = useState('');
 
   // Fetch tenant info
-  const { data: tenantData } = useQuery({
+  const { data: tenantData, isLoading: tenantLoading, isError: tenantError } = useQuery({
     queryKey: ['tenant'],
     queryFn: () => practicesApi.getTenant(),
   });
@@ -27,20 +29,24 @@ export default function InstallationPage() {
     queryFn: () => practicesApi.domains(),
   });
 
-  const practice = tenantData?.practice || {};
-  const clientKey = practice.client_key || practice.api_key || '351936c601d0a11d6f757cf6c45ad55513a5dad1b488a82404b477a619ef76c8';
-  const tenantSlug = practice.slug || 'raleigh-dentistry';
+  const practice = tenantData || {};
+  const clientKey: string = practice.api_key || '';
+  const tenantSlug: string = practice.slug || '';
   const publicAppUrl = window.location.origin;
   const hostedConciergeUrl = `${publicAppUrl}/concierge/${tenantSlug}`;
-  const domains: any[] = domainsData?.domains || [];
+  const domains: any[] = Array.isArray(domainsData) ? domainsData : [];
+  const [downloading, setDownloading] = useState(false);
 
   // Mutations
   const regenMutation = useMutation({
     mutationFn: () => practicesApi.regenerateKey(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenant'] });
+      queryClient.invalidateQueries({ queryKey: ['metrics'] });
       setShowRegenModal(false);
+      toast.success('New client key generated. Update your website installations.');
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not regenerate the key.')),
   });
 
   const addDomainMutation = useMutation({
@@ -48,18 +54,39 @@ export default function InstallationPage() {
     onSuccess: () => {
       setNewDomain('');
       queryClient.invalidateQueries({ queryKey: ['domains'] });
+      toast.success('Domain added');
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not add domain.')),
   });
 
   const deleteDomainMutation = useMutation({
     mutationFn: (id: number) => practicesApi.deleteDomain(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['domains'] });
+      toast.success('Domain removed');
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not remove domain.')),
   });
 
-  const handleCopy = (text: string, type: 'key' | 'snippet' | 'hosted') => {
-    navigator.clipboard.writeText(text);
+  const handleDownloadPlugin = async () => {
+    setDownloading(true);
+    try {
+      await downloadFile('/practices/integration/wordpress/', `heyjarvis-concierge-${tenantSlug}.zip`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Plugin download failed.'));
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleCopy = async (text: string, type: 'key' | 'snippet' | 'hosted') => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      toast.error('Copy failed. Select the text and copy it manually.');
+      return;
+    }
     if (type === 'key') {
       setCopiedKey(true);
       setTimeout(() => setCopiedKey(false), 2000);
@@ -172,6 +199,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     }
   };
 
+  if (tenantLoading) {
+    return <div className="p-8 text-sm text-gray-500">Loading installation details…</div>;
+  }
+  if (tenantError || !clientKey) {
+    return <div className="p-8 text-sm text-red-600">Could not load this practice's client key. Select a practice workspace and refresh.</div>;
+  }
+
   return (
     <div className="space-y-6 max-w-5xl">
       {/* Header */}
@@ -268,14 +302,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             Upload to any WordPress site. Automatically injects the isolated widget with zero theme conflicts.
           </p>
         </div>
-        <a
-          href="/api/practices/integration/wordpress/"
-          download="heyjarvis-concierge.zip"
+        <button
+          type="button"
+          onClick={handleDownloadPlugin}
+          disabled={downloading || !clientKey}
           className="flex items-center gap-2 px-5 py-2.5 bg-white text-blue-900 hover:bg-blue-50 rounded-xl text-sm font-bold transition shadow"
         >
           <Download className="w-4 h-4" />
-          Download Plugin ZIP
-        </a>
+          {downloading ? 'Preparing…' : 'Download Plugin ZIP'}
+        </button>
       </div>
 
       {/* Code Snippets Section */}

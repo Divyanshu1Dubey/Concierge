@@ -212,8 +212,9 @@ class ConciergeStateMachine:
         # Emergency override check: immediate triage
         if self.conversation.intent == INTENT_EMERGENCY:
             self.conversation.urgency = 'URGENT'
+            emergency_phone = getattr(booking_rules, 'emergency_phone', '') or self.practice.phone or 'our office'
             emergency_msg = getattr(booking_rules, 'emergency_message', '') or (
-                f"Dental emergency detected. Please call {self.practice.phone or 'our office'} immediately."
+                f"Dental emergency detected. Please call {emergency_phone} immediately."
             )
             
             if not self.conversation.patient_phone:
@@ -229,7 +230,7 @@ class ConciergeStateMachine:
                 self._create_or_update_lead(status='pending', urgency='URGENT')
                 reply = (
                     f"⚠️ Thank you {self.conversation.patient_name or 'valued patient'}. We have logged your urgent emergency request and notified our front desk.\n\n"
-                    f"If your pain or swelling is severe, please call {self.practice.phone} right now or visit your nearest emergency room."
+                    f"If your pain or swelling is severe, please call {emergency_phone} right now or visit your nearest emergency room."
                 )
                 return self._finalize_step(reply, complete=True, quick_replies=[])
 
@@ -314,9 +315,15 @@ class ConciergeStateMachine:
 
         # State: HANDOFF
         if self.conversation.state == Conversation.STATE_HANDOFF:
+            if booking_rules is not None and not booking_rules.handoff_enabled:
+                reply = (
+                    f"Our team isn't available through chat right now. "
+                    f"Please call {practice_name} at {self.practice.phone} and we'll be glad to help."
+                )
+                return self._finalize_step(reply, complete=True, quick_replies=[])
             self.conversation.status = Conversation.STATUS_HANDOFF
             self._create_or_update_lead(status='pending', urgency='HIGH')
-            reply = (
+            reply = getattr(booking_rules, 'handoff_message', '') or (
                 f"I have alerted our front desk team at {practice_name} that you requested staff assistance. "
                 f"A team member will review your message and reach out to you shortly."
             )
@@ -324,7 +331,12 @@ class ConciergeStateMachine:
 
         # Fallback AI response for general chit-chat if state machine did not handle
         if self.ai_engine:
-            res = self.ai_engine.chat(user_text)
+            guidance = []
+            if booking_rules is not None:
+                if booking_rules.custom_instructions:
+                    guidance.append(booking_rules.custom_instructions)
+                guidance.append(f"Cancellation policy: {booking_rules.cancellation_notice_hours} hours notice required.")
+            res = self.ai_engine.chat(user_text, extra_instructions='\n'.join(guidance))
             return self._finalize_step(res.get('content', 'How else may I help you today?'), quick_replies=[])
 
         return self._finalize_step("How else may I help you with your dental care today?", quick_replies=[])

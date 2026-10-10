@@ -45,29 +45,34 @@ export default function DashboardPage() {
   );
 
   // Fetch live requests, conversations, and metrics
-  const { data: convData } = useQuery({
-    queryKey: ['conversations'],
-    queryFn: () => conversationsApi.list(),
+  // Server-side aggregate counts (lists are paginated, so never count client-side).
+  const { data: convStats } = useQuery({
+    queryKey: ['conversations-stats'],
+    queryFn: () => conversationsApi.stats(),
+  });
+
+  const { data: reqStats } = useQuery({
+    queryKey: ['requests-stats'],
+    queryFn: () => requestsApi.stats(),
   });
 
   const { data: reqData } = useQuery({
     queryKey: ['appointment-requests'],
     queryFn: () => requestsApi.list(),
   });
+  const reqList: any[] = Array.isArray(reqData) ? reqData : (reqData?.results ?? []);
 
   const { data: metrics } = useQuery({
     queryKey: ['dashboard-metrics'],
     queryFn: () => practicesApi.metrics(),
   });
 
-  const convList: any[] = Array.isArray(convData?.results ?? convData) ? (convData?.results ?? convData) : [];
-  const reqList: any[] = Array.isArray(reqData?.results ?? reqData) ? (reqData?.results ?? reqData) : [];
-
-  const urgentCount = reqList.filter((r: any) => r.urgency === 'URGENT' || r.intent === 'emergency').length;
-  const pendingCount = reqList.filter((r: any) => r.status === 'pending').length;
-  const activeConvCount = convList.filter((c: any) => c.status === 'active').length;
-  const leadsCount = metrics?.new_leads ?? reqList.length ?? 0;
-  const emailDelivery = metrics?.email_delivery ?? 100;
+  const urgentCount = reqStats?.emergency ?? 0;
+  const pendingCount = reqStats?.pending ?? 0;
+  const activeConvCount = convStats?.active ?? 0;
+  const totalConvCount = convStats?.total ?? 0;
+  const leadsCount = metrics?.new_leads ?? reqStats?.total ?? 0;
+  const emailDelivery: number | null = metrics?.email_delivery ?? null;
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-12">
@@ -78,7 +83,7 @@ export default function DashboardPage() {
         <div className="relative z-10 space-y-2">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5 text-teal-400" />
-            <span>{isAgencyAdmin ? 'Agency Cloud Platform' : user?.practice_name || 'Raleigh Comprehensive Dentistry'}</span>
+            <span>{isAgencyAdmin ? 'Agency Cloud Platform' : metrics?.practice_name || user?.practice_name || 'Your Practice'}</span>
           </div>
           <h1 className="text-3xl font-extrabold tracking-tight">
             {greeting}, {displayName}!
@@ -133,7 +138,7 @@ export default function DashboardPage() {
               </span>
               <CalendarCheck className="w-5 h-5 text-teal-600 group-hover:scale-110 transition-transform" />
             </div>
-            <p className="text-3xl font-black text-gray-900 mt-2">{pendingCount || reqList.length || 0}</p>
+            <p className="text-3xl font-black text-gray-900 mt-2">{pendingCount}</p>
             <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
               <span>Awaiting review</span>
             </p>
@@ -165,7 +170,7 @@ export default function DashboardPage() {
               </span>
               <MessageSquare className="w-5 h-5 text-purple-600 group-hover:scale-110 transition-transform" />
             </div>
-            <p className="text-3xl font-black text-gray-900 mt-2">{convList.length || 0}</p>
+            <p className="text-3xl font-black text-gray-900 mt-2">{totalConvCount}</p>
             <p className="text-xs text-purple-600 font-medium mt-1">
               {activeConvCount} active visitors
             </p>
@@ -185,6 +190,7 @@ export default function DashboardPage() {
             <p className="text-xs text-blue-600 font-medium mt-1">Ready for outreach</p>
           </Link>
 
+          {isPracticeAdmin && (
           <Link
             to="/dashboard/email-settings"
             className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm hover:shadow-md hover:border-cyan-300 transition-all group"
@@ -195,9 +201,12 @@ export default function DashboardPage() {
               </span>
               <Mail className="w-5 h-5 text-cyan-600 group-hover:scale-110 transition-transform" />
             </div>
-            <p className="text-3xl font-black text-gray-900 mt-2">{emailDelivery}%</p>
-            <p className="text-xs text-cyan-600 font-medium mt-1">SMTP &amp; Inboxes</p>
+            <p className="text-3xl font-black text-gray-900 mt-2">{emailDelivery === null ? '—' : `${emailDelivery}%`}</p>
+            <p className="text-xs text-cyan-600 font-medium mt-1">
+              {emailDelivery === null ? 'No emails sent yet' : `${metrics?.emails_sent ?? 0} sent · ${metrics?.emails_failed ?? 0} failed`}
+            </p>
           </Link>
+          )}
         </div>
       </div>
 

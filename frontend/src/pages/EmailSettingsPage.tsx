@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { practicesApi } from '@/services/api';
+import { apiErrorMessage } from '@/utils/api';
 import {
   Mail, Server, ShieldCheck, Send, Save, Check, AlertCircle, CheckCircle2
 } from 'lucide-react';
@@ -30,70 +32,95 @@ export default function EmailSettingsPage() {
   const [appointmentNotificationEmail, setAppointmentNotificationEmail] = useState('');
   const [handoffNotificationEmail, setHandoffNotificationEmail] = useState('');
 
-  // Fetch email config
-  const { data: configData } = useQuery({
+  const { data: configData, isLoading, isError } = useQuery({
     queryKey: ['emailConfig'],
     queryFn: () => practicesApi.emailConfig(),
   });
+  const { data: settingsData } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => practicesApi.settings(),
+  });
 
   useEffect(() => {
-    const c = configData?.config || configData;
-    if (c) {
-      if (c.provider_type) setProviderType(c.provider_type.toUpperCase() as 'MANAGED' | 'SMTP');
-      if (c.from_name) setFromName(c.from_name);
-      if (c.from_email) setFromEmail(c.from_email);
-      if (c.reply_to) setReplyTo(c.reply_to);
-      if (c.smtp_host) setSmtpHost(c.smtp_host);
-      if (c.smtp_port) setSmtpPort(Number(c.smtp_port));
-      if (c.smtp_username) setSmtpUsername(c.smtp_username);
-      if (c.use_tls !== undefined) setUseTls(Boolean(c.use_tls));
-      if (c.use_ssl !== undefined) setUseSsl(Boolean(c.use_ssl));
-      if (c.lead_notification_email) setLeadNotificationEmail(c.lead_notification_email);
-      if (c.emergency_notification_email) setEmergencyNotificationEmail(c.emergency_notification_email);
-      if (c.appointment_notification_email) setAppointmentNotificationEmail(c.appointment_notification_email);
-      if (c.handoff_notification_email) setHandoffNotificationEmail(c.handoff_notification_email);
-    }
+    const c = configData;
+    if (!c) return;
+    setProviderType((c.provider_type || 'managed').toUpperCase() === 'SMTP' ? 'SMTP' : 'MANAGED');
+    setFromName(c.from_name ?? '');
+    setFromEmail(c.from_email ?? '');
+    setReplyTo(c.reply_to ?? '');
+    setSmtpHost(c.smtp_host ?? '');
+    if (c.smtp_port) setSmtpPort(Number(c.smtp_port));
+    setSmtpUsername(c.smtp_username ?? '');
+    setUseTls(c.smtp_use_tls !== false);
+    setUseSsl(Boolean(c.smtp_use_ssl));
   }, [configData]);
 
-  // Save Mutation
+  useEffect(() => {
+    const n = settingsData?.notification_emails || {};
+    setLeadNotificationEmail(n.general ?? '');
+    setEmergencyNotificationEmail(n.emergency ?? '');
+    setAppointmentNotificationEmail(n.appointment ?? '');
+    setHandoffNotificationEmail(n.handoff ?? '');
+  }, [settingsData]);
+
   const saveMutation = useMutation({
-    mutationFn: (data: Record<string, unknown>) => practicesApi.updateEmailConfig(data),
+    mutationFn: async () => {
+      const payload: Record<string, unknown> = {
+        provider_type: providerType.toLowerCase(),
+        from_name: fromName,
+        from_email: fromEmail,
+        reply_to: replyTo,
+        smtp_host: smtpHost,
+        smtp_port: smtpPort,
+        smtp_username: smtpUsername,
+        smtp_use_tls: useTls,
+        smtp_use_ssl: useSsl,
+      };
+      // Only send a password when the admin typed a new one; it is encrypted at rest server-side.
+      if (smtpPassword) payload.smtp_password = smtpPassword;
+      await practicesApi.updateEmailConfig(payload);
+      await practicesApi.updateSettings({
+        notification_emails: {
+          general: leadNotificationEmail,
+          emergency: emergencyNotificationEmail,
+          appointment: appointmentNotificationEmail,
+          handoff: handoffNotificationEmail,
+        },
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['emailConfig'] });
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
+      setSmtpPassword('');
+      toast.success('Email settings saved');
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not save email settings.')),
   });
 
-  // Test Email Mutation
+  // The test endpoint reports failures in the body ({success: false}); never treat 200 as success.
   const testMutation = useMutation({
     mutationFn: () => practicesApi.testEmail(),
     onSuccess: (res: any) => {
-      setTestResult({ success: true, message: res.message || 'Test connection successful!' });
+      setTestResult({ success: Boolean(res?.success), message: res?.message || (res?.success ? 'Connection successful.' : 'Connection failed.') });
+      queryClient.invalidateQueries({ queryKey: ['emailConfig'] });
     },
     onError: (err: any) => {
-      setTestResult({ success: false, message: err.response?.data?.error || 'Test connection failed.' });
+      setTestResult({ success: false, message: apiErrorMessage(err, 'Test connection failed.') });
     },
   });
 
   const handleSave = () => {
-    saveMutation.mutate({
-      provider_type: providerType,
-      from_name: fromName,
-      from_email: fromEmail,
-      reply_to: replyTo,
-      smtp_host: smtpHost,
-      smtp_port: smtpPort,
-      smtp_username: smtpUsername,
-      smtp_password: smtpPassword, // sent only on edit; encrypted AES-256 on backend
-      use_tls: useTls,
-      use_ssl: useSsl,
-      lead_notification_email: leadNotificationEmail,
-      emergency_notification_email: emergencyNotificationEmail,
-      appointment_notification_email: appointmentNotificationEmail,
-      handoff_notification_email: handoffNotificationEmail,
-    });
+    if (providerType === 'SMTP' && (!smtpHost || !smtpPort)) {
+      toast.error('SMTP host and port are required for custom SMTP.');
+      return;
+    }
+    saveMutation.mutate();
   };
+
+  if (isLoading) return <div className="p-8 text-sm text-gray-500">Loading email settings…</div>;
+  if (isError) return <div className="p-8 text-sm text-red-600">Could not load email settings. Please refresh the page.</div>;
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -237,7 +264,8 @@ export default function EmailSettingsPage() {
               <label className="text-xs font-semibold text-gray-700 block mb-1">Password / App Password</label>
               <input
                 type="password"
-                placeholder="••••••••••••"
+                placeholder={configData?.has_password ? 'Saved — leave blank to keep' : '••••••••••••'}
+                autoComplete="new-password"
                 value={smtpPassword}
                 onChange={(e) => setSmtpPassword(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"

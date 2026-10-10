@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import type { User } from '../types';
+import { API_BASE, REFRESH_KEY, TOKEN_KEY, setSessionExpiredHandler } from '../utils/api';
+import { queryClient } from '../queryClient';
 
 interface AuthState {
   user: User | null;
@@ -8,7 +10,8 @@ interface AuthState {
   isLoading: boolean;
   activePracticeId: string | null;
   activePracticeName: string | null;
-  login: (token: string, user: User) => void;
+  login: (token: string, user: User, refresh?: string) => void;
+  /** Revokes the refresh token server-side (best effort) and clears local state. */
   logout: () => void;
   setUser: (user: User) => void;
   setLoading: (loading: boolean) => void;
@@ -24,25 +27,43 @@ const getInitialUser = (): User | null => {
   }
 };
 
+const clearSession = () => {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem('auth_user');
+  localStorage.removeItem('active_practice_id');
+  localStorage.removeItem('active_practice_name');
+};
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: getInitialUser(),
-  token: localStorage.getItem('auth_token'),
-  isAuthenticated: !!localStorage.getItem('auth_token'),
+  token: localStorage.getItem(TOKEN_KEY),
+  isAuthenticated: !!localStorage.getItem(TOKEN_KEY),
   isLoading: false,
   activePracticeId: localStorage.getItem('active_practice_id'),
   activePracticeName: localStorage.getItem('active_practice_name'),
 
-  login: (token: string, user: User) => {
-    localStorage.setItem('auth_token', token);
+  login: (token: string, user: User, refresh?: string) => {
+    localStorage.setItem(TOKEN_KEY, token);
+    if (refresh) localStorage.setItem(REFRESH_KEY, refresh);
     localStorage.setItem('auth_user', JSON.stringify(user));
     set({ token, user, isAuthenticated: true, isLoading: false });
   },
 
   logout: () => {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('auth_user');
-    localStorage.removeItem('active_practice_id');
-    localStorage.removeItem('active_practice_name');
+    const access = localStorage.getItem(TOKEN_KEY);
+    const refresh = localStorage.getItem(REFRESH_KEY);
+    if (access && refresh) {
+      // Fire-and-forget: local logout must succeed even if the server is unreachable.
+      fetch(`${API_BASE}/auth/logout/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${access}` },
+        body: JSON.stringify({ refresh }),
+        keepalive: true,
+      }).catch(() => undefined);
+    }
+    clearSession();
+    queryClient.clear();
     set({
       user: null,
       token: null,
@@ -63,6 +84,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   setActivePractice: (id: string | null, name?: string | null) => {
+    // Cached data belongs to the previous workspace; never show it under the new one.
+    queryClient.clear();
     if (id) {
       localStorage.setItem('active_practice_id', id);
       if (name) localStorage.setItem('active_practice_name', name);
@@ -74,3 +97,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 }));
+
+// Refresh failed / token revoked: drop the session and send the user to login.
+setSessionExpiredHandler(() => {
+  clearSession();
+  useAuthStore.setState({ user: null, token: null, isAuthenticated: false, activePracticeId: null, activePracticeName: null });
+  if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+    window.location.assign('/login?expired=1');
+  }
+});

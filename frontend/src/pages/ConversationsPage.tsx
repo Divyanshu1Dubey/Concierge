@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { conversationsApi, chatApi } from '@/services/api';
+import { conversationsApi } from '@/services/api';
+import { apiErrorMessage } from '@/utils/api';
 import {
   MessageSquare,
   Search,
@@ -22,24 +23,29 @@ export default function ConversationsPage() {
 
   const queryClient = useQueryClient();
 
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ['conversations'],
-    queryFn: () => conversationsApi.list(),
+  // Debounce the search box so we query the server (which searches all pages), not just page 1.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['conversations', filterStatus, debouncedSearch],
+    queryFn: () =>
+      conversationsApi.list({
+        ...(filterStatus !== 'all' ? { status: filterStatus } : {}),
+        ...(debouncedSearch ? { search: debouncedSearch } : {}),
+      }),
+  });
+  const { data: stats } = useQuery({
+    queryKey: ['conversations-stats'],
+    queryFn: () => conversationsApi.stats(),
   });
 
   const rawList = data?.results ?? data;
   const conversations: any[] = Array.isArray(rawList) ? rawList : [];
-
-  const filtered = conversations.filter((c: any) => {
-    const matchesSearch =
-      (c.patient_name || '').toLowerCase().includes(search.toLowerCase()) ||
-      (c.patient_email || '').toLowerCase().includes(search.toLowerCase()) ||
-      (c.service_requested || '').toLowerCase().includes(search.toLowerCase()) ||
-      (c.session_id || '').toLowerCase().includes(search.toLowerCase());
-
-    if (filterStatus === 'all') return matchesSearch;
-    return matchesSearch && (c.status === filterStatus || c.state === filterStatus);
-  });
+  const filtered = conversations;
 
   // Select the active conversation (or auto-select first if none selected)
   const selectedConversation =
@@ -48,18 +54,37 @@ export default function ConversationsPage() {
 
   // Send message mutation
   const sendReplyMutation = useMutation({
-    mutationFn: async ({ message, convId }: { message: string; convId?: string }) => {
-      return chatApi.send(message, convId);
-    },
-    onSuccess: () => {
-      toast.success('Message sent to patient');
+    mutationFn: ({ message, convId }: { message: string; convId: string }) => conversationsApi.reply(convId, message),
+    onSuccess: (res: any) => {
+      const delivery = res?.delivery || {};
+      if (delivery.channel === 'email' && !delivery.warning) {
+        toast.success('Reply emailed to the patient');
+      } else {
+        toast(delivery.warning || 'Reply saved to the conversation', { icon: '⚠️', duration: 7000 });
+      }
       setReplyText('');
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
-      refetch();
     },
     onError: (err: any) => {
-      toast.error(err?.response?.data?.error || 'Failed to send message');
+      // 502 = message saved but email delivery failed
+      if (err?.response?.status === 502) {
+        toast.error('Reply saved, but the email could not be delivered. Check Email Settings.');
+        queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        return;
+      }
+      toast.error(apiErrorMessage(err, 'Failed to send message'));
     },
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: 'close' | 'escalate' }) =>
+      action === 'close' ? conversationsApi.close(id) : conversationsApi.escalate(id),
+    onSuccess: (_res, vars) => {
+      toast.success(vars.action === 'close' ? 'Conversation closed' : 'Escalated to staff handoff');
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['conversations-stats'] });
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not update conversation.')),
   });
 
   const handleSend = () => {
@@ -75,12 +100,12 @@ export default function ConversationsPage() {
     switch (template) {
       case 'offer_time':
         setReplyText(
-          `Hi ${patientName}, we have appointment openings this Tuesday at 10:00 AM or Thursday at 2:30 PM. Would either of those work best for your schedule?`
+          `Hi ${patientName}, which days and times work best for you? Our front desk will check the schedule and reply with available openings.`
         );
         break;
       case 'confirm':
         setReplyText(
-          `Hi ${patientName}, thank you for reaching out to us! We have received your request and reserved your slot. Please reply YES to confirm your appointment.`
+          `Hi ${patientName}, thank you for reaching out! We have received your request and our front desk will contact you shortly to confirm a time.`
         );
         break;
       case 'greeting':
@@ -95,11 +120,10 @@ export default function ConversationsPage() {
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
       active: 'bg-emerald-100 text-emerald-700',
-      waiting: 'bg-amber-100 text-amber-700',
-      resolved: 'bg-gray-100 text-gray-700',
+      handoff: 'bg-red-100 text-red-700',
+      completed: 'bg-blue-100 text-blue-700',
+      abandoned: 'bg-gray-100 text-gray-500',
       closed: 'bg-gray-100 text-gray-600',
-      escalated: 'bg-red-100 text-red-700',
-      emergency: 'bg-red-100 text-red-700',
     };
     return styles[status] || 'bg-gray-100 text-gray-700';
   };
@@ -111,18 +135,18 @@ export default function ConversationsPage() {
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <span className="text-sm font-bold text-gray-900">Total Conversations:</span>
-            <span className="text-sm font-semibold text-teal-600">{conversations.length}</span>
+            <span className="text-sm font-semibold text-teal-600">{stats?.total ?? data?.count ?? conversations.length}</span>
           </div>
           <div className="flex items-center gap-2 text-emerald-600">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-xs font-semibold">
-              {conversations.filter((c: any) => c.status === 'active').length} Active
+              {stats?.active ?? 0} Active
             </span>
           </div>
           <div className="flex items-center gap-2 text-amber-600">
             <Clock className="w-3.5 h-3.5" />
             <span className="text-xs font-semibold">
-              {conversations.filter((c: any) => c.status === 'waiting' || c.urgency === 'URGENT').length} Need Reply
+              {(stats?.handoff ?? 0)} Handoff · {(stats?.urgent ?? 0)} Urgent
             </span>
           </div>
         </div>
@@ -153,7 +177,7 @@ export default function ConversationsPage() {
 
             {/* Status Filter Chips */}
             <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
-              {['all', 'active', 'waiting', 'resolved'].map((st) => (
+              {['all', 'active', 'handoff', 'completed', 'closed'].map((st) => (
                 <button
                   key={st}
                   onClick={() => setFilterStatus(st)}
@@ -172,6 +196,8 @@ export default function ConversationsPage() {
           <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
             {isLoading ? (
               <div className="p-8 text-center text-gray-500 text-sm">Loading conversations...</div>
+            ) : isError ? (
+              <div className="p-8 text-center text-red-600 text-sm">Could not load conversations.</div>
             ) : filtered.length === 0 ? (
               <div className="p-8 text-center text-gray-500 text-sm">
                 <MessageSquare className="w-8 h-8 text-gray-300 mx-auto mb-2" />
@@ -264,6 +290,24 @@ export default function ConversationsPage() {
                   <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${getStatusBadge(selectedConversation.status)}`}>
                     {selectedConversation.status || 'Active'}
                   </span>
+                  {selectedConversation.status !== 'handoff' && selectedConversation.status !== 'closed' && (
+                    <button
+                      onClick={() => statusMutation.mutate({ id: String(selectedConversation.id), action: 'escalate' })}
+                      disabled={statusMutation.isPending}
+                      className="px-2.5 py-1 text-xs font-semibold border border-red-200 text-red-700 rounded-lg hover:bg-red-50"
+                    >
+                      Escalate
+                    </button>
+                  )}
+                  {selectedConversation.status !== 'closed' && (
+                    <button
+                      onClick={() => statusMutation.mutate({ id: String(selectedConversation.id), action: 'close' })}
+                      disabled={statusMutation.isPending}
+                      className="px-2.5 py-1 text-xs font-semibold border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50"
+                    >
+                      Close
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -294,7 +338,7 @@ export default function ConversationsPage() {
                                 isUser ? 'text-teal-200' : 'text-teal-700'
                               }`}
                             >
-                              {isUser ? 'Patient' : 'AI Concierge'}
+                              {isUser ? 'Patient' : msg.sender === 'staff' ? 'Front Desk' : 'AI Concierge'}
                             </span>
                             <span
                               className={`text-[10px] ${
@@ -322,7 +366,7 @@ export default function ConversationsPage() {
                 {/* AI Quick Response Starters */}
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-semibold text-gray-500 flex items-center gap-1">
-                    <Sparkles className="w-3.5 h-3.5 text-purple-600" /> AI Prompts:
+                    <Sparkles className="w-3.5 h-3.5 text-purple-600" /> Quick replies:
                   </span>
                   <button
                     onClick={() => applyAIDraft('greeting')}
@@ -355,7 +399,9 @@ export default function ConversationsPage() {
                         handleSend();
                       }
                     }}
-                    placeholder="Type a message to reply to patient (Press Enter to send)..."
+                    placeholder={selectedConversation.patient_email
+                      ? `Reply to ${selectedConversation.patient_email} (Enter to send)…`
+                      : 'No patient email on file: reply will be saved to the conversation only'}
                     className="w-full border border-gray-200 rounded-xl pl-4 pr-12 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none h-20"
                   />
                   <button

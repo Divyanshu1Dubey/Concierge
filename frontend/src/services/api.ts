@@ -6,7 +6,7 @@ export const authApi = {
   me: () => apiClient.get('/auth/me/').then((r) => r.data),
   login: (credentials: { email: string; password: string }) =>
     apiClient.post('/auth/login/', credentials).then((r) => r.data),
-  logout: () => apiClient.post('/auth/logout/').then((r) => r.data),
+  logout: (refresh: string) => apiClient.post('/auth/logout/', { refresh }).then((r) => r.data),
   google: () => {
     const isRemote = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
     const apiBase = isRemote ? window.location.origin : (import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000');
@@ -34,12 +34,13 @@ export const practicesApi = {
   testEmail: () => apiClient.post('/practices/email-config/test/').then((r) => r.data),
   templates: () => apiClient.get('/practices/templates/').then((r) => r.data),
   updateTemplate: (id: number, data: Record<string, unknown>) => apiClient.put(`/practices/templates/${id}/`, data).then((r) => r.data),
+  createTemplate: (data: Record<string, unknown>) => apiClient.post('/practices/templates/', data).then((r) => r.data),
   team: () => apiClient.get('/practices/team/').then((r) => r.data),
-  inviteMember: (data: { email: string; role: string; first_name?: string; last_name?: string }) =>
+  inviteMember: (data: { email: string; role: string; first_name?: string; last_name?: string; password?: string }) =>
     apiClient.post('/practices/team/', data).then((r) => r.data),
   updateMemberRole: (id: string, role: string) => apiClient.put(`/practices/team/${id}/`, { role }).then((r) => r.data),
   removeMember: (id: string) => apiClient.delete(`/practices/team/${id}/`).then((r) => r.data),
-  auditLogs: () => apiClient.get('/practices/audit-logs/').then((r) => r.data),
+  auditLogs: (page = 1) => apiClient.get('/practices/audit-logs/', { params: { page } }).then((r) => r.data),
   wordpressUrl: '/api/practices/integration/wordpress/',
   exportUrl: (type: 'leads' | 'conversations') => `/api/practices/export/${type}/`,
   list: () => apiClient.get('/practices/').then((r) => r.data),
@@ -90,6 +91,8 @@ export const conversationsApi = {
     apiClient.get(`/conversations/${id}/`).then((r) => r.data),
   messages: (id: string) =>
     apiClient.get(`/conversations/${id}/messages/`).then((r) => r.data),
+  reply: (id: string, content: string) =>
+    apiClient.post(`/conversations/${id}/messages/`, { content }).then((r) => r.data),
   stats: () =>
     apiClient.get('/conversations/stats/').then((r) => r.data),
   close: (id: string) =>
@@ -101,7 +104,7 @@ export const conversationsApi = {
 // ─── Appointment Requests & Front Desk Command Center ─────────────────────────
 
 export const appointmentRequestsApi = {
-  list: (params?: { status?: string; intent?: string; urgency?: string; search?: string }) =>
+  list: (params?: { status?: string; intent?: string; urgency?: string; search?: string; tab?: string }) =>
     apiClient.get('/requests/', { params }).then((r) => r.data),
   get: (id: string) =>
     apiClient.get(`/requests/${id}/`).then((r) => r.data),

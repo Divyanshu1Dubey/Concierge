@@ -238,7 +238,16 @@ def notify_practice_of_request(appointment) -> bool:
         if not isinstance(emails_cfg, dict):
             emails_cfg = {}
         is_emergency = appointment.intent == 'emergency' or appointment.urgency == 'URGENT'
-        recipient = (emails_cfg.get('emergency') if is_emergency else None) or emails_cfg.get('general') or practice.email
+        intent = appointment.intent or ''
+        if is_emergency:
+            route = 'emergency'
+        elif intent == 'handoff':
+            route = 'handoff'
+        elif intent in ('new_patient', 'cleaning', 'appointment', 'reschedule', 'cancel'):
+            route = 'appointment'
+        else:
+            route = 'general'
+        recipient = emails_cfg.get(route) or emails_cfg.get('general') or practice.email
         if not recipient:
             return False
 

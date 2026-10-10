@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { requestsApi } from '@/services/api';
@@ -8,6 +8,7 @@ import {
   Languages, CheckCircle2, RotateCw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { apiErrorMessage } from '@/utils/api';
 
 export default function RequestDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -20,6 +21,8 @@ export default function RequestDetailPage() {
   const [newNote, setNewNote] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [sendSuccessMessage, setSendSuccessMessage] = useState('');
+  const [aiSuggestion, setAiSuggestion] = useState('');
+  const initializedFor = useRef<string | null>(null);
 
   const { data: request, isLoading, refetch } = useQuery({
     queryKey: ['appointment-request', id],
@@ -27,8 +30,17 @@ export default function RequestDetailPage() {
     enabled: !!id,
   });
 
+  const invalidateLists = () => {
+    queryClient.invalidateQueries({ queryKey: ['appointment-requests'] });
+    queryClient.invalidateQueries({ queryKey: ['requests-stats'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
+  };
+
+  // Initialise the composer once per request so refetches (after notes/status changes)
+  // never wipe what the staff member is typing.
   useEffect(() => {
-    if (request) {
+    if (request && initializedFor.current !== request.id) {
+      initializedFor.current = request.id;
       setRecipientEmail(request.patient_email || '');
       setSubject(`Your appointment with ${request.practice_name || 'our practice'}`);
       if (request.response_draft) {
@@ -53,14 +65,20 @@ export default function RequestDetailPage() {
     try {
       const res = await requestsApi.aiDraft(id, {
         action,
-        current_text: replyBody,
+        // A fresh draft starts from the practice's saved template; refinements work on the current text.
+        current_text: action === 'draft' ? '' : replyBody,
         target_language: 'Spanish',
       });
-      if (res.result) {
+      if (action === 'next_action' || action === 'explain' || action === 'summarize') {
+        setAiSuggestion(res.result || '');
+      } else if (res.result) {
         setReplyBody(res.result);
       }
-    } catch (e) {
-      console.error('AI Draft failed:', e);
+      if (res.ai_unavailable) {
+        toast('AI assistant is unavailable right now; showing the template draft.', { icon: '⚠️' });
+      }
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'AI assistant request failed.'));
     } finally {
       setIsAiLoading(false);
     }
@@ -70,8 +88,10 @@ export default function RequestDetailPage() {
   const saveDraftMutation = useMutation({
     mutationFn: () => requestsApi.saveDraft(id!, replyBody),
     onSuccess: () => {
+      toast.success('Draft saved');
       queryClient.invalidateQueries({ queryKey: ['appointment-request', id] });
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not save draft.')),
   });
 
   // Send reply mutation
@@ -83,16 +103,20 @@ export default function RequestDetailPage() {
         body: replyBody,
       }),
     onSuccess: (data: any) => {
-      const msg = data?.message || `Reply email successfully sent to ${recipientEmail}!`;
+      const msg = data?.message || `Reply email sent to ${recipientEmail}.`;
       setSendSuccessMessage(msg);
-      toast.success(msg);
+      if (data?.delivery?.warning) {
+        // e.g. development console backend: recorded but not delivered to an inbox.
+        toast(msg, { icon: '⚠️', duration: 8000 });
+      } else {
+        toast.success(msg);
+      }
       refetch();
-      queryClient.invalidateQueries({ queryKey: ['requests'] });
+      invalidateLists();
       setTimeout(() => setSendSuccessMessage(''), 8000);
     },
     onError: (err: any) => {
-      const errMsg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to send reply to patient';
-      toast.error(errMsg);
+      toast.error(err?.response?.data?.message || apiErrorMessage(err, 'Failed to send reply to patient'));
     },
   });
 
@@ -101,25 +125,31 @@ export default function RequestDetailPage() {
     mutationFn: (text: string) => requestsApi.addNote(id!, text),
     onSuccess: () => {
       setNewNote('');
+      toast.success('Note added');
       refetch();
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not add note.')),
   });
 
   // Update Status mutation
   const updateStatusMutation = useMutation({
     mutationFn: (newStatus: string) => requestsApi.updateStatus(id!, { status: newStatus }),
     onSuccess: () => {
+      toast.success('Status updated');
       refetch();
-      queryClient.invalidateQueries({ queryKey: ['requests'] });
+      invalidateLists();
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not update status.')),
   });
 
   const updatePriorityMutation = useMutation({
     mutationFn: (newPriority: string) => requestsApi.updateStatus(id!, { priority: newPriority }),
     onSuccess: () => {
+      toast.success('Priority updated');
       refetch();
-      queryClient.invalidateQueries({ queryKey: ['requests'] });
+      invalidateLists();
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not update priority.')),
   });
 
   if (isLoading) {
@@ -448,6 +478,12 @@ export default function RequestDetailPage() {
                   Suggest Next Step
                 </button>
               </div>
+              {aiSuggestion && (
+                <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start justify-between gap-2">
+                  <span><strong>Suggested next step:</strong> {aiSuggestion}</span>
+                  <button type="button" onClick={() => setAiSuggestion('')} className="text-amber-700 underline flex-shrink-0">Dismiss</button>
+                </div>
+              )}
             </div>
 
             {/* Editable Response Editor */}

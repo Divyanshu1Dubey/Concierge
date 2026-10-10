@@ -135,6 +135,15 @@ class BookingRules(models.Model):
     after_hours_message = models.TextField(
         default="Our office is currently closed. Please leave your details and preferred time, and our front desk will coordinate your appointment first thing next business morning."
     )
+    emergency_phone = models.CharField(max_length=30, blank=True)
+
+    # Human handoff behaviour
+    handoff_enabled = models.BooleanField(default=True)
+    handoff_message = models.TextField(blank=True)
+
+    cancellation_notice_hours = models.PositiveIntegerField(default=24)
+    # Practice-specific guidance appended to the AI concierge system prompt.
+    custom_instructions = models.TextField(blank=True, max_length=4000)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

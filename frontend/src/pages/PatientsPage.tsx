@@ -1,28 +1,39 @@
 import { useQuery } from '@tanstack/react-query';
 import { patientsApi } from '@/services/api';
-import { Users, Search, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { Users, Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 export default function PatientsPage() {
   const [search, setSearch] = useState('');
-  const { data, isLoading } = useQuery({
-    queryKey: ['patients', search],
-    queryFn: () => patientsApi.getAll(),
+  const [debounced, setDebounced] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['patients', debounced],
+    queryFn: () => patientsApi.getAll(debounced ? { search: debounced } : undefined),
   });
 
-  const patients: any[] = Array.isArray(data) ? data : (data?.results ?? []);
+  // Patients are derived from requests: collapse repeat requests from the same person.
+  const requests: any[] = Array.isArray(data) ? data : (data?.results ?? []);
+  const seen = new Map<string, any>();
+  for (const r of requests) {
+    const key = (r.patient_email || r.patient_phone || r.id || '').toString().toLowerCase();
+    const existing = seen.get(key);
+    if (existing) existing._requestCount += 1;
+    else seen.set(key, { ...r, _requestCount: 1 });
+  }
+  const patients: any[] = Array.from(seen.values());
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Patients</h1>
-          <p className="text-gray-500 mt-1">Manage patient records and history.</p>
+          <p className="text-gray-500 mt-1">People who have contacted the practice through the concierge.</p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700">
-          <Plus className="w-4 h-4" />
-          Add Patient
-        </button>
       </div>
 
       <div className="relative max-w-md">
@@ -42,6 +53,8 @@ export default function PatientsPage() {
             <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto" />
             <p className="text-gray-500 mt-3">Loading patients...</p>
           </div>
+        ) : isError ? (
+          <div className="p-12 text-center text-sm text-red-600">Could not load patients.</div>
         ) : patients.length === 0 ? (
           <div className="p-12 text-center">
             <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
@@ -72,8 +85,11 @@ export default function PatientsPage() {
                           ? 'bg-blue-100 text-blue-700'
                           : 'bg-emerald-100 text-emerald-700'
                       }`}>
-                        {patient.intent === 'new_patient' ? 'New Patient' : 'Active Patient'}
+                        {patient.intent === 'new_patient' ? 'New Patient' : 'Returning'}
                       </span>
+                      {patient._requestCount > 1 && (
+                        <span className="ml-2 text-xs text-gray-400">{patient._requestCount} requests</span>
+                      )}
                     </td>
                     <td className="px-6 py-3 text-sm text-gray-500">
                       {patient.created_at ? new Date(patient.created_at).toLocaleDateString() : 'Recent'}

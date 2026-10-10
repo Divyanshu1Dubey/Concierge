@@ -828,6 +828,13 @@ class TenantMetricsView(APIView):
 
         conv_rate = round((total_leads / total_conv * 100), 1) if total_conv > 0 else 0.0
 
+        from apps.emails.models import Email
+        email_qs = Email.objects.filter(thread__practice=practice, direction=Email.DIRECTION_OUTGOING)
+        emails_sent = email_qs.filter(status=Email.STATUS_SENT).count()
+        emails_failed = email_qs.filter(status=Email.STATUS_FAILED).count()
+        attempted = emails_sent + emails_failed
+        email_delivery = round(emails_sent / attempted * 100, 1) if attempted else None
+
         return Response({
             'conversations': total_conv,
             'new_leads': total_leads,
@@ -836,6 +843,9 @@ class TenantMetricsView(APIView):
             'appointment_requests': appointment_reqs,
             'human_handoffs': handoffs,
             'completion_rate': f"{conv_rate}%",
+            'emails_sent': emails_sent,
+            'emails_failed': emails_failed,
+            'email_delivery': email_delivery,
             'system_status': 'operational',
             'client_key': practice.api_key,
             'practice_name': practice.name,

@@ -1,40 +1,58 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Bot } from 'lucide-react';
-import { api } from '@/utils/api';
+import { api, apiErrorMessage } from '@/utils/api';
 import type { User } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
+
+interface DemoAccount {
+  email: string;
+  password: string;
+  role: string;
+  label: string;
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('expired')
+      ? 'Your session expired. Please sign in again.'
+      : ''
+  );
+  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>([]);
   const login = useAuthStore((state) => state.login);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    // Demo logins are only offered when the backend explicitly enables demo mode.
+    api.get('/auth/config/')
+      .then((res) => setDemoAccounts(res.data?.demo_accounts_enabled ? res.data.demo_accounts || [] : []))
+      .catch(() => setDemoAccounts([]));
+  }, []);
+
+  const signIn = async (loginEmail: string, loginPassword: string) => {
     setIsLoading(true);
     setError('');
 
     try {
-      const response = await api.post('/auth/login/', { email, password });
-      const { access } = response.data;
-      localStorage.setItem('auth_token', access);
-
-      const userRes = await api.get('/auth/me/');
-      const user: User = userRes.data;
-      login(access, user);
+      const response = await api.post('/auth/login/', { email: loginEmail, password: loginPassword });
+      const { access, refresh, user } = response.data as { access: string; refresh: string; user: User };
+      login(access, user, refresh);
       window.location.href = '/dashboard';
     } catch (err: any) {
-      console.error('Login error:', err);
-      const detail =
-        err?.response?.data?.non_field_errors?.[0] ||
-        err?.response?.data?.detail ||
-        'Login failed. Check your credentials.';
-      setError(detail);
+      if (err?.response?.status === 429) {
+        setError('Too many sign-in attempts. Please wait a minute and try again.');
+      } else {
+        setError(apiErrorMessage(err, 'Login failed. Check your credentials.'));
+      }
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    signIn(email, password);
   };
 
   return (
@@ -103,6 +121,26 @@ export default function LoginPage() {
               )}
             </button>
           </form>
+
+          {demoAccounts.length > 0 && (
+            <div className="mt-6 pt-6 border-t border-white/10">
+              <p className="text-xs text-slate-400 mb-3 text-center">Demo environment: one-click sign in</p>
+              <div className="grid gap-2">
+                {demoAccounts.map((acct) => (
+                  <button
+                    key={acct.email}
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => signIn(acct.email, acct.password)}
+                    className="w-full text-left px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm text-slate-200 transition-all disabled:opacity-50"
+                  >
+                    <span className="font-medium">{acct.label}</span>
+                    <span className="block text-xs text-slate-500">{acct.email}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <p className="text-center text-xs text-slate-600 mt-6">HeyJarvis — AI Dental Concierge Platform</p>

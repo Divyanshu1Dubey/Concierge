@@ -16,7 +16,6 @@ import {
   Mail,
   FileText,
   UserPlus,
-  BookOpen,
   LucideIcon
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
@@ -71,7 +70,6 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
             title: 'AGENCY PLATFORM',
             items: [
               { to: '/dashboard/practices', label: 'Dental Practices', icon: Building2, badge: 'All Clinics' },
-              { to: '/dashboard/settings', label: 'Platform Settings', icon: Settings },
             ],
           },
         ]
@@ -83,7 +81,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
         { to: '/dashboard/conversations', label: 'Patient Conversations', icon: MessageSquare },
         { to: '/dashboard/leads', label: 'Captured Leads', icon: UserPlus },
         { to: '/dashboard/patients', label: 'Patients Directory', icon: Users },
-        { to: '/dashboard/knowledge', label: 'Knowledge Base', icon: BookOpen },
+        { to: '/dashboard/email', label: 'Email Log', icon: Mail },
       ],
     },
     {
@@ -108,7 +106,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
               { to: '/dashboard/email-settings', label: 'Email & SMTP Delivery', icon: Mail },
               { to: '/dashboard/templates', label: 'Email Templates', icon: FileText },
               { to: '/dashboard/team', label: 'Dentists & Staff', icon: Users },
-              { to: '/dashboard/security', label: 'HIPAA & Audit Logs', icon: ShieldCheck },
+              { to: '/dashboard/security', label: 'Security & Audit Logs', icon: ShieldCheck },
               { to: '/dashboard/settings', label: 'Practice Settings', icon: Settings },
             ],
           },
@@ -152,7 +150,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
               {isAgencyAdmin ? 'Platform Role' : 'Active Practice'}
             </span>
             <p className="text-xs font-bold text-white truncate">
-              {isAgencyAdmin ? 'Agency Admin' : user?.practice_name || 'Raleigh Dentistry'}
+              {isAgencyAdmin ? 'Agency Admin' : user?.practice_name || 'Your Practice'}
             </p>
           </div>
           <span

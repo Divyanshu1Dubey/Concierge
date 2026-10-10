@@ -312,3 +312,59 @@ class StaffReplyTests(TenantFixture):
     def test_spa_concierge_route_is_frameable(self):
         res = self.client.get('/concierge/alpha')
         self.assertFalse(res.has_header('X-Frame-Options'))
+
+
+class WorkflowAdditionsTests(TenantFixture):
+    def test_tab_filter_matches_stats(self):
+        Appointment.objects.create(practice=self.a, patient_name='E1', intent='emergency')
+        Appointment.objects.create(practice=self.a, patient_name='E2', intent='question', urgency='URGENT')
+        c = self.client_for(self.desk_a)
+        stats = c.get('/api/requests/stats/').data
+        listed = c.get('/api/requests/', {'tab': 'emergency'}).data
+        self.assertEqual(stats['emergency'], 2)
+        self.assertEqual(len(listed), 2)
+        self.assertEqual(len(c.get('/api/requests/', {'tab': 'appointment'}).data), stats['appointment'])
+
+    def test_business_rules_extra_fields_persist_and_validate(self):
+        c = self.client_for(self.admin_a)
+        res = c.put('/api/practices/booking-rules/', {
+            'emergency_phone': '919-555-0199', 'handoff_enabled': False, 'custom_instructions': 'Mention free parking.',
+            'cancellation_notice_hours': 48}, format='json')
+        self.assertEqual(res.status_code, 200)
+        rules = BookingRules.objects.get(practice=self.a)
+        self.assertFalse(rules.handoff_enabled)
+        self.assertEqual(rules.cancellation_notice_hours, 48)
+        bad = c.put('/api/practices/booking-rules/', {'business_hours': {'monday': {'open': '18:00', 'close': '09:00'}}}, format='json')
+        self.assertEqual(bad.status_code, 400)
+
+    def test_handoff_disabled_does_not_create_lead(self):
+        from apps.conversations.state_machine import ConciergeStateMachine
+        BookingRules.objects.filter(practice=self.a).update(handoff_enabled=False)
+        self.a.refresh_from_db()
+        conv = Conversation.objects.create(practice=self.a, state=Conversation.STATE_HANDOFF)
+        result = ConciergeStateMachine(conv, self.a).process_message('talk to a person')
+        self.assertIn(self.a.phone, result['message'])
+        self.assertFalse(Appointment.objects.filter(conversation=conv).exists())
+
+    def test_notification_routed_by_intent(self):
+        PracticeSettings.objects.filter(practice=self.a).update(notification_emails={
+            'general': 'general@alpha.test', 'emergency': 'oncall@alpha.test'})
+        APIClient().post('/api/v1/widget/submit/', {'client_key': self.a.api_key, 'patient_email': 'x@example.com'}, format='json')
+        self.assertEqual(mail.outbox[-1].to, ['general@alpha.test'])
+        from apps.emails.services import notify_practice_of_request
+        practice = Practice.objects.get(pk=self.a.pk)
+        appt = Appointment.objects.create(practice=practice, intent='emergency', patient_name='Ouch')
+        self.assertTrue(notify_practice_of_request(appt))
+        self.assertEqual(mail.outbox[-1].to, ['oncall@alpha.test'])
+
+    def test_metrics_email_delivery_is_real(self):
+        c = self.client_for(self.admin_a)
+        self.assertIsNone(c.get('/api/practices/metrics/').data['email_delivery'])
+        c.post(f'/api/conversations/{self.conv_a.id}/messages/', {'content': 'Hello'}, format='json')
+        data = c.get('/api/practices/metrics/').data
+        self.assertEqual(data['emails_sent'], 1)
+        self.assertEqual(data['email_delivery'], 100.0)
+
+    def test_invalid_notification_email_rejected(self):
+        res = self.client_for(self.admin_a).put('/api/practices/settings/', {'notification_emails': {'general': 'not-an-email'}}, format='json')
+        self.assertEqual(res.status_code, 400)

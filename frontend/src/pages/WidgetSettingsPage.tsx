@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { practicesApi } from '@/services/api';
+import { apiErrorMessage } from '@/utils/api';
 import {
   Palette, Bot, Save, MessageSquare, Send, Sparkles, Check
 } from 'lucide-react';
@@ -10,67 +12,76 @@ export default function WidgetSettingsPage() {
   const [saved, setSaved] = useState(false);
 
   // Form State
-  const [title, setTitle] = useState('HeyJarvis Concierge');
-  const [greeting, setGreeting] = useState('Hi! How can our front desk assist you today?');
-  const [launcherText, setLauncherText] = useState('Chat with Front Desk');
+  const [title, setTitle] = useState('');
+  const [subtitle, setSubtitle] = useState('');
+  const [greeting, setGreeting] = useState('');
   const [primaryColor, setPrimaryColor] = useState('#0d9488');
   const [position, setPosition] = useState<'right' | 'left'>('right');
-  const [borderRadius, setBorderRadius] = useState<'rounded' | 'pill' | 'square'>('rounded');
   const [autoOpen, setAutoOpen] = useState(false);
   const [autoOpenDelay, setAutoOpenDelay] = useState(5);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [offlineMessage, setOfflineMessage] = useState("We're currently offline. Please leave your details and we'll contact you promptly.");
-  const [afterHoursMessage, setAfterHoursMessage] = useState('Our office is closed right now. We will review your request first thing in the morning!');
-  const [successMessage, setSuccessMessage] = useState('Thank you! Our front desk has received your request and will reach out shortly.');
+  const [afterHoursMessage, setAfterHoursMessage] = useState('');
 
-  // Fetch settings from API
-  const { data: settingsData } = useQuery({
+  const { data: settingsData, isLoading, isError } = useQuery({
     queryKey: ['settings'],
     queryFn: () => practicesApi.settings(),
   });
+  const { data: rulesData } = useQuery({
+    queryKey: ['booking-rules'],
+    queryFn: () => practicesApi.bookingRules(),
+  });
 
   useEffect(() => {
-    if (settingsData?.settings) {
-      const s = settingsData.settings;
-      if (s.title) setTitle(s.title);
-      if (s.greeting) setGreeting(s.greeting);
-      if (s.primary_color) setPrimaryColor(s.primary_color);
-      if (s.position) setPosition(s.position as any);
-      if (s.launcher_text) setLauncherText(s.launcher_text);
-      if (s.auto_open !== undefined) setAutoOpen(Boolean(s.auto_open));
-      if (s.auto_open_delay !== undefined) setAutoOpenDelay(Number(s.auto_open_delay));
-      if (s.sound_enabled !== undefined) setSoundEnabled(Boolean(s.sound_enabled));
-      if (s.offline_message) setOfflineMessage(s.offline_message);
-      if (s.after_hours_message) setAfterHoursMessage(s.after_hours_message);
-      if (s.success_message) setSuccessMessage(s.success_message);
-    }
+    if (!settingsData) return;
+    setTitle(settingsData.widget_title ?? '');
+    setSubtitle(settingsData.widget_subtitle ?? '');
+    setGreeting(settingsData.ai_greeting_message ?? '');
+    if (settingsData.widget_primary_color) setPrimaryColor(settingsData.widget_primary_color);
+    setPosition(settingsData.widget_position === 'left' ? 'left' : 'right');
+    setAutoOpen(Boolean(settingsData.widget_auto_open));
+    setAutoOpenDelay(Number(settingsData.widget_auto_open_delay_sec ?? 5));
   }, [settingsData]);
 
+  useEffect(() => {
+    if (rulesData) setAfterHoursMessage(rulesData.after_hours_message ?? '');
+  }, [rulesData]);
+
   const saveMutation = useMutation({
-    mutationFn: (data: Record<string, unknown>) => practicesApi.updateSettings(data),
+    mutationFn: async () => {
+      await practicesApi.updateSettings({
+        widget_title: title,
+        widget_subtitle: subtitle,
+        ai_greeting_message: greeting,
+        widget_primary_color: primaryColor,
+        widget_position: position,
+        widget_auto_open: autoOpen,
+        widget_auto_open_delay_sec: autoOpenDelay,
+      });
+      await practicesApi.updateBookingRules({ after_hours_message: afterHoursMessage });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] });
+      queryClient.invalidateQueries({ queryKey: ['booking-rules'] });
+      toast.success('Widget settings saved');
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not save widget settings.')),
   });
 
   const handleSave = () => {
-    saveMutation.mutate({
-      title,
-      greeting,
-      primary_color: primaryColor,
-      position,
-      launcher_text: launcherText,
-      auto_open: autoOpen,
-      auto_open_delay: autoOpenDelay,
-      sound_enabled: soundEnabled,
-      offline_message: offlineMessage,
-      after_hours_message: afterHoursMessage,
-      success_message: successMessage,
-      border_radius: borderRadius,
-    });
+    if (!/^#[0-9a-fA-F]{6}$/.test(primaryColor)) {
+      toast.error('Primary color must be a hex value like #0d9488');
+      return;
+    }
+    saveMutation.mutate();
   };
+
+  if (isLoading) {
+    return <div className="p-8 text-sm text-gray-500">Loading widget settings…</div>;
+  }
+  if (isError) {
+    return <div className="p-8 text-sm text-red-600">Could not load widget settings. Please refresh the page.</div>;
+  }
 
   return (
     <div className="space-y-6 max-w-6xl">
@@ -106,17 +117,19 @@ export default function WidgetSettingsPage() {
                 <input
                   type="text"
                   value={title}
+                  maxLength={100}
                   onChange={(e) => setTitle(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-700 block mb-1">Launcher Button Text</label>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Subtitle</label>
                 <input
                   type="text"
-                  value={launcherText}
-                  onChange={(e) => setLauncherText(e.target.value)}
+                  maxLength={150}
+                  value={subtitle}
+                  onChange={(e) => setSubtitle(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
@@ -135,6 +148,7 @@ export default function WidgetSettingsPage() {
                   <input
                     type="text"
                     value={primaryColor}
+                    maxLength={7}
                     onChange={(e) => setPrimaryColor(e.target.value)}
                     className="flex-1 font-mono text-xs px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
@@ -153,18 +167,6 @@ export default function WidgetSettingsPage() {
                 </select>
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-gray-700 block mb-1">Corner Radius</label>
-                <select
-                  value={borderRadius}
-                  onChange={(e) => setBorderRadius(e.target.value as any)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
-                >
-                  <option value="rounded">Rounded Corners (Modern)</option>
-                  <option value="pill">Pill Shape</option>
-                  <option value="square">Square Corners</option>
-                </select>
-              </div>
             </div>
           </div>
 
@@ -176,7 +178,7 @@ export default function WidgetSettingsPage() {
             </h2>
 
             <div>
-              <label className="text-xs font-semibold text-gray-700 block mb-1">Welcome / Greeting Message</label>
+              <label className="text-xs font-semibold text-gray-700 block mb-1">Welcome / Greeting Message <span className="font-normal text-gray-400">({'{practice}'} is replaced with your practice name)</span></label>
               <textarea
                 rows={2}
                 value={greeting}
@@ -195,15 +197,6 @@ export default function WidgetSettingsPage() {
               />
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-gray-700 block mb-1">Submission Success Message</label>
-              <textarea
-                rows={2}
-                value={successMessage}
-                onChange={(e) => setSuccessMessage(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-              />
-            </div>
           </div>
 
           {/* Behavior & Sound */}
@@ -241,18 +234,6 @@ export default function WidgetSettingsPage() {
                 </div>
               )}
 
-              <label className="flex items-center justify-between cursor-pointer">
-                <div>
-                  <span className="text-sm font-semibold text-gray-800">Chime Sound Effects</span>
-                  <p className="text-xs text-gray-400">Play subtle notification sound on new inbound messages</p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={soundEnabled}
-                  onChange={(e) => setSoundEnabled(e.target.checked)}
-                  className="w-4 h-4 text-teal-600 rounded"
-                />
-              </label>
             </div>
           </div>
         </div>
@@ -275,7 +256,7 @@ export default function WidgetSettingsPage() {
                   <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
                 </div>
                 <div className="bg-white px-3 py-0.5 rounded text-[10px] text-gray-400 flex-1 truncate font-mono border border-gray-200 text-center">
-                  raleighdentistry.com
+                  your-practice-website.com
                 </div>
               </div>
 
@@ -300,7 +281,7 @@ export default function WidgetSettingsPage() {
                     </div>
                     <div>
                       <h4 className="text-xs font-bold leading-tight">{title}</h4>
-                      <p className="text-[10px] text-white/80">Online • Front Desk Active</p>
+                      <p className="text-[10px] text-white/80">{subtitle}</p>
                     </div>
                   </div>
                 </div>
@@ -312,7 +293,7 @@ export default function WidgetSettingsPage() {
                       AI
                     </div>
                     <div className="bg-white p-2.5 rounded-xl rounded-tl-none shadow-sm border border-gray-100 text-gray-800 text-[11px] leading-relaxed">
-                      {greeting}
+                      {greeting.replace('{practice}', settingsData?.practice_name || 'your practice')}
                     </div>
                   </div>
 
@@ -352,7 +333,7 @@ export default function WidgetSettingsPage() {
                 style={{ backgroundColor: primaryColor }}
               >
                 <Bot className="w-4 h-4" />
-                <span>{launcherText}</span>
+                <span>Chat with us</span>
               </div>
             </div>
           </div>

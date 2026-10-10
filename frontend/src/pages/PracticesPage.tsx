@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { practicesApi } from '@/services/api';
+import { apiErrorMessage, downloadFile } from '@/utils/api';
 import { useAuthStore } from '@/stores/authStore';
 import {
   Building2,
@@ -71,11 +72,33 @@ export default function PracticesPage() {
   // Copy feedback state
   const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
 
-  const handleCopy = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
+  const handleCopy = async (text: string, label: string) => {
+    if (!text) {
+      toast.error(`${label} is not available yet.`);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      toast.error('Copy failed. Select the text and copy it manually.');
+      return;
+    }
     setCopiedSnippet(label);
     toast.success(`${label} copied to clipboard!`);
     setTimeout(() => setCopiedSnippet(null), 2500);
+  };
+
+  const [confirmDeactivateId, setConfirmDeactivateId] = useState<string | null>(null);
+  const [downloadingPlugin, setDownloadingPlugin] = useState(false);
+  const handleDownloadPlugin = async (practice: any) => {
+    setDownloadingPlugin(true);
+    try {
+      await downloadFile(`/practices/${practice.id}/integration/wordpress/`, `heyjarvis-concierge-${practice.slug}.zip`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Plugin download failed.'));
+    } finally {
+      setDownloadingPlugin(false);
+    }
   };
 
   // Queries
@@ -120,12 +143,17 @@ export default function PracticesPage() {
       setShowCreateModal(false);
       setName('');
       setEmail('');
+      setPhone('');
+      setAddress('');
+      setCity('');
+      setState('');
       setAdminName('');
       setAdminEmail('');
+      setAdminPassword('');
       queryClient.invalidateQueries({ queryKey: ['agency-practices'] });
     },
     onError: (err: any) => {
-      toast.error(err?.response?.data?.error || 'Failed to onboard practice');
+      toast.error(apiErrorMessage(err, 'Failed to onboard practice'));
     },
   });
 
@@ -190,17 +218,22 @@ export default function PracticesPage() {
       toast.error('Please enter practice name and email');
       return;
     }
-    createMutation.mutate({
-      name,
-      email,
-      phone,
-      address,
-      city,
-      state,
-      admin_name: adminName,
-      admin_email: adminEmail,
-      admin_password: adminPassword,
-    });
+    if (adminEmail.trim() && adminPassword.length < 8) {
+      toast.error('Set an initial password of at least 8 characters for the practice administrator.');
+      return;
+    }
+    const payload: Record<string, unknown> = { name: name.trim(), email: email.trim() };
+    // Only send optional fields that were filled in; the backend applies defaults otherwise.
+    if (phone.trim()) payload.phone = phone.trim();
+    if (address.trim()) payload.address = address.trim();
+    if (city.trim()) payload.city = city.trim();
+    if (state.trim()) payload.state = state.trim();
+    if (adminEmail.trim()) {
+      payload.admin_name = adminName.trim();
+      payload.admin_email = adminEmail.trim();
+      payload.admin_password = adminPassword;
+    }
+    createMutation.mutate(payload);
   };
 
   const handleAddStaffSubmit = (e: React.FormEvent) => {
@@ -211,7 +244,7 @@ export default function PracticesPage() {
     }
     addStaffMutation.mutate({
       email: newStaffEmail.trim(),
-      password: newStaffPassword.trim(),
+      password: newStaffPassword,
       role: newStaffRole,
       first_name: newStaffFirstName.trim(),
       last_name: newStaffLastName.trim(),
@@ -821,14 +854,22 @@ export default function PracticesPage() {
                                 </button>
                                 <button
                                   onClick={() => {
-                                    if (confirm(`Are you sure you want to deactivate ${u.email}?`)) {
+                                    if (confirmDeactivateId === u.id) {
                                       deleteStaffMutation.mutate(u.id);
+                                      setConfirmDeactivateId(null);
+                                    } else {
+                                      setConfirmDeactivateId(u.id);
                                     }
                                   }}
-                                  className="px-2 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-[11px] font-semibold transition"
+                                  onBlur={() => setConfirmDeactivateId(null)}
+                                  className={`px-2 py-1 rounded-lg border text-[11px] font-semibold transition ${
+                                    confirmDeactivateId === u.id
+                                      ? 'bg-red-600 border-red-600 text-white'
+                                      : 'border-red-200 text-red-600 hover:bg-red-50'
+                                  }`}
                                   title="Deactivate account"
                                 >
-                                  Remove
+                                  {confirmDeactivateId === u.id ? 'Confirm?' : 'Remove'}
                                 </button>
                               </div>
                             </td>
@@ -935,14 +976,15 @@ export default function PracticesPage() {
                         </p>
                       </div>
 
-                      <a
-                        href={practicesApi.getWordPressPluginUrl(selectedIntegrationPractice.id)}
-                        download
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadPlugin(selectedIntegrationPractice)}
+                        disabled={downloadingPlugin}
                         className="px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-2 flex-shrink-0"
                       >
                         <Download className="w-4 h-4" />
-                        Download Plugin (.zip)
-                      </a>
+                        {downloadingPlugin ? 'Preparing…' : 'Download Plugin (.zip)'}
+                      </button>
                     </div>
 
                     <div className="mt-4 pt-3 border-t border-teal-200/80 text-xs text-gray-600">

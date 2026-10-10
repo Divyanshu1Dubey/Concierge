@@ -34,7 +34,7 @@ class AIEngine:
         self.safety = AISafety()
         self._log_cache = []
 
-    def chat(self, message: str, conversation_history: list = None) -> dict:
+    def chat(self, message: str, conversation_history: list = None, extra_instructions: str = '') -> dict:
         """Process a chat message and return an AI response."""
         start_time = time.time()
         interaction_type = 'chat'
@@ -59,7 +59,10 @@ class AIEngine:
             result = self.provider.chat(
                 message=message,
                 conversation_history=conversation_history,
-                system_prompt=DENTAL_SYSTEM_PROMPT,
+                system_prompt=DENTAL_SYSTEM_PROMPT + (
+                    f"\n\nPractice-specific guidance (follow it unless it conflicts with patient safety):\n{extra_instructions}"
+                    if extra_instructions else ''
+                ),
             )
 
             # Safety check on output

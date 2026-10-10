@@ -68,7 +68,7 @@ export default function Header({ onMenuToggle }: HeaderProps) {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl">
             <Layers className="w-3.5 h-3.5 text-slate-600" />
             <span className="font-extrabold text-slate-900">
-              {user?.practice_name || 'Raleigh Comprehensive Dentistry'}
+              {user?.practice_name || 'Your Practice'}
             </span>
             <span className="text-gray-400">&bull;</span>
             <span className="text-gray-600 font-medium">
@@ -90,8 +90,9 @@ export default function Header({ onMenuToggle }: HeaderProps) {
           </Link>
         )}
 
+        {user?.practice_slug && (
         <a
-          href={user?.practice_slug ? `/concierge/${user.practice_slug}` : "/concierge/raleigh-dentistry"}
+          href={`/concierge/${user.practice_slug}`}
           target="_blank"
           rel="noopener noreferrer"
           className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold transition"
@@ -99,6 +100,7 @@ export default function Header({ onMenuToggle }: HeaderProps) {
         >
           <span>Patient Concierge</span>
         </a>
+        )}
 
         {/* User Pill */}
         <div className="flex items-center gap-2 pl-2 border-l border-gray-200">

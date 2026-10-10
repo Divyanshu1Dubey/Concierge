@@ -67,6 +67,16 @@ class AppointmentListCreateView(TenantIsolationMixin, generics.ListCreateAPIView
 
     def get_queryset(self):
         qs = super().get_queryset()
+        # Inbox tabs use the same definitions as AppointmentStatsView so counts match lists.
+        tab = self.request.query_params.get('tab')
+        if tab == 'new':
+            qs = qs.filter(status='pending')
+        elif tab == 'emergency':
+            qs = qs.filter(Q(urgency='URGENT') | Q(intent='emergency'))
+        elif tab == 'appointment':
+            qs = qs.filter(intent__in=['new_patient', 'cleaning', 'appointment'])
+        elif tab in ('question', 'reschedule', 'cancel', 'handoff'):
+            qs = qs.filter(intent=tab)
         status_filter = self.request.query_params.get('status')
         if status_filter:
             qs = qs.filter(status=status_filter)

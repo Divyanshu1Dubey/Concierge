@@ -1,6 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Bot, Send, User, Settings2 } from 'lucide-react';
-import { chatApi } from '@/services/api';
+import { chatApi, practicesApi } from '@/services/api';
+import { apiErrorMessage } from '@/utils/api';
+
+interface QuickOption {
+  label: string;
+  value: string;
+}
 
 type MessageRole = 'user' | 'assistant';
 
@@ -18,14 +26,29 @@ const SCENARIOS = [
 
 export default function ConciergePage() {
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [quickOptions, setQuickOptions] = useState<string[]>(['New Patient', 'Emergency', 'Cleaning', 'Question']);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: 'assistant',
-      content: "Hello! I'm the HeyJarvis Concierge. How can our front desk assist you today?",
-      timestamp: new Date(),
-    },
-  ]);
+  const [quickOptions, setQuickOptions] = useState<QuickOption[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  // Chat as the selected practice (its public client key), so test conversations land in the right tenant.
+  const { data: metrics, isLoading: metricsLoading } = useQuery({
+    queryKey: ['dashboard-metrics'],
+    queryFn: () => practicesApi.metrics(),
+  });
+  const clientKey: string | undefined = metrics?.client_key;
+
+  const { data: widgetConfig } = useQuery({
+    queryKey: ['widget-config', clientKey],
+    queryFn: () => chatApi.config(clientKey!),
+    enabled: !!clientKey,
+  });
+
+  useEffect(() => {
+    if (widgetConfig && messages.length === 0) {
+      setMessages([{ role: 'assistant', content: widgetConfig.greeting, timestamp: new Date() }]);
+      setQuickOptions(Array.isArray(widgetConfig.quick_replies) ? widgetConfig.quick_replies : []);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [widgetConfig]);
   const [input, setInput] = useState('');
   const [isPending, setIsPending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -37,25 +60,23 @@ export default function ConciergePage() {
 
   const handleSend = useCallback((textToSend?: string) => {
     const trimmed = (textToSend || input).trim();
-    if (!trimmed || isPending) return;
+    if (!trimmed || isPending || !clientKey) return;
 
     const userMessage: ChatMessage = { role: 'user', content: trimmed, timestamp: new Date() };
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsPending(true);
 
-    chatApi.send(trimmed, conversationId || undefined)
+    chatApi.send(trimmed, conversationId || undefined, clientKey)
       .then((data: any) => {
         if (data.conversation_id) {
           setConversationId(data.conversation_id);
         }
-        if (data.quick_options && Array.isArray(data.quick_options) && data.quick_options.length > 0) {
-          setQuickOptions(data.quick_options);
-        } else if (data.quick_replies && Array.isArray(data.quick_replies) && data.quick_replies.length > 0) {
-          setQuickOptions(data.quick_replies.map((r: any) => r.label || r));
-        } else {
-          setQuickOptions([]);
-        }
+        setQuickOptions(
+          Array.isArray(data.quick_replies)
+            ? data.quick_replies.map((r: any) => (typeof r === 'string' ? { label: r, value: r } : r))
+            : []
+        );
         const assistantMessage: ChatMessage = {
           role: 'assistant',
           content: data.message || "Thank you! Our front desk has received your details.",
@@ -63,16 +84,16 @@ export default function ConciergePage() {
         };
         setMessages((prev) => [...prev, assistantMessage]);
       })
-      .catch(() => {
+      .catch((err) => {
         const errorMessage: ChatMessage = {
           role: 'assistant',
-          content: "I'm having trouble connecting right now. Please leave your details and our front desk will help.",
+          content: `⚠️ Message not delivered: ${apiErrorMessage(err, 'the concierge is unavailable.')}`,
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, errorMessage]);
       })
       .finally(() => setIsPending(false));
-  }, [input, isPending, conversationId]);
+  }, [input, isPending, conversationId, clientKey]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -87,16 +108,20 @@ export default function ConciergePage() {
       <div className="flex items-center justify-between flex-shrink-0">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">AI Concierge</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Preview how the AI concierge interacts with patients</p>
+          <p className="text-gray-500 text-sm mt-0.5">
+            {metricsLoading ? 'Loading practice…' : clientKey
+              ? `Live preview for ${metrics?.practice_name}. Test conversations create real requests in your inbox.`
+              : 'Select a practice workspace to preview its concierge.'}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-xs font-medium">
             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
             Active
           </span>
-          <button className="p-2 rounded-lg hover:bg-gray-100 text-gray-600">
+          <Link to="/dashboard/widget-settings" className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" title="Widget settings">
             <Settings2 className="w-5 h-5" />
-          </button>
+          </Link>
         </div>
       </div>
 
@@ -148,11 +173,11 @@ export default function ConciergePage() {
             <div className="flex-shrink-0 px-4 py-2 border-t border-gray-100 flex flex-wrap gap-2 bg-gray-50/50">
               {quickOptions.map((opt) => (
                 <button
-                  key={opt}
-                  onClick={() => handleSend(opt)}
+                  key={opt.label}
+                  onClick={() => handleSend(opt.value)}
                   className="px-3 py-1 bg-white hover:bg-teal-50 border border-teal-600/30 text-teal-800 rounded-full text-xs font-semibold shadow-xs transition"
                 >
-                  {opt}
+                  {opt.label}
                 </button>
               ))}
             </div>

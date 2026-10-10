@@ -3,17 +3,17 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { emailsApi } from '@/services/api';
 import { Send, Search, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { apiErrorMessage } from '@/utils/api';
 
 interface EmailMessage {
-  id: number;
-  direction: 'inbound' | 'outbound';
+  id: string;
+  direction: 'incoming' | 'outgoing' | 'internal';
   subject: string;
   body: string;
-  sender: string;
-  recipient: string;
+  from_email: string;
+  to_email: string;
   status: string;
-  sent_at: string;
-  received_at: string;
+  sent_at: string | null;
   created_at: string;
 }
 
@@ -27,7 +27,7 @@ export default function EmailComposerPage() {
   const [body, setBody] = useState('');
   const queryClient = useQueryClient();
 
-  const { data: emails, isLoading } = useQuery({
+  const { data: emails, isLoading, isError } = useQuery({
     queryKey: ['emails', directionFilter, search],
     queryFn: async () => {
       const params: Record<string, string> = {};
@@ -48,15 +48,27 @@ export default function EmailComposerPage() {
       setToEmail('');
       setSubject('');
       setBody('');
-      toast.success(res?.message || `Email sent successfully to ${recipient}`);
+      if (res?.delivery?.warning) {
+        toast(res.message || `Email recorded for ${recipient}`, { icon: '⚠️', duration: 8000 });
+      } else {
+        toast.success(res?.message || `Email sent to ${recipient}`);
+      }
     },
     onError: (err: any) => {
-      toast.error(err?.response?.data?.message || err?.response?.data?.error || 'Failed to send email');
+      queryClient.invalidateQueries({ queryKey: ['emails'] });
+      toast.error(err?.response?.data?.message || apiErrorMessage(err, 'Failed to send email'));
     },
   });
 
   const handleSend = () => {
-    if (!toEmail.trim() || !subject.trim() || !body.trim()) return;
+    if (!toEmail.trim() || !subject.trim() || !body.trim()) {
+      toast.error('Recipient, subject and message are required.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail.trim())) {
+      toast.error('Enter a valid recipient email.');
+      return;
+    }
     sendMutation.mutate({ to_email: toEmail, subject, body });
   };
 
@@ -94,8 +106,8 @@ export default function EmailComposerPage() {
           className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500"
         >
           <option value="">All</option>
-          <option value="inbound">Inbound</option>
-          <option value="outbound">Outbound</option>
+          <option value="incoming">Incoming</option>
+          <option value="outgoing">Outgoing</option>
         </select>
       </div>
 
@@ -103,6 +115,8 @@ export default function EmailComposerPage() {
       <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
         {isLoading ? (
           <div className="p-8 text-center text-gray-500">Loading emails...</div>
+        ) : isError ? (
+          <div className="p-8 text-center text-red-600">Could not load emails.</div>
         ) : (emails as EmailMessage[] | undefined)?.length === 0 ? (
           <div className="p-8 text-center text-gray-500">No emails found</div>
         ) : (
@@ -117,9 +131,9 @@ export default function EmailComposerPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                    email.direction === 'inbound' ? 'bg-blue-100' : 'bg-teal-100'
+                    email.direction === 'incoming' ? 'bg-blue-100' : 'bg-teal-100'
                   }`}>
-                    {email.direction === 'inbound' ? (
+                    {email.direction === 'incoming' ? (
                       <ArrowDownRight className="w-4 h-4 text-blue-600" />
                     ) : (
                       <ArrowUpRight className="w-4 h-4 text-teal-600" />
@@ -127,14 +141,17 @@ export default function EmailComposerPage() {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-gray-900">
-                      {email.direction === 'inbound' ? email.sender : email.recipient}
+                      {email.direction === 'incoming' ? email.from_email : email.to_email}
                     </p>
                     <p className="text-sm text-gray-600">{email.subject}</p>
-                    <p className="text-xs text-gray-400 mt-1 line-clamp-1">{email.body}</p>
+                    <p className={`text-xs text-gray-500 mt-1 whitespace-pre-wrap ${selectedThread === email.id.toString() ? '' : 'line-clamp-1'}`}>{email.body}</p>
                   </div>
                 </div>
-                <span className="text-xs text-gray-400 flex-shrink-0">
-                  {new Date(email.created_at).toLocaleDateString()}
+                <span className="text-xs text-gray-400 flex-shrink-0 text-right">
+                  {new Date(email.created_at).toLocaleString()}
+                  <span className={`block mt-1 font-semibold uppercase ${email.status === 'failed' ? 'text-red-600' : email.status === 'sent' ? 'text-emerald-600' : 'text-gray-400'}`}>
+                    {email.status}
+                  </span>
                 </span>
               </div>
             </div>
