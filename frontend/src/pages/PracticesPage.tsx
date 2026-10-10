@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import AccessRequestsPanel from '@/components/agency/AccessRequestsPanel';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { practicesApi } from '@/services/api';
@@ -343,6 +344,18 @@ export default function PracticesPage() {
           </button>
         </div>
       </div>
+
+      <AccessRequestsPanel
+        onStartOnboarding={(r) => {
+          setName(r.practice_name);
+          setEmail(r.email);
+          setPhone(r.phone || '');
+          setAdminName(r.contact_name);
+          setAdminEmail(r.email);
+          setAdminPassword('');
+          setShowCreateModal(true);
+        }}
+      />
 
       {/* Overview Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

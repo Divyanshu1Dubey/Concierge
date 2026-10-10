@@ -1,16 +1,16 @@
 """
 Centralized seed data definitions and helpers for HeyJarvis.
 
-Demo accounts use well-known passwords, so they are only provisioned when
-demo mode is enabled (ENABLE_DEMO_ACCOUNTS=true, defaulting to on only when
-DEBUG is true). Production deployments get no demo logins unless explicitly
-opted in.
+Demo accounts are only provisioned when demo mode is enabled
+(ENABLE_DEMO_ACCOUNTS=true, defaulting to on only when DEBUG is true). No password
+is stored in source: set DEMO_ACCOUNT_PASSWORD for controlled internal testing,
+otherwise new demo accounts get an unusable password (use "Forgot password").
+Demo logins are never shown on the public site.
 """
 from typing import Optional, Dict, Any, List
 
 DEMO_ACCOUNTS: Dict[str, Dict[str, Any]] = {
     'admin@raleighdentistry.com': {
-        'password': 'Password123!',
         'role': 'AGENCY_ADMIN',
         'first_name': 'Agency',
         'last_name': 'Admin',
@@ -19,7 +19,6 @@ DEMO_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         'practice_slug': 'raleigh-dentistry',
     },
     'doctor@raleighdentistry.com': {
-        'password': 'Password123!',
         'role': 'PRACTICE_ADMIN',
         'first_name': 'Dr. Sarah',
         'last_name': 'Brody',
@@ -28,7 +27,6 @@ DEMO_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         'practice_slug': 'raleigh-dentistry',
     },
     'brody@raleighdentistry.com': {
-        'password': 'Password123!',
         'role': 'PRACTICE_ADMIN',
         'first_name': 'Dr. Sarah',
         'last_name': 'Brody',
@@ -37,7 +35,6 @@ DEMO_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         'practice_slug': 'raleigh-dentistry',
     },
     'desk@raleighdentistry.com': {
-        'password': 'Password123!',
         'role': 'FRONT_DESK',
         'first_name': 'Emma',
         'last_name': 'Davis',
@@ -46,7 +43,6 @@ DEMO_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         'practice_slug': 'raleigh-dentistry',
     },
     'admin@raleighcomprehensive.com': {
-        'password': 'raleigh2024!',
         'role': 'OWNER',
         'first_name': 'Office',
         'last_name': 'Manager',
@@ -55,7 +51,6 @@ DEMO_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         'practice_slug': 'raleigh-comprehensive',
     },
     'desk@raleighcomprehensive.com': {
-        'password': 'desk2024!',
         'role': 'FRONT_DESK',
         'first_name': 'Front',
         'last_name': 'Desk',
@@ -93,29 +88,14 @@ DEMO_PRACTICES: Dict[str, Dict[str, Any]] = {
 }
 
 
-DEMO_ACCOUNT_LABELS = {
-    'admin@raleighdentistry.com': 'Agency Admin',
-    'doctor@raleighdentistry.com': 'Doctor (Practice Admin)',
-    'desk@raleighdentistry.com': 'Front Desk',
-}
-
-
 def demo_accounts_enabled() -> bool:
     from django.conf import settings
     return bool(getattr(settings, 'DEMO_ACCOUNTS_ENABLED', False))
 
 
-def public_demo_accounts() -> List[Dict[str, str]]:
-    """Demo logins surfaced on the login page (only called when demo mode is on)."""
-    return [
-        {
-            'email': email,
-            'password': DEMO_ACCOUNTS[email]['password'],
-            'role': DEMO_ACCOUNTS[email]['role'],
-            'label': label,
-        }
-        for email, label in DEMO_ACCOUNT_LABELS.items()
-    ]
+def demo_password() -> str:
+    from django.conf import settings
+    return getattr(settings, 'DEMO_ACCOUNT_PASSWORD', '') or ''
 
 
 def ensure_practice(slug: str):
@@ -153,10 +133,11 @@ def ensure_practice(slug: str):
     return practice
 
 
-def ensure_demo_account(email: str, requested_password: Optional[str] = None):
+def ensure_demo_account(email: str):
     """
-    Ensure a demo account exists and has the designated password.
-    Returns the User model instance if email matches demo config, else None.
+    Ensure a demo account exists (demo mode only). Its password is DEMO_ACCOUNT_PASSWORD
+    when configured; otherwise new accounts get an unusable password and existing
+    passwords are left unchanged. Returns the User, or None for non-demo emails.
     """
     from apps.users.models import User
 
@@ -165,11 +146,10 @@ def ensure_demo_account(email: str, requested_password: Optional[str] = None):
         return None
 
     info = DEMO_ACCOUNTS[email_clean]
-    if requested_password is not None and requested_password.strip() != info['password']:
-        return None
 
     practice = ensure_practice(info['practice_slug'])
     user = User.objects.filter(email__iexact=email_clean).first()
+    created = user is None
     if not user:
         user = User.objects.create(
             email=email_clean,
@@ -193,7 +173,11 @@ def ensure_demo_account(email: str, requested_password: Optional[str] = None):
         if not user.practice:
             user.practice = practice
 
-    user.set_password(info['password'])
+    password = demo_password()
+    if password:
+        user.set_password(password)
+    elif created:
+        user.set_unusable_password()
     user.save()
     return user
 

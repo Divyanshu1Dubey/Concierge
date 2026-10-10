@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 
 const HEYJARVIS_URL = 'https://www.heyjarvis.ai';
-const ACCESS_URL = 'https://www.heyjarvis.ai/#pilot';
+const ACCESS_URL = '/request-access';
 
 /** Fades sections in as they scroll into view (CSS respects prefers-reduced-motion). */
 function Reveal({ children, className = '', delay = 0 }: { children: ReactNode; className?: string; delay?: number }) {

@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { requestsApi } from '@/services/api';
+import { requestsApi, emailsApi } from '@/services/api';
 import {
   ArrowLeft, Send, Sparkles, Save,
   MessageSquare, AlertTriangle,
-  Languages, CheckCircle2, RotateCw, Clock
+  Languages, CheckCircle2, RotateCw, Clock, Mail
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiErrorMessage } from '@/utils/api';
@@ -24,6 +24,10 @@ export default function RequestDetailPage() {
   const [sendSuccessMessage, setSendSuccessMessage] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
   const [customTime, setCustomTime] = useState('');
+  const [offeredDate, setOfferedDate] = useState('');
+  const [requestConfirmation, setRequestConfirmation] = useState(true);
+  const [previewHtml, setPreviewHtml] = useState('');
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState('');
   const currentUser = useAuthStore((s) => s.user);
   const [showDelete, setShowDelete] = useState(false);
@@ -34,6 +38,21 @@ export default function RequestDetailPage() {
     queryKey: ['appointment-request', id],
     queryFn: () => requestsApi.get(id!),
     enabled: !!id,
+  });
+
+  const checkReplies = useMutation({
+    mutationFn: () => emailsApi.checkReplies(),
+    onSuccess: (res: any) => {
+      if (res?.configured === false) {
+        toast('Reply checking is not set up yet, so patient replies are not collected automatically.', { icon: 'ℹ️' });
+      } else if (res?.new_replies) {
+        toast.success(`${res.new_replies} new patient repl${res.new_replies === 1 ? 'y' : 'ies'} found.`);
+      } else {
+        toast('No new replies.');
+      }
+      queryClient.invalidateQueries({ queryKey: ['appointment-request', id] });
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not check for replies.')),
   });
 
   const invalidateLists = () => {
@@ -64,12 +83,22 @@ export default function RequestDetailPage() {
     }
   }, [request]);
 
-  const handleSelectTimeSlot = (time: string) => {
-    setSelectedTime(time);
-    const dateText = request?.preferred_date || 'your requested day';
-    const timeOfferSentence = `We have reserved an opening for you on ${dateText} at ${time}. Please reply to confirm if this time works for you!`;
+  const formatOfferDate = (iso: string) => {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  };
+  const confirmationReady = Boolean(offeredDate && selectedTime);
+  const sendsConfirmation = confirmationReady && requestConfirmation;
 
-    const placeholderRegex = /(?:Please let us know what time works best for you and our front desk will help coordinate the visit\.|We have reserved an opening for you on [^\n.]+\.|We have an opening available for you on [^\n.]+\.|We would love to offer you [^\n.]+\.|We have scheduled an opening for you at [^\n.]+\.)/i;
+  const handleSelectTimeSlot = (time: string, dateIso: string = offeredDate) => {
+    setSelectedTime(time);
+    const dateText = dateIso ? formatOfferDate(dateIso) : (request?.preferred_date || 'your requested day');
+    const timeOfferSentence = dateIso && requestConfirmation
+      ? `We have reserved ${dateText} at ${time} for you. Please use the buttons in this email to confirm or request a different time.`
+      : `We have reserved an opening for you on ${dateText} at ${time}. Please reply to confirm if this time works for you!`;
+
+    const placeholderRegex = /(?:Please let us know what time works best for you and our front desk will help coordinate the visit\.|We have reserved an opening for you on [^\n]+? Please reply to confirm if this time works for you!|We have reserved [^\n]+? for you\. Please use the buttons in this email to confirm or request a different time\.|We have an opening available for you on [^\n.]+\.|We would love to offer you [^\n.]+\.|We have scheduled an opening for you at [^\n.]+\.)/i;
 
     let updatedBody = replyBody;
     if (placeholderRegex.test(updatedBody)) {
@@ -120,6 +149,19 @@ export default function RequestDetailPage() {
     onError: (err) => toast.error(apiErrorMessage(err, 'Could not save draft.')),
   });
 
+  const openPreview = async () => {
+    if (!id || !confirmationReady) return;
+    setIsPreviewLoading(true);
+    try {
+      const res = await requestsApi.offerPreview(id, { offered_date: offeredDate, offered_time: selectedTime, body: replyBody });
+      setPreviewHtml(res.html || '');
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not build the preview.'));
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
   // Send reply mutation
   const sendReplyMutation = useMutation({
     mutationFn: () =>
@@ -128,6 +170,8 @@ export default function RequestDetailPage() {
         subject: subject,
         body: replyBody,
         offered_time: selectedTime || undefined,
+        offered_date: sendsConfirmation ? offeredDate : undefined,
+        request_confirmation: sendsConfirmation,
       }),
     onSuccess: (data: any) => {
       const msg = data?.message || `Reply email sent to ${recipientEmail}.`;
@@ -288,6 +332,19 @@ export default function RequestDetailPage() {
         </div>
       </div>
 
+      {previewHtml && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/50" role="dialog" aria-modal="true" aria-labelledby="preview-title">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl h-[88vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b">
+              <h2 id="preview-title" className="text-sm font-semibold text-gray-900">Patient email preview</h2>
+              <button type="button" onClick={() => setPreviewHtml('')} className="text-sm px-3 py-1 rounded-lg border border-gray-200 hover:bg-gray-50">Close</button>
+            </div>
+            <p className="px-4 py-2 text-[11px] text-gray-500 bg-gray-50 border-b">Buttons are disabled in the preview. The real email contains a secure link for this patient.</p>
+            <iframe title="Patient email preview" srcDoc={previewHtml} sandbox="" className="flex-1 w-full border-0" />
+          </div>
+        </div>
+      )}
+
       {showDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50" role="dialog" aria-modal="true" aria-labelledby="delete-title">
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
@@ -326,6 +383,11 @@ export default function RequestDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Details & Context (5 cols) */}
         <div className="lg:col-span-5 space-y-6 min-w-0">
+          {/* Appointment confirmation status */}
+          {request.latest_offer && (
+            <OfferStatusCard offer={request.latest_offer} />
+          )}
+
           {/* Patient Details Card */}
           <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
             <h2 className="text-base font-semibold text-gray-900 border-b pb-3">Patient & Request Information</h2>
@@ -401,6 +463,44 @@ export default function RequestDetailPage() {
               </div>
             </div>
           )}
+
+          {/* Email history (sent replies and patient responses) */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+            <div className="flex items-center justify-between gap-2 border-b pb-2">
+              <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                <Mail className="w-4 h-4 text-teal-600" aria-hidden="true" /> Email history
+              </h3>
+              <button
+                type="button"
+                onClick={() => checkReplies.mutate()}
+                disabled={checkReplies.isPending}
+                className="text-xs font-medium px-2.5 py-1 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
+              >
+                {checkReplies.isPending ? 'Checking…' : 'Check for replies'}
+              </button>
+            </div>
+            {(request.email_history || []).length === 0 ? (
+              <p className="text-xs text-gray-400 italic">No emails yet. Replies you send from this page appear here.</p>
+            ) : (
+              <ul className="space-y-2 max-h-72 overflow-y-auto">
+                {(request.email_history || []).map((m: any) => (
+                  <li
+                    key={m.id}
+                    className={`rounded-lg border p-2.5 text-xs ${m.direction === 'incoming' ? 'bg-blue-50 border-blue-200 text-blue-950' : 'bg-gray-50 border-gray-200 text-gray-800'}`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[10.5px] mb-1">
+                      <span className="font-semibold">
+                        {m.direction === 'incoming' ? 'Patient replied' : 'Sent by practice'}
+                        {m.status === 'failed' && <span className="ml-1 text-red-700">· delivery failed</span>}
+                      </span>
+                      <span className="text-gray-500">{new Date(m.sent_at || m.created_at).toLocaleString()}</span>
+                    </div>
+                    <p className="whitespace-pre-wrap break-words line-clamp-6">{m.body}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
           {/* Internal Staff Notes */}
           <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
@@ -634,6 +734,49 @@ export default function RequestDetailPage() {
                 ))}
               </div>
 
+              {/* Visit date + patient confirmation */}
+              <div className="flex flex-wrap items-center gap-2 pt-1.5 border-t border-slate-200/70 text-xs">
+                <label htmlFor="offer-date" className="text-slate-500 font-medium">Visit date:</label>
+                <input
+                  id="offer-date"
+                  type="date"
+                  min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)}
+                  value={offeredDate}
+                  onChange={(e) => {
+                    setOfferedDate(e.target.value);
+                    if (selectedTime) handleSelectTimeSlot(selectedTime, e.target.value);
+                  }}
+                  className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+                {offeredDate && <span className="text-slate-600">{formatOfferDate(offeredDate)}</span>}
+              </div>
+              {confirmationReady && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white border border-teal-200 px-3 py-2">
+                  <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={requestConfirmation}
+                      onChange={(e) => setRequestConfirmation(e.target.checked)}
+                      className="mt-0.5 rounded text-teal-600"
+                    />
+                    <span>
+                      <span className="font-semibold text-slate-900">Ask the patient to confirm</span>
+                      <span className="block text-slate-500">Sends a branded email with Confirm and Request another time buttons. Their answer appears on this page.</span>
+                    </span>
+                  </label>
+                  {requestConfirmation && (
+                    <button
+                      type="button"
+                      onClick={openPreview}
+                      disabled={isPreviewLoading}
+                      className="px-3 py-1 text-xs font-semibold rounded-lg border border-teal-300 text-teal-800 hover:bg-teal-50 disabled:opacity-50"
+                    >
+                      {isPreviewLoading ? 'Preparing…' : 'Preview email'}
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Custom Time */}
               <div className="flex items-center gap-2 pt-1.5 border-t border-slate-200/70 text-xs">
                 <span className="text-slate-500 font-medium">Custom time:</span>
@@ -681,12 +824,38 @@ export default function RequestDetailPage() {
                 className="px-6 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white text-sm font-semibold rounded-lg shadow-md hover:shadow-lg flex items-center gap-2 transition disabled:opacity-50"
               >
                 <Send className="w-4 h-4" />
-                {sendReplyMutation.isPending ? 'Sending Reply...' : 'Send to Patient'}
+                {sendReplyMutation.isPending ? 'Sending...' : sendsConfirmation ? 'Send confirmation request' : 'Send to Patient'}
               </button>
             </div>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+function OfferStatusCard({ offer }: { offer: any }) {
+  const when = `${offer.date_display} at ${offer.offered_time}`;
+  const tone: Record<string, { box: string; title: string; body: string }> = {
+    pending: { box: 'bg-amber-50 border-amber-200 text-amber-950', title: 'Waiting for the patient', body: `Asked to confirm ${when}.` },
+    confirmed: { box: 'bg-emerald-50 border-emerald-200 text-emerald-950', title: 'Patient confirmed', body: `${when}.` },
+    reschedule_requested: { box: 'bg-blue-50 border-blue-200 text-blue-950', title: 'Patient asked for another time', body: `Instead of ${when}.` },
+    expired: { box: 'bg-gray-50 border-gray-200 text-gray-800', title: 'No answer before the date', body: `${when} was not confirmed.` },
+    closed: { box: 'bg-gray-50 border-gray-200 text-gray-800', title: 'Request closed', body: `The confirmation link for ${when} no longer works.` },
+    superseded: { box: 'bg-gray-50 border-gray-200 text-gray-800', title: 'Replaced', body: `${when} was replaced by a newer time.` },
+  };
+  const t = tone[offer.state] || tone.pending;
+  return (
+    <div className={`rounded-xl border p-4 text-sm ${t.box}`} role="status">
+      <p className="text-[11px] font-semibold uppercase tracking-wider opacity-70">Appointment confirmation</p>
+      <p className="font-semibold mt-1">{t.title}</p>
+      <p className="mt-0.5">{t.body}</p>
+      {offer.patient_note && <p className="mt-2 text-[13px] whitespace-pre-wrap">Patient's note: “{offer.patient_note}”</p>}
+      <p className="mt-2 text-[11px] opacity-70">
+        Sent {new Date(offer.created_at).toLocaleString()}{offer.sent_by ? ` by ${offer.sent_by}` : ''}
+        {offer.responded_at ? ` · answered ${new Date(offer.responded_at).toLocaleString()}` : ''}
+      </p>
     </div>
   );
 }

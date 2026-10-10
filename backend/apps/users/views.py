@@ -126,12 +126,10 @@ class AuthConfigView(generics.GenericAPIView):
     authentication_classes = []
 
     def get(self, request):
-        from .seed_data import demo_accounts_enabled, public_demo_accounts
-        enabled = demo_accounts_enabled()
+        # Never expose demo accounts or credentials here: this endpoint is public.
         return Response({
-            'demo_accounts_enabled': enabled,
-            'demo_accounts': public_demo_accounts() if enabled else [],
             'registration_enabled': bool(getattr(settings, 'ALLOW_PUBLIC_REGISTRATION', False)),
+            'access_requests_enabled': True,
         })
 
 

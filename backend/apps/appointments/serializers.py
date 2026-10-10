@@ -24,6 +24,8 @@ class AppointmentSerializer(serializers.ModelSerializer):
     service_title = serializers.SerializerMethodField()
     conversation_summary = serializers.CharField(source='conversation.summary', read_only=True)
     transcript = serializers.SerializerMethodField()
+    email_history = serializers.SerializerMethodField()
+    latest_offer = serializers.SerializerMethodField()
     practice_name = serializers.ReadOnlyField(source='practice.name')
     practice_phone = serializers.ReadOnlyField(source='practice.phone')
     assigned_name = serializers.SerializerMethodField()
@@ -32,7 +34,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
         model = Appointment
         fields = [
             'id', 'practice', 'practice_name', 'practice_phone',
-            'conversation', 'conversation_summary', 'transcript',
+            'conversation', 'conversation_summary', 'transcript', 'email_history', 'latest_offer',
             'patient_email', 'patient_name', 'patient_phone',
             'service', 'service_name', 'service_title',
             'intent', 'preferred_date', 'preferred_time',
@@ -76,6 +78,18 @@ class AppointmentSerializer(serializers.ModelSerializer):
         if obj.assigned_to:
             return obj.assigned_to.full_name or obj.assigned_to.email
         return None
+
+    def get_latest_offer(self, obj):
+        from .offers import staff_payload
+        offer = obj.offers.select_related('created_by', 'practice').first()
+        return staff_payload(offer) if offer else None
+
+    def get_email_history(self, obj):
+        from apps.emails.models import Email
+        rows = (Email.objects.filter(thread__practice=obj.practice, thread__metadata__appointment_id=str(obj.id))
+                .exclude(direction=Email.DIRECTION_INTERNAL).order_by('created_at')
+                .values('id', 'direction', 'status', 'from_email', 'to_email', 'subject', 'body', 'sent_at', 'created_at'))
+        return list(rows[:100])
 
     def get_transcript(self, obj):
         if obj.conversation:

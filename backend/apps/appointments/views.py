@@ -244,6 +244,12 @@ class AIDraftView(APIView):
                     f"Patient: {appt.patient_name}, Request: {appt.service_name or appt.intent}, Date: {appt.preferred_date}, Time: {appt.preferred_time}, Note: {appt.message}.\n"
                     f"Never claim the appointment is already booked; invite them to confirm suitable timing."
                 )
+                latest_reply = _latest_patient_reply(appt)
+                if latest_reply:
+                    prompt += (
+                        "\n\nThe patient has since replied by email. Answer this latest message directly "
+                        "(using only facts you were given):\n" + latest_reply[:3000]
+                    )
                 res = ai_engine.chat(prompt, practice=practice, audience='staff')
                 content = res.get('content') or ''
                 if not content or "trouble connecting" in content.lower():
@@ -338,18 +344,42 @@ class SendReplyView(APIView):
 
         practice = appt.practice
 
-        # Send via email service
+        # Send via email service, continuing this request's thread (and answering the
+        # patient's latest reply, if any) so the conversation stays together.
         from apps.emails.services import send_practice_email
+        from apps.emails.models import Email, EmailThread
+        thread = (EmailThread.objects.filter(practice=practice, metadata__appointment_id=str(appt.id))
+                  .order_by('-last_message_at').first())
+        last_reply = (Email.objects.filter(thread=thread, direction=Email.DIRECTION_INCOMING)
+                      .exclude(provider_message_id='').order_by('-created_at').first()) if thread else None
+
+        # Optional: ask the patient to confirm a specific date/time (branded email + response link).
+        body_text, body_html, offer = data['body'], None, None
+        if _truthy(request.data.get('request_confirmation')):
+            offered_date, offered_time, error = _parse_offer(request, practice)
+            if error:
+                return Response({'status': 'failed', 'message': error}, status=status.HTTP_400_BAD_REQUEST)
+            from .offers import create_offer, offer_link, render_offer_email
+            offer, token = create_offer(appt, offered_date, offered_time, request.user)
+            body_html, suffix = render_offer_email(appt, offered_date, offered_time, data['body'],
+                                                   offer_link(request, token))
+            body_text = data['body'].rstrip() + suffix
+
         send_result = send_practice_email(
             practice=practice,
             to_email=data['to_email'],
             subject=data['subject'],
-            body=data['body'],
+            body=body_text,
+            body_html=body_html,
             reply_to=data.get('reply_to'),
-            appointment=appt
+            appointment=appt,
+            thread=thread,
+            in_reply_to=last_reply.provider_message_id if last_reply else None,
         )
 
         if not send_result.get('success'):
+            if offer is not None:
+                offer.delete()  # the patient never received this link; earlier offers stay valid
             return Response({
                 'status': 'failed',
                 'delivery': send_result,
@@ -360,6 +390,11 @@ class SendReplyView(APIView):
         appt.response_draft = data['body']
         appt.response_sent_at = timezone.now()
         update_fields = ['status', 'response_draft', 'response_sent_at']
+        if offer is not None:
+            from .offers import activate_offer
+            activate_offer(offer)
+            appt.confirmed_at = None  # a new time is awaiting the patient's confirmation
+            update_fields.append('confirmed_at')
         offered_time = str(request.data.get('offered_time') or '').strip()[:100]
         if offered_time:
             appt.preferred_time = offered_time
@@ -370,10 +405,13 @@ class SendReplyView(APIView):
         if send_result.get('warning'):
             msg = f"Reply recorded! ({send_result['warning']})"
 
+        if offer is not None and not send_result.get('warning'):
+            msg = f"Confirmation request sent to {data['to_email']}. You'll see their answer here."
         return Response({
             'status': 'sent',
             'delivery': send_result,
             'message': msg,
+            'confirmation_requested': offer is not None,
         })
 
 
@@ -437,3 +475,100 @@ class UpdateRequestStatusView(APIView):
 
         appt.save()
         return Response({'status': appt.status, 'priority': appt.priority, 'assigned_to': str(appt.assigned_to.id) if appt.assigned_to else None})
+
+
+def _latest_patient_reply(appt) -> str:
+    """Text of the patient's most recent emailed reply on this request, if any."""
+    from apps.emails.models import Email
+    reply = (Email.objects.filter(thread__practice=appt.practice, thread__metadata__appointment_id=str(appt.id),
+                                  direction=Email.DIRECTION_INCOMING)
+             .order_by('-created_at').first())
+    return reply.body if reply else ''
+
+
+def _truthy(value) -> bool:
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _parse_offer(request, practice):
+    """Validate the proposed date/time for a confirmation request. Returns (date, time, error)."""
+    from datetime import date as _date
+    from .offers import practice_tz
+    raw_date = str(request.data.get('offered_date') or '').strip()
+    offered_time = str(request.data.get('offered_time') or '').strip()
+    try:
+        offered_date = _date.fromisoformat(raw_date)
+    except ValueError:
+        return None, None, 'Choose the appointment date before asking the patient to confirm.'
+    if not offered_time:
+        return None, None, 'Choose the appointment time before asking the patient to confirm.'
+    if len(offered_time) > 50:
+        return None, None, 'The appointment time is too long.'
+    today = timezone.now().astimezone(practice_tz(practice)).date()
+    if offered_date < today:
+        return None, None, 'The appointment date is in the past.'
+    return offered_date, offered_time, None
+
+
+class OfferPreviewView(APIView):
+    """Render the exact branded email the patient will receive (no link is created)."""
+    permission_classes = [permissions.IsAuthenticated, IsTenantMember]
+
+    def post(self, request, id):
+        appt = get_object_or_404(scoped_appointments(request), id=id)
+        offered_date, offered_time, error = _parse_offer(request, appt.practice)
+        if error:
+            return Response({'message': error}, status=status.HTTP_400_BAD_REQUEST)
+        from .offers import render_offer_email
+        html, _ = render_offer_email(appt, offered_date, offered_time, str(request.data.get('body') or ''),
+                                     '#preview-only')
+        return Response({'html': html})
+
+
+class _PublicOfferMixin:
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get_offer(self, token):
+        from .models import AppointmentOffer
+        from .offers import hash_token
+        if not token or len(token) > 100:
+            return None
+        return (AppointmentOffer.objects.select_related('appointment', 'practice', 'practice__settings')
+                .filter(token_hash=hash_token(token)).first())
+
+
+class PublicOfferView(_PublicOfferMixin, APIView):
+    """Patient-facing: details of a confirmation request (read-only; never changes anything)."""
+    from rest_framework.throttling import ScopedRateThrottle as _T
+    throttle_classes = [_T]
+    throttle_scope = 'widget'
+
+    def get(self, request, token):
+        from .offers import public_payload
+        offer = self.get_offer(token)
+        if offer is None or not offer.practice.active:
+            return Response({'state': 'invalid', 'message': 'This link is not valid. Please contact the practice.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        return Response(public_payload(offer))
+
+
+class PublicOfferRespondView(_PublicOfferMixin, APIView):
+    """Patient-facing: confirm, or ask for a different time."""
+    from rest_framework.throttling import ScopedRateThrottle as _T
+    throttle_classes = [_T]
+    throttle_scope = 'widget_submit'
+    action = ''
+
+    def post(self, request, token):
+        from .offers import OfferError, public_payload, respond
+        offer = self.get_offer(token)
+        if offer is None or not offer.practice.active:
+            return Response({'state': 'invalid', 'message': 'This link is not valid. Please contact the practice.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        try:
+            offer, changed = respond(token, self.action, str(request.data.get('note') or ''))
+        except OfferError as exc:
+            return Response({**public_payload(offer), 'state': exc.state, 'message': exc.message},
+                            status=status.HTTP_409_CONFLICT)
+        return Response({**public_payload(offer), 'changed': changed})

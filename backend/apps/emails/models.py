@@ -62,12 +62,14 @@ class Email(models.Model):
     STATUS_SENT = 'sent'
     STATUS_FAILED = 'failed'
     STATUS_DRAFT = 'draft'
+    STATUS_RECEIVED = 'received'
 
     STATUS_CHOICES = [
         (STATUS_SENDING, 'Sending'),
         (STATUS_SENT, 'Sent'),
         (STATUS_FAILED, 'Failed'),
         (STATUS_DRAFT, 'Draft'),
+        (STATUS_RECEIVED, 'Received'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

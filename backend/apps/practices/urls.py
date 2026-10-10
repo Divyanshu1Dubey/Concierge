@@ -6,12 +6,16 @@ from .views import (
     EmailTemplateListView, EmailTemplateDetailView, TeamListView, TeamMemberDetailView,
     AuditLogListView, TenantMetricsView, WordPressDownloadView, ExportDataView,
     AgencyPracticeListView, AgencyPracticeToggleStatusView,
-    AgencyPracticeUsersView, AgencyPracticeUserActionView, AgencyPracticeIntegrationView
+    AgencyPracticeUsersView, AgencyPracticeUserActionView, AgencyPracticeIntegrationView,
+    AccessRequestCreateView, AccessRequestListView, AccessRequestDetailView,
 )
 
 urlpatterns = [
     path('', CurrentTenantView.as_view(), name='tenant-detail'),
     path('all/', AgencyPracticeListView.as_view(), name='agency-practice-list'),
+    path('access-requests/', AccessRequestListView.as_view(), name='access-request-list'),
+    path('access-requests/new/', AccessRequestCreateView.as_view(), name='access-request-create'),
+    path('access-requests/<int:id>/', AccessRequestDetailView.as_view(), name='access-request-detail'),
     path('<int:id>/toggle-status/', AgencyPracticeToggleStatusView.as_view(), name='agency-practice-toggle'),
     path('<int:practice_id>/users/', AgencyPracticeUsersView.as_view(), name='agency-practice-users'),
     path('<int:practice_id>/users/<uuid:user_id>/action/', AgencyPracticeUserActionView.as_view(), name='agency-practice-user-action'),

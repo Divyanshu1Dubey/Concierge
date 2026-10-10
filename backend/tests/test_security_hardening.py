@@ -228,8 +228,8 @@ class AuthFlowTests(TenantFixture):
     def test_auth_config_hides_demo_accounts_when_disabled(self):
         res = APIClient().get('/api/auth/config/')
         self.assertEqual(res.status_code, 200)
-        self.assertFalse(res.data['demo_accounts_enabled'])
-        self.assertEqual(res.data['demo_accounts'], [])
+        self.assertNotIn('demo_accounts', res.data)
+        self.assertNotIn('demo_accounts_enabled', res.data)
 
     def test_seed_without_demo_mode_creates_no_accounts(self):
         from apps.users.seed_data import seed_all_demo_data

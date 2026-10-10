@@ -24,6 +24,8 @@ import SecurityPage from './pages/SecurityPage';
 import HostedConciergePage from './pages/HostedConciergePage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import RequestAccessPage from './pages/RequestAccessPage';
+import AppointmentResponsePage from './pages/AppointmentResponsePage';
 import { useAuthStore } from './stores/authStore';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -105,6 +107,8 @@ function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/request-access" element={<RequestAccessPage />} />
+      <Route path="/appointment/:token" element={<AppointmentResponsePage />} />
       {/* Legacy demo URLs: the working, tenant-aware versions live in the dashboard */}
       <Route path="/chat" element={<Navigate to="/dashboard/concierge" replace />} />
       <Route path="/widget" element={<Navigate to="/dashboard/installation" replace />} />

@@ -13,7 +13,7 @@ ENV_FILE_KEYS = {
     'CONCIERGE_MODEL', 'CONCIERGE_FALLBACK_MODEL', 'CONCIERGE_GROQ_MODEL',
     'EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_HOST_USER', 'EMAIL_HOST_PASSWORD', 'EMAIL_USE_TLS', 'EMAIL_USE_SSL',
     'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'DEFAULT_FROM_EMAIL', 'FRONT_DESK_EMAIL',
-    'SENTRY_DSN',
+    'SENTRY_DSN', 'IMAP_HOST', 'IMAP_USER', 'IMAP_PASSWORD',
 }
 
 
@@ -239,6 +239,8 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000
 # Demo accounts have well-known passwords: only provision/show them when explicitly enabled.
 DEMO_ACCOUNTS_ENABLED = env_flag('ENABLE_DEMO_ACCOUNTS', default=DEBUG)
 ALLOW_PUBLIC_REGISTRATION = env_flag('ALLOW_PUBLIC_REGISTRATION', default=False)
+# Internal testing only: password applied to demo accounts when demo mode is on (never shown publicly).
+DEMO_ACCOUNT_PASSWORD = os.environ.get('DEMO_ACCOUNT_PASSWORD', '')
 
 # JWT Settings
 SIMPLE_JWT = {
@@ -399,6 +401,14 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL') or (
 )
 # Send staff notifications after the request finishes (keeps patient chat fast).
 EMAIL_ASYNC = env_flag('EMAIL_ASYNC', default=True)
+
+# Inbound patient replies: an IMAP mailbox that receives replies (set the practice Reply-To to it).
+# Opt in by setting IMAP_HOST; user/password default to the SMTP account.
+IMAP_HOST = os.environ.get('IMAP_HOST', '')
+IMAP_USER = os.environ.get('IMAP_USER') or (EMAIL_HOST_USER if IMAP_HOST else '')
+IMAP_PASSWORD = (os.environ.get('IMAP_PASSWORD') or (EMAIL_HOST_PASSWORD if IMAP_HOST else '')).replace(' ', '')
+# Shared secret for scheduled jobs (e.g. a Railway cron calling the reply check).
+CRON_SECRET = os.environ.get('CRON_SECRET', '')
 
 # AI Configuration
 # AI_PROVIDER: gemini | groq | openai | anthropic | none. When unset, the first provider

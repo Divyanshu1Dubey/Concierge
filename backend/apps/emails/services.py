@@ -23,6 +23,7 @@ def send_practice_email(
     reply_to: Optional[str] = None,
     in_reply_to: Optional[str] = None,
     appointment = None,
+    thread: Optional[EmailThread] = None,
 ) -> dict:
     """Send an outbound email on behalf of a tenant practice."""
     if not practice:
@@ -34,20 +35,26 @@ def send_practice_email(
     from_email = (provider.from_email if provider and provider.from_email else practice.email) or getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@heyjarvis.ai')
     effective_reply_to = reply_to or (provider.reply_to if provider and provider.reply_to else practice.email)
 
-    # 2. Find or create email thread
+    # 2. Find or create email thread (callers may pass the request's existing thread)
     patient_name = appointment.patient_name if appointment else ""
-    thread, _ = EmailThread.objects.get_or_create(
-        practice=practice,
-        patient_email=to_email,
-        subject=subject,
-        defaults={
-            'patient_name': patient_name,
-            'metadata': {
-                'practice_id': str(practice.id),
-                'appointment_id': str(appointment.id) if appointment else None,
+    if thread is None:
+        thread, _ = EmailThread.objects.get_or_create(
+            practice=practice,
+            patient_email=to_email,
+            subject=subject,
+            defaults={
+                'patient_name': patient_name,
+                'metadata': {
+                    'practice_id': str(practice.id),
+                    'appointment_id': str(appointment.id) if appointment else None,
+                }
             }
-        }
-    )
+        )
+
+    # The Message-ID goes on the actual email so patient replies (In-Reply-To/References)
+    # can be matched back to this thread.
+    from email.utils import make_msgid
+    message_id = make_msgid(domain=f"{practice.slug or 'practice'}.heyjarvis.ai")
 
     # 3. Create outbound Email record
     email_record = Email.objects.create(
@@ -76,6 +83,7 @@ def send_practice_email(
             msg['Subject'] = subject
             msg['From'] = sender_header
             msg['To'] = to_email
+            msg['Message-ID'] = message_id
             if effective_reply_to:
                 msg['Reply-To'] = effective_reply_to
             if in_reply_to:
@@ -102,7 +110,7 @@ def send_practice_email(
             server.quit()
         else:
             # Managed Email (Django backend - console in dev, SMTP/SES in prod)
-            headers = {}
+            headers = {'Message-ID': message_id}
             if in_reply_to:
                 headers['In-Reply-To'] = in_reply_to
                 headers['References'] = in_reply_to
@@ -115,13 +123,14 @@ def send_practice_email(
                 reply_to=[effective_reply_to] if effective_reply_to else None,
                 headers=headers,
             )
+            if body_html:
+                msg.attach_alternative(body_html, 'text/html')
             msg.send(fail_silently=False)
 
         # 5. Success update
         email_record.status = Email.STATUS_SENT
         email_record.sent_at = timezone.now()
-        import uuid as _uuid
-        email_record.provider_message_id = f"<{_uuid.uuid4().hex}@{practice.slug}.heyjarvis.ai>"
+        email_record.provider_message_id = message_id
         email_record.save(update_fields=['status', 'sent_at', 'provider_message_id'])
 
         thread.last_message_at = timezone.now()

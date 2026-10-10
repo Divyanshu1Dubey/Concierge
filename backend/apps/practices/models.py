@@ -392,3 +392,32 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"{self.action} on {self.practice.name} at {self.created_at}"
+
+
+class AccessRequest(models.Model):
+    """A dental practice asking to be onboarded (public form). Reviewed by agency admins."""
+    STATUS_CHOICES = [
+        ('new', 'New'),
+        ('contacted', 'Contacted'),
+        ('onboarded', 'Onboarded'),
+        ('declined', 'Declined'),
+    ]
+
+    practice_name = models.CharField(max_length=200)
+    contact_name = models.CharField(max_length=200)
+    email = models.EmailField()
+    phone = models.CharField(max_length=40, blank=True)
+    website = models.CharField(max_length=300, blank=True)
+    message = models.TextField(blank=True, max_length=2000)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')
+    handled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='handled_access_requests'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.practice_name} ({self.status})"

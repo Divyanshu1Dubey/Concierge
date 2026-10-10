@@ -33,6 +33,10 @@ export default function BusinessRulesPage() {
   // Appointment & Custom AI rules
   const [cancellationNoticeHours, setCancellationNoticeHours] = useState(24);
   const [customInstructions, setCustomInstructions] = useState('');
+  const [newPatientDuration, setNewPatientDuration] = useState(90);
+  const [confirmationHours, setConfirmationHours] = useState(48);
+  const [noShowFee, setNoShowFee] = useState('65.00');
+  const [financing, setFinancing] = useState('');
 
   const { data: rulesData, isLoading, isError } = useQuery({
     queryKey: ['booking-rules'],
@@ -51,6 +55,10 @@ export default function BusinessRulesPage() {
     setHandoffMessage(r.handoff_message ?? '');
     setCancellationNoticeHours(Number(r.cancellation_notice_hours ?? 24));
     setCustomInstructions(r.custom_instructions ?? '');
+    setNewPatientDuration(Number(r.new_patient_duration ?? 90));
+    setConfirmationHours(Number(r.confirmation_hours ?? 48));
+    setNoShowFee(String(r.no_show_fee ?? '0'));
+    setFinancing(Array.isArray(r.financing_options) ? r.financing_options.join(', ') : '');
   }, [rulesData]);
 
   const saveMutation = useMutation({
@@ -73,6 +81,10 @@ export default function BusinessRulesPage() {
       handoff_message: handoffMessage,
       cancellation_notice_hours: cancellationNoticeHours,
       custom_instructions: customInstructions,
+      new_patient_duration: newPatientDuration,
+      confirmation_hours: confirmationHours,
+      no_show_fee: noShowFee || '0',
+      financing_options: financing.split(',').map((f) => f.trim()).filter(Boolean),
     });
   };
 
@@ -224,6 +236,40 @@ export default function BusinessRulesPage() {
               onChange={(e) => setHandoffMessage(e.target.value)}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
             />
+          </div>
+        </div>
+      </div>
+
+      {/* Scheduling policies (front-desk reference) */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
+        <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+          <Clock className="w-5 h-5 text-teal-600" />
+          Scheduling policies
+        </h2>
+        <p className="text-xs text-gray-500">
+          Your team's booking rules. Financing options are shared with the assistant; other policies are not
+          told to patients unless you add them to the instructions below. Staff always confirm real appointment times.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="br-np-duration" className="text-xs font-semibold text-gray-700 block mb-1">New-patient visit length (minutes)</label>
+            <input id="br-np-duration" type="number" min="15" max="240" value={newPatientDuration}
+              onChange={(e) => setNewPatientDuration(Number(e.target.value))} className="w-32 px-3 py-1.5 border border-gray-200 rounded-lg text-sm" />
+          </div>
+          <div>
+            <label htmlFor="br-confirm" className="text-xs font-semibold text-gray-700 block mb-1">Confirm appointments within (hours)</label>
+            <input id="br-confirm" type="number" min="1" max="168" value={confirmationHours}
+              onChange={(e) => setConfirmationHours(Number(e.target.value))} className="w-32 px-3 py-1.5 border border-gray-200 rounded-lg text-sm" />
+          </div>
+          <div>
+            <label htmlFor="br-fee" className="text-xs font-semibold text-gray-700 block mb-1">No-show fee ($)</label>
+            <input id="br-fee" type="number" min="0" step="0.01" value={noShowFee}
+              onChange={(e) => setNoShowFee(e.target.value)} className="w-32 px-3 py-1.5 border border-gray-200 rounded-lg text-sm" />
+          </div>
+          <div>
+            <label htmlFor="br-financing" className="text-xs font-semibold text-gray-700 block mb-1">Financing options (comma-separated)</label>
+            <input id="br-financing" type="text" value={financing} placeholder="e.g. Cherry, CareCredit"
+              onChange={(e) => setFinancing(e.target.value)} className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm" />
           </div>
         </div>
       </div>

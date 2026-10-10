@@ -1,16 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Sparkles } from 'lucide-react';
+import { Eye, EyeOff, Sparkles } from 'lucide-react';
 import { api, apiErrorMessage } from '@/utils/api';
 import type { User } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
-
-interface DemoAccount {
-  email: string;
-  password: string;
-  role: string;
-  label: string;
-}
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -23,15 +16,8 @@ export default function LoginPage() {
     if (params.get('expired')) return 'Your session expired. Please sign in again.';
     return '';
   });
-  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>([]);
+  const [showPassword, setShowPassword] = useState(false);
   const login = useAuthStore((state) => state.login);
-
-  useEffect(() => {
-    // Demo logins are only offered when the backend explicitly enables demo mode.
-    api.get('/auth/config/')
-      .then((res) => setDemoAccounts(res.data?.demo_accounts_enabled ? res.data.demo_accounts || [] : []))
-      .catch(() => setDemoAccounts([]));
-  }, []);
 
   const signIn = async (loginEmail: string, loginPassword: string) => {
     setIsLoading(true);
@@ -55,7 +41,11 @@ export default function LoginPage() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    signIn(email, password);
+    if (!email.trim() || !password) {
+      setError('Enter your email and password.');
+      return;
+    }
+    signIn(email.trim(), password);
   };
 
   return (
@@ -95,7 +85,7 @@ export default function LoginPage() {
           <h1 className="text-[32px] leading-tight font-normal text-forest-900">Welcome back</h1>
           <p className="text-[15px] text-stone-600 mt-2">Sign in to your practice dashboard.</p>
 
-          <form onSubmit={handleLogin} className="mt-8 space-y-5" noValidate={false}>
+          <form onSubmit={handleLogin} className="mt-8 space-y-5" noValidate>
             <div>
               <label htmlFor="login-email" className="block text-[13px] font-medium text-stone-700 mb-1.5">Email</label>
               <input
@@ -115,17 +105,28 @@ export default function LoginPage() {
                 <label htmlFor="login-password" className="block text-[13px] font-medium text-stone-700">Password</label>
                 <Link to="/forgot-password" className="text-[12.5px] text-forest-700 hover:text-forest-900 link-quiet">Forgot password?</Link>
               </div>
-              <input
-                id="login-password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-white border border-stone-300 rounded-xl text-[15px] text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-forest-500/30 focus:border-forest-500 transition"
-                placeholder="••••••••"
-              />
+              <div className="relative">
+                <input
+                  id="login-password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-4 pr-12 py-3 bg-white border border-stone-300 rounded-xl text-[15px] text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-forest-500/30 focus:border-forest-500 transition"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                  className="absolute inset-y-0 right-0 px-3.5 flex items-center text-stone-500 hover:text-forest-800"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
+                </button>
+              </div>
             </div>
 
             {error && (
@@ -145,28 +146,8 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {demoAccounts.length > 0 && (
-            <div className="mt-8 pt-7 border-t border-stone-200">
-              <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-stone-500 mb-3">Demo environment</p>
-              <div className="grid gap-2">
-                {demoAccounts.map((acct) => (
-                  <button
-                    key={acct.email}
-                    type="button"
-                    disabled={isLoading}
-                    onClick={() => signIn(acct.email, acct.password)}
-                    className="w-full text-left px-4 py-3 bg-white hover:border-forest-400 border border-stone-200 rounded-xl text-[14px] text-stone-800 transition-colors disabled:opacity-50"
-                  >
-                    <span className="font-medium">{acct.label}</span>
-                    <span className="block text-[12px] text-stone-500">{acct.email}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
           <p className="mt-10 text-[13px] text-stone-500">
-            New to Concierge? <a href="https://www.heyjarvis.ai/#pilot" className="link-quiet text-forest-800">Request access</a>
+            New to Concierge? <Link to="/request-access" className="link-quiet text-forest-800">Request access for your practice</Link>
           </p>
         </div>
       </main>

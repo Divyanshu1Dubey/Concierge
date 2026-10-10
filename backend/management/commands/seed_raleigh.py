@@ -61,7 +61,7 @@ class Command(BaseCommand):
         if created:
             self.stdout.write(self.style.SUCCESS("  Created practice settings"))
 
-        # Create Owner user (password: raleigh2024!)
+        # Create Owner user (no default password: use "Forgot password" to set one)
         owner, created = User.objects.get_or_create(
             email="admin@raleighcomprehensive.com",
             defaults={
@@ -69,22 +69,22 @@ class Command(BaseCommand):
                 "last_name": "Manager",
                 "role": "OWNER",
                 "practice": practice,
-                "is_staff": True,
-                "is_superuser": True,
+                "is_staff": False,
+                "is_superuser": False,
             },
         )
         if created:
-            owner.set_password("raleigh2024!")
+            owner.set_unusable_password()
             owner.save()
             self.stdout.write(
                 self.style.SUCCESS(
-                    "  Created owner: admin@raleighcomprehensive.com / raleigh2024!"
+                    "  Created owner: admin@raleighcomprehensive.com"
                 )
             )
         else:
             self.stdout.write("  Owner already exists")
 
-        # Create Front Desk user (password: desk2024!)
+        # Create Front Desk user (no default password)
         front_desk, created = User.objects.get_or_create(
             email="desk@raleighcomprehensive.com",
             defaults={
@@ -96,17 +96,15 @@ class Command(BaseCommand):
             },
         )
         if created:
-            front_desk.set_password("desk2024!")
+            front_desk.set_unusable_password()
             front_desk.save()
             self.stdout.write(
                 self.style.SUCCESS(
-                    "  Created front desk: desk@raleighcomprehensive.com / desk2024!"
+                    "  Created front desk: desk@raleighcomprehensive.com"
                 )
             )
         else:
             self.stdout.write("  Front desk user already exists")
 
         self.stdout.write(self.style.SUCCESS("\nSeeding complete!"))
-        self.stdout.write("\nCredentials:")
-        self.stdout.write("  Owner:   admin@raleighcomprehensive.com / raleigh2024!")
-        self.stdout.write("  Front Desk: desk@raleighcomprehensive.com / desk2024!")
+        self.stdout.write("Accounts have no password; set one with the Forgot password link.")

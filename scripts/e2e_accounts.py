@@ -21,9 +21,23 @@ def check(name, cond, detail=''):
         failures.append(name)
 
 
+ACCOUNTS = {
+    'Agency Admin': 'admin@raleighdentistry.com',
+    'Doctor (Practice Admin)': 'doctor@raleighdentistry.com',
+    'Front Desk': 'desk@raleighdentistry.com',
+}
+
+
 def login(page, label):
+    """Sign in through the real form. Test password comes from E2E_PASSWORD (never hardcoded)."""
+    import os
+    password = os.environ.get('E2E_PASSWORD')
+    if not password:
+        raise SystemExit('Set E2E_PASSWORD to the local test accounts\' password.')
     page.goto(f'{BASE}/login')
-    page.get_by_role('button', name=label).click()
+    page.get_by_label('Email').fill(ACCOUNTS[label])
+    page.locator('#login-password').fill(password)
+    page.get_by_role('button', name='Sign in').click()
     page.wait_for_url('**/dashboard', timeout=15000)
     page.wait_for_load_state('networkidle')
 

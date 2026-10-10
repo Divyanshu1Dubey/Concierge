@@ -11,6 +11,9 @@ from .serializers import EmailThreadSerializer, EmailSerializer, EmailCadenceSer
 from .services import send_practice_email
 from apps.core.permissions import IsTenantMember, get_request_practice
 from rest_framework.exceptions import ValidationError
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _scoped(request, model):
@@ -156,3 +159,37 @@ class EmailCadenceDetailView(generics.RetrieveUpdateAPIView):
 
     def get_queryset(self):
         return _scoped(self.request, EmailCadence)
+
+
+class InboundReplyCheckView(APIView):
+    """
+    Check the inbound mailbox for patient replies. Staff call it from the dashboard;
+    a scheduler can call it with the X-Cron-Secret header (CRON_SECRET).
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        import hmac
+        from django.conf import settings as dj_settings
+        from apps.core.permissions import get_request_practice
+        from .inbound import fetch_replies, inbound_mailbox_configured
+        secret = getattr(dj_settings, 'CRON_SECRET', '')
+        given = request.headers.get('X-Cron-Secret', '')
+        is_cron = bool(secret) and hmac.compare_digest(given, secret)
+        if not is_cron and not (request.user and request.user.is_authenticated):
+            return Response({'detail': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
+        if not inbound_mailbox_configured():
+            return Response({'configured': False, 'new_replies': 0,
+                             'message': 'Reply checking is not set up (IMAP_HOST). Replies are not being collected.'})
+        try:
+            result = fetch_replies()
+        except Exception as exc:
+            logger.warning("Inbound reply check failed: %s", type(exc).__name__)
+            return Response({'configured': True, 'error': 'Could not reach the inbound mailbox. Try again later.'},
+                            status=status.HTTP_502_BAD_GATEWAY)
+        ids = result.pop('practice_ids', [])
+        if is_cron:
+            return Response(result)
+        practice = get_request_practice(request)
+        mine = sum(1 for pid in ids if practice and pid == practice.id)
+        return Response({'configured': True, 'new_replies': mine})

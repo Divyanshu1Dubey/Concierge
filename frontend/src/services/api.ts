@@ -57,6 +57,9 @@ export const practicesApi = {
   listAll: () => apiClient.get('/practices/all/').then((r) => r.data),
   createPractice: (data: Record<string, unknown>) => apiClient.post('/practices/all/', data).then((r) => r.data),
   toggleStatus: (id: number | string) => apiClient.post(`/practices/${id}/toggle-status/`).then((r) => r.data),
+  listAccessRequests: () => apiClient.get('/practices/access-requests/').then((r) => r.data),
+  updateAccessRequest: (id: number, status: string) =>
+    apiClient.patch(`/practices/access-requests/${id}/`, { status }).then((r) => r.data),
   getPracticeUsers: (practiceId: number | string) =>
     apiClient.get(`/practices/${practiceId}/users/`).then((r) => r.data),
   addPracticeUser: (
@@ -120,8 +123,10 @@ export const appointmentRequestsApi = {
     apiClient.post(`/requests/${id}/ai-draft/`, data).then((r) => r.data),
   saveDraft: (id: string, draft: string, offered_time?: string) =>
     apiClient.post(`/requests/${id}/save-draft/`, { draft, offered_time }).then((r) => r.data),
-  sendReply: (id: string, data: { to_email: string; subject: string; body: string; reply_to?: string; notes?: string; offered_time?: string }) =>
+  sendReply: (id: string, data: { to_email: string; subject: string; body: string; reply_to?: string; notes?: string; offered_time?: string; offered_date?: string; request_confirmation?: boolean }) =>
     apiClient.post(`/requests/${id}/send-reply/`, data).then((r) => r.data),
+  offerPreview: (id: string, data: { offered_date: string; offered_time: string; body: string }) =>
+    apiClient.post(`/requests/${id}/offer-preview/`, data).then((r) => r.data),
   respond: (id: string, data: { offered_date?: string; offered_time?: string; notes?: string; generated_response?: string; to_email?: string; subject?: string; body?: string }) =>
     apiClient.post(`/requests/${id}/respond/`, {
       to_email: data.to_email,
@@ -188,6 +193,18 @@ export const emailsApi = {
   }) => apiClient.post('/emails/send/', data).then((r) => r.data),
   threads: (params?: { patient_email?: string }) =>
     apiClient.get('/emails/threads/', { params }).then((r) => r.data),
+  checkReplies: () => apiClient.post('/emails/inbound/check/').then((r) => r.data),
+};
+
+// ─── Public (no sign-in) ──────────────────────────────────────────────────────
+
+export const publicApi = {
+  requestAccess: (data: Record<string, string>) =>
+    apiClient.post('/practices/access-requests/new/', data).then((r) => r.data),
+  getAppointmentOffer: (token: string) =>
+    apiClient.get(`/v1/appointment-offers/${encodeURIComponent(token)}/`).then((r) => r.data),
+  respondToAppointmentOffer: (token: string, action: 'confirm' | 'reschedule', note?: string) =>
+    apiClient.post(`/v1/appointment-offers/${encodeURIComponent(token)}/${action}/`, { note }).then((r) => r.data),
 };
 
 // ─── Chat (Public Widget & Hosted Concierge) ──────────────────────────────────

@@ -384,7 +384,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="flex gap-2 mb-4">
           <input
             type="text"
-            placeholder="e.g. raleighdentistry.com or localhost:3000"
+            placeholder="e.g. yourpractice.com or localhost:3000"
             value={newDomain}
             onChange={(e) => setNewDomain(e.target.value)}
             className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"

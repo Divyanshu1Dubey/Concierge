@@ -142,3 +142,41 @@ class Appointment(models.Model):
             import secrets
             self.confirmation_code = f"APT-{secrets.token_hex(4).upper()}"
         super().save(*args, **kwargs)
+
+
+class AppointmentOffer(models.Model):
+    """
+    A specific visit time the front desk asked the patient to confirm (sent as a branded email).
+    The patient answers through a single-use link; only a hash of its token is stored.
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_CONFIRMED = 'confirmed'
+    STATUS_RESCHEDULE = 'reschedule_requested'
+    STATUS_SUPERSEDED = 'superseded'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Awaiting patient'),
+        (STATUS_CONFIRMED, 'Confirmed by patient'),
+        (STATUS_RESCHEDULE, 'Patient asked for another time'),
+        (STATUS_SUPERSEDED, 'Replaced by a newer time'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    appointment = models.ForeignKey(Appointment, on_delete=models.CASCADE, related_name='offers')
+    practice = models.ForeignKey('practices.Practice', on_delete=models.CASCADE, related_name='appointment_offers')
+    offered_date = models.DateField()
+    offered_time = models.CharField(max_length=50)
+    token_hash = models.CharField(max_length=64, unique=True)
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    patient_note = models.TextField(blank=True, max_length=1000)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='appointment_offers'
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+    responded_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Offer {self.offered_date} {self.offered_time} ({self.status})"

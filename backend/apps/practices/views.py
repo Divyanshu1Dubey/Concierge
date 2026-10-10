@@ -1059,3 +1059,90 @@ class ExportDataView(APIView):
             return response
 
         return Response({'error': 'Invalid export type. Use "leads" or "conversations"'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AccessRequestCreateView(APIView):
+    """Public: a practice asks to be onboarded. Stored for agency review; no account is created."""
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    from rest_framework.throttling import ScopedRateThrottle as _ScopedRateThrottle
+    throttle_classes = [_ScopedRateThrottle]
+    throttle_scope = 'auth'
+
+    LIMITS = {'practice_name': 200, 'contact_name': 200, 'email': 254, 'phone': 40, 'website': 300, 'message': 2000}
+
+    def post(self, request):
+        from .models import AccessRequest
+        data = {k: str(request.data.get(k) or '').strip()[:n] for k, n in self.LIMITS.items()}
+        # Hidden field real visitors never fill in; bots usually do.
+        if str(request.data.get('company_fax') or '').strip():
+            return Response({'status': 'received'}, status=status.HTTP_201_CREATED)
+        errors = {}
+        for field in ('practice_name', 'contact_name', 'email'):
+            if not data[field]:
+                errors[field] = 'This field is required.'
+        if data['email'] and 'email' not in errors:
+            try:
+                validate_email(data['email'])
+            except DjangoValidationError:
+                errors['email'] = 'Enter a valid email address.'
+        if errors:
+            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+        req = AccessRequest.objects.create(**data)
+        _notify_agency_of_access_request(req)
+        return Response({'status': 'received'}, status=status.HTTP_201_CREATED)
+
+
+def _notify_agency_of_access_request(req):
+    """Best-effort email to agency admins; the request is already stored either way."""
+    if not getattr(settings, 'EMAIL_CONFIGURED', False):
+        return
+    from django.core.mail import send_mail
+    from django.db.models import Q
+    recipients = list(
+        User.objects.filter(Q(is_superuser=True) | Q(role='AGENCY_ADMIN'), is_active=True)
+        .exclude(email='').values_list('email', flat=True)
+    )
+    if not recipients:
+        return
+    base = (getattr(settings, 'APP_PUBLIC_URL', '') or '').rstrip('/')
+    body = (
+        f"New onboarding request from {req.practice_name}.\n\n"
+        f"Contact: {req.contact_name} <{req.email}> {req.phone}\nWebsite: {req.website}\n\n{req.message}\n\n"
+        f"Review it in Concierge: {base}/dashboard/practices\n"
+    )
+    try:
+        send_mail(f"Access request: {req.practice_name}", body, settings.DEFAULT_FROM_EMAIL, recipients, fail_silently=False)
+    except Exception as exc:
+        logger.warning("Access request notification failed: %s", type(exc).__name__)
+
+
+class AccessRequestListView(APIView):
+    """Agency admins: review onboarding requests."""
+    permission_classes = [permissions.IsAuthenticated, IsAgencyAdmin]
+
+    def get(self, request):
+        from .models import AccessRequest
+        rows = AccessRequest.objects.select_related('handled_by')[:200]
+        return Response({'results': [
+            {
+                'id': r.id, 'practice_name': r.practice_name, 'contact_name': r.contact_name, 'email': r.email,
+                'phone': r.phone, 'website': r.website, 'message': r.message, 'status': r.status,
+                'handled_by': r.handled_by.email if r.handled_by else None, 'created_at': r.created_at,
+            } for r in rows
+        ]})
+
+
+class AccessRequestDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsAgencyAdmin]
+
+    def patch(self, request, id):
+        from .models import AccessRequest
+        req = get_object_or_404(AccessRequest, pk=id)
+        new_status = request.data.get('status')
+        if new_status not in dict(AccessRequest.STATUS_CHOICES):
+            return Response({'status': 'Invalid status.'}, status=status.HTTP_400_BAD_REQUEST)
+        req.status = new_status
+        req.handled_by = request.user
+        req.save(update_fields=['status', 'handled_by', 'updated_at'])
+        return Response({'id': req.id, 'status': req.status})

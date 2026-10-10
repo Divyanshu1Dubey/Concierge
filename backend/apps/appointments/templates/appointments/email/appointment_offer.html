@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>Please confirm your appointment</title>
+<style>
+  @media (max-width: 600px) {
+    .card { border-radius: 0 !important; }
+    .pad { padding-left: 22px !important; padding-right: 22px !important; }
+    .btn-cell { display: block !important; width: 100% !important; padding: 0 0 10px 0 !important; }
+    .btn { display: block !important; }
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;background:#f4f2ec;-webkit-text-size-adjust:100%;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#f4f2ec;">{{ date_display }} at {{ time_display }} &middot; Please confirm or request a different time.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f2ec;">
+<tr><td align="center" style="padding:28px 12px;">
+  <table role="presentation" class="card" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e7e3d9;">
+    <!-- Practice header -->
+    <tr><td class="pad" style="padding:24px 32px;border-bottom:1px solid #eeeae0;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td valign="middle" style="padding-right:12px;">
+          {% if brand.logo_url %}
+            <img src="{{ brand.logo_url }}" alt="{{ brand.name }}" height="40" style="display:block;height:40px;max-width:160px;border:0;">
+          {% else %}
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="40" height="40" align="center" valign="middle" style="width:40px;height:40px;border-radius:10px;background:{{ brand.color }};color:{{ brand.button_text_color }};font:600 18px/40px Georgia,'Times New Roman',serif;">{{ brand.initial }}</td></tr></table>
+          {% endif %}
+        </td>
+        <td valign="middle" style="font:600 16px/1.3 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c2b24;">{{ brand.name }}</td>
+      </tr></table>
+    </td></tr>
+
+    <!-- Greeting + staff message -->
+    <tr><td class="pad" style="padding:28px 32px 8px 32px;">
+      <p style="margin:0 0 6px 0;font:600 12px/1.4 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:{{ brand.color }};">Please confirm your visit</p>
+      <h1 style="margin:0 0 16px 0;font:400 26px/1.25 Georgia,'Times New Roman',serif;color:#1c2b24;">{% if first_name %}{{ first_name }}, we{% else %}We{% endif %} have a time for you</h1>
+      {% if message %}<div style="font:15px/1.6 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#3d4a44;">{{ message|linebreaksbr }}</div>{% endif %}
+    </td></tr>
+
+    <!-- Appointment summary -->
+    <tr><td class="pad" style="padding:20px 32px 8px 32px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8f6f1;border:1px solid #ebe6da;border-radius:12px;">
+        <tr><td style="padding:18px 20px;">
+          <p style="margin:0;font:600 11px/1.4 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#7a847f;">Proposed appointment</p>
+          <p style="margin:6px 0 2px 0;font:600 19px/1.35 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c2b24;">{{ date_display }}</p>
+          <p style="margin:0;font:600 17px/1.35 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:{{ brand.color }};">{{ time_display }}{% if tz_label %} <span style="font-weight:400;font-size:13px;color:#7a847f;">{{ tz_label }}</span>{% endif %}</p>
+          {% if service %}<p style="margin:12px 0 0 0;font:14px/1.5 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#3d4a44;"><strong style="color:#1c2b24;">Visit:</strong> {{ service }}</p>{% endif %}
+          {% if brand.address %}<p style="margin:6px 0 0 0;font:14px/1.5 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#3d4a44;"><strong style="color:#1c2b24;">Where:</strong> {{ brand.address }}</p>{% endif %}
+        </td></tr>
+      </table>
+    </td></tr>
+
+    <!-- Actions -->
+    <tr><td class="pad" style="padding:20px 32px 6px 32px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td class="btn-cell" width="50%" style="padding-right:6px;">
+          <a class="btn" href="{{ link }}?action=confirm" style="display:block;text-align:center;background:{{ brand.color }};color:{{ brand.button_text_color }};font:600 15px/1 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;text-decoration:none;padding:15px 18px;border-radius:999px;">Confirm appointment</a>
+        </td>
+        <td class="btn-cell" width="50%" style="padding-left:6px;">
+          <a class="btn" href="{{ link }}?action=reschedule" style="display:block;text-align:center;background:#ffffff;color:#1c2b24;border:1px solid #cfd6d2;font:600 15px/1 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;text-decoration:none;padding:14px 18px;border-radius:999px;">Request a different time</a>
+        </td>
+      </tr></table>
+      <p style="margin:14px 0 0 0;font:13px/1.55 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#7a847f;">
+        Confirming tells our team this time works for you. If you ask for a different time, we will contact you to arrange one.
+        {% if brand.phone %}Questions? Call us at <a href="tel:{{ brand.phone }}" style="color:{{ brand.color }};text-decoration:none;">{{ brand.phone }}</a>.{% endif %}
+      </p>
+    </td></tr>
+
+    <!-- Footer -->
+    <tr><td class="pad" style="padding:24px 32px 26px 32px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #eeeae0;"><tr><td style="padding-top:16px;font:12px/1.6 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#8b938f;">
+        <strong style="color:#3d4a44;">{{ brand.name }}</strong><br>
+        {% if brand.address %}{{ brand.address }}<br>{% endif %}
+        {% if brand.phone %}{{ brand.phone }}{% endif %}{% if brand.phone and brand.email %} &middot; {% endif %}{% if brand.email %}<a href="mailto:{{ brand.email }}" style="color:#8b938f;">{{ brand.email }}</a>{% endif %}
+        {% if reference %}<br>Reference {{ reference }}{% endif %}
+      </td></tr></table>
+    </td></tr>
+  </table>
+  <p style="margin:14px 0 0 0;font:11px/1.5 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#a3aaa6;">Sent by {{ brand.name }} using HeyJarvis Concierge.</p>
+</td></tr>
+</table>
+</body>
+</html>
