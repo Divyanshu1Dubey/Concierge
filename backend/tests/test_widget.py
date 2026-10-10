@@ -8,7 +8,10 @@ Tests:
 - API integration
 """
 import pytest
-from playwright.sync_api import Page, expect
+
+# Optional browser-testing dependency: skip (not error) where Playwright isn't installed.
+pytest.importorskip("playwright")
+from playwright.sync_api import Page, expect  # noqa: E402
 from django.test import LiveServerTestCase
 
 

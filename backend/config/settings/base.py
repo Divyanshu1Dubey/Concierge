@@ -217,9 +217,17 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
-ACCOUNT_EMAIL_REQUIRED = True
-ACCOUNT_USERNAME_REQUIRED = False
-ACCOUNT_AUTHENTICATION_METHOD = 'email'
+ACCOUNT_LOGIN_METHODS = {'email'}
+ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
+try:
+    import allauth as _allauth
+    if int(_allauth.__version__.split('.')[0]) < 65:
+        # Legacy names for environments still on django-allauth < 65 (requirements pin 65.x).
+        ACCOUNT_EMAIL_REQUIRED = True
+        ACCOUNT_USERNAME_REQUIRED = False
+        ACCOUNT_AUTHENTICATION_METHOD = 'email'
+except Exception:
+    pass
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 ACCOUNT_SESSION_REMEMBER = True
 

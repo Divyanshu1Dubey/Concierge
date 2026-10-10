@@ -59,3 +59,9 @@ LOGGING = {
         'django.request': {'handlers': ['console'], 'level': 'WARNING', 'propagate': False},
     },
 }
+
+# API schema / Swagger UI expose the full API surface: platform admins only in production.
+SPECTACULAR_SETTINGS = {
+    **SPECTACULAR_SETTINGS,
+    'SERVE_PERMISSIONS': ['apps.core.permissions.IsAgencyAdmin'],
+}
