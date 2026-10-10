@@ -20,6 +20,9 @@ class EmailThread(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    practice = models.ForeignKey(
+        'practices.Practice', on_delete=models.CASCADE, null=True, blank=True, related_name='email_threads'
+    )
     patient_email = models.EmailField(db_index=True)
     patient_name = models.CharField(max_length=200, blank=True)
     subject = models.CharField(max_length=500)
@@ -108,6 +111,9 @@ class EmailCadence(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    practice = models.ForeignKey(
+        'practices.Practice', on_delete=models.CASCADE, null=True, blank=True, related_name='email_cadences'
+    )
     patient_email = models.EmailField(db_index=True)
     patient_name = models.CharField(max_length=200, blank=True)
     template = models.CharField(max_length=100)

@@ -1,5 +1,10 @@
 """
 Centralized seed data definitions and helpers for HeyJarvis.
+
+Demo accounts use well-known passwords, so they are only provisioned when
+demo mode is enabled (ENABLE_DEMO_ACCOUNTS=true, defaulting to on only when
+DEBUG is true). Production deployments get no demo logins unless explicitly
+opted in.
 """
 from typing import Optional, Dict, Any, List
 
@@ -9,8 +14,8 @@ DEMO_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         'role': 'AGENCY_ADMIN',
         'first_name': 'Agency',
         'last_name': 'Admin',
-        'is_staff': True,
-        'is_superuser': True,
+        'is_staff': False,
+        'is_superuser': False,
         'practice_slug': 'raleigh-dentistry',
     },
     'doctor@raleighdentistry.com': {
@@ -18,7 +23,7 @@ DEMO_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         'role': 'PRACTICE_ADMIN',
         'first_name': 'Dr. Sarah',
         'last_name': 'Brody',
-        'is_staff': True,
+        'is_staff': False,
         'is_superuser': False,
         'practice_slug': 'raleigh-dentistry',
     },
@@ -27,7 +32,7 @@ DEMO_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         'role': 'PRACTICE_ADMIN',
         'first_name': 'Dr. Sarah',
         'last_name': 'Brody',
-        'is_staff': True,
+        'is_staff': False,
         'is_superuser': False,
         'practice_slug': 'raleigh-dentistry',
     },
@@ -36,7 +41,7 @@ DEMO_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         'role': 'FRONT_DESK',
         'first_name': 'Emma',
         'last_name': 'Davis',
-        'is_staff': True,
+        'is_staff': False,
         'is_superuser': False,
         'practice_slug': 'raleigh-dentistry',
     },
@@ -45,8 +50,8 @@ DEMO_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         'role': 'OWNER',
         'first_name': 'Office',
         'last_name': 'Manager',
-        'is_staff': True,
-        'is_superuser': True,
+        'is_staff': False,
+        'is_superuser': False,
         'practice_slug': 'raleigh-comprehensive',
     },
     'desk@raleighcomprehensive.com': {
@@ -54,7 +59,7 @@ DEMO_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         'role': 'FRONT_DESK',
         'first_name': 'Front',
         'last_name': 'Desk',
-        'is_staff': True,
+        'is_staff': False,
         'is_superuser': False,
         'practice_slug': 'raleigh-comprehensive',
     },
@@ -86,6 +91,31 @@ DEMO_PRACTICES: Dict[str, Dict[str, Any]] = {
         'active': True,
     },
 }
+
+
+DEMO_ACCOUNT_LABELS = {
+    'admin@raleighdentistry.com': 'Agency Admin',
+    'doctor@raleighdentistry.com': 'Doctor (Practice Admin)',
+    'desk@raleighdentistry.com': 'Front Desk',
+}
+
+
+def demo_accounts_enabled() -> bool:
+    from django.conf import settings
+    return bool(getattr(settings, 'DEMO_ACCOUNTS_ENABLED', False))
+
+
+def public_demo_accounts() -> List[Dict[str, str]]:
+    """Demo logins surfaced on the login page (only called when demo mode is on)."""
+    return [
+        {
+            'email': email,
+            'password': DEMO_ACCOUNTS[email]['password'],
+            'role': DEMO_ACCOUNTS[email]['role'],
+            'label': label,
+        }
+        for email, label in DEMO_ACCOUNT_LABELS.items()
+    ]
 
 
 def ensure_practice(slug: str):
@@ -131,7 +161,7 @@ def ensure_demo_account(email: str, requested_password: Optional[str] = None):
     from apps.users.models import User
 
     email_clean = (email or '').strip().lower()
-    if email_clean not in DEMO_ACCOUNTS:
+    if email_clean not in DEMO_ACCOUNTS or not demo_accounts_enabled():
         return None
 
     info = DEMO_ACCOUNTS[email_clean]
@@ -169,16 +199,14 @@ def ensure_demo_account(email: str, requested_password: Optional[str] = None):
 
 
 def seed_all_demo_data() -> List[Dict[str, Any]]:
-    """Seed all demo practices and user accounts."""
+    """Seed demo practices, plus demo user accounts when demo mode is enabled."""
     results = []
     for slug in DEMO_PRACTICES:
         ensure_practice(slug)
+    if not demo_accounts_enabled():
+        return results
     for email in DEMO_ACCOUNTS:
         user = ensure_demo_account(email)
         if user:
-            results.append({
-                'email': user.email,
-                'role': user.role,
-                'password': DEMO_ACCOUNTS[email]['password']
-            })
+            results.append({'email': user.email, 'role': user.role})
     return results

@@ -12,10 +12,22 @@ from .serializers import (
     AppointmentSerializer, AppointmentSlotSerializer, ServiceSerializer,
     AIDraftRequestSerializer, SendReplySerializer
 )
-from apps.core.permissions import TenantIsolationMixin, IsTenantViewer, IsTenantMember
+from rest_framework.exceptions import ValidationError
+from apps.core.permissions import TenantIsolationMixin, IsTenantViewer, IsTenantMember, get_request_practice
 from apps.practices.models import Practice, EmailTemplate
 
 logger = logging.getLogger(__name__)
+
+VALID_STATUSES = {choice for choice, _ in Appointment.STATUS_CHOICES}
+VALID_PRIORITIES = {choice for choice, _ in Appointment.PRIORITY_CHOICES}
+
+
+def scoped_appointments(request):
+    """Appointments visible to the requesting staff member (tenant-scoped)."""
+    practice = get_request_practice(request)
+    if not practice:
+        return Appointment.objects.none()
+    return Appointment.objects.filter(practice=practice)
 
 
 class ServiceListView(TenantIsolationMixin, generics.ListAPIView):
@@ -82,9 +94,15 @@ class AppointmentListCreateView(TenantIsolationMixin, generics.ListCreateAPIView
             )
         return qs.order_by('-created_at')
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['practice'] = get_request_practice(self.request)
+        return context
+
     def perform_create(self, serializer):
-        user = self.request.user
-        practice = user.practice if user and user.is_authenticated else None
+        practice = get_request_practice(self.request)
+        if not practice:
+            raise ValidationError({'practice': ['Select a practice before creating a request.']})
         serializer.save(practice=practice)
 
 
@@ -96,10 +114,17 @@ class AppointmentDetailView(generics.RetrieveUpdateAPIView):
     lookup_field = 'id'
 
     def get_queryset(self):
-        user = self.request.user
-        if user.is_authenticated and user.practice:
-            return Appointment.objects.filter(practice=user.practice)
-        return Appointment.objects.none()
+        return scoped_appointments(self.request)
+
+    def perform_update(self, serializer):
+        new_status = serializer.validated_data.get('status')
+        instance = serializer.instance
+        extra = {}
+        if new_status == Appointment.STATUS_CONFIRMED and not instance.confirmed_at:
+            extra['confirmed_at'] = timezone.now()
+        if new_status == Appointment.STATUS_CANCELLED and not instance.cancelled_at:
+            extra['cancelled_at'] = timezone.now()
+        serializer.save(**extra)
 
 
 class AppointmentStatsView(APIView):
@@ -107,9 +132,12 @@ class AppointmentStatsView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
 
     def get(self, request):
-        practice = request.user.practice
+        practice = get_request_practice(request)
         if not practice:
-            return Response({'total': 0, 'pending': 0, 'emergency': 0, 'contacted': 0})
+            return Response({
+                'total': 0, 'pending': 0, 'emergency': 0, 'appointment': 0, 'question': 0,
+                'reschedule': 0, 'cancel': 0, 'handoff': 0, 'contacted': 0, 'confirmed': 0,
+            })
 
         qs = Appointment.objects.filter(practice=practice)
         return Response({
@@ -131,14 +159,14 @@ class AIDraftView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantMember]
 
     def post(self, request, id):
-        appt = get_object_or_404(Appointment, id=id, practice=request.user.practice)
+        appt = get_object_or_404(scoped_appointments(request), id=id)
         serializer = AIDraftRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         action = serializer.validated_data['action']
         current_text = serializer.validated_data.get('current_text', '')
         target_lang = serializer.validated_data.get('target_language', 'Spanish')
 
-        practice = request.user.practice
+        practice = appt.practice
         practice_name = practice.name if practice else "Our Practice"
 
         # 1. Base template rendering
@@ -243,8 +271,9 @@ class AIDraftView(APIView):
                 return Response({'action': action, 'result': msg, 'draft': msg})
 
         except Exception as e:
-            logger.warning(f"AI draft failure: {e}")
-            return Response({'action': action, 'result': base_draft, 'draft': base_draft})
+            logger.warning("AI draft failure: %s", type(e).__name__)
+            return Response({'action': action, 'result': base_draft, 'draft': base_draft, 'ai_unavailable': True})
+        return Response({'action': action, 'result': base_draft, 'draft': base_draft})
 
 
 class SaveDraftView(APIView):
@@ -252,8 +281,8 @@ class SaveDraftView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantMember]
 
     def post(self, request, id):
-        appt = get_object_or_404(Appointment, id=id, practice=request.user.practice)
-        draft_text = request.data.get('draft', '')
+        appt = get_object_or_404(scoped_appointments(request), id=id)
+        draft_text = str(request.data.get('draft', '') or '')[:20000]
         appt.response_draft = draft_text
         appt.save(update_fields=['response_draft'])
         return Response({'status': 'saved', 'draft': draft_text})
@@ -264,12 +293,12 @@ class SendReplyView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantMember]
 
     def post(self, request, id):
-        appt = get_object_or_404(Appointment, id=id, practice=request.user.practice)
+        appt = get_object_or_404(scoped_appointments(request), id=id)
         serializer = SendReplySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        practice = request.user.practice
+        practice = appt.practice
 
         # Send via email service
         from apps.emails.services import send_practice_email
@@ -310,8 +339,8 @@ class AddInternalNoteView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantMember]
 
     def post(self, request, id):
-        appt = get_object_or_404(Appointment, id=id, practice=request.user.practice)
-        note_text = request.data.get('text', '').strip()
+        appt = get_object_or_404(scoped_appointments(request), id=id)
+        note_text = str(request.data.get('text', '') or '').strip()[:4000]
         if not note_text:
             return Response({'error': 'Note text cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -331,23 +360,37 @@ class UpdateRequestStatusView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTenantMember]
 
     def post(self, request, id):
-        appt = get_object_or_404(Appointment, id=id, practice=request.user.practice)
+        appt = get_object_or_404(scoped_appointments(request), id=id)
         new_status = request.data.get('status')
         new_priority = request.data.get('priority')
         assigned_to_id = request.data.get('assigned_to')
 
         if new_status:
+            new_status = str(new_status).lower()
+            if new_status not in VALID_STATUSES:
+                return Response({'error': f"Invalid status. Choose one of: {', '.join(sorted(VALID_STATUSES))}"}, status=status.HTTP_400_BAD_REQUEST)
             appt.status = new_status
-            if new_status == 'confirmed' and not appt.confirmed_at:
+            if new_status == Appointment.STATUS_CONFIRMED and not appt.confirmed_at:
                 appt.confirmed_at = timezone.now()
+            if new_status == Appointment.STATUS_CANCELLED and not appt.cancelled_at:
+                appt.cancelled_at = timezone.now()
         if new_priority:
+            new_priority = str(new_priority).upper()
+            if new_priority not in VALID_PRIORITIES:
+                return Response({'error': f"Invalid priority. Choose one of: {', '.join(sorted(VALID_PRIORITIES))}"}, status=status.HTTP_400_BAD_REQUEST)
             appt.priority = new_priority
             appt.urgency = new_priority
         if assigned_to_id:
+            import uuid
             from apps.users.models import User
-            staff = User.objects.filter(id=assigned_to_id, practice=request.user.practice).first()
-            if staff:
-                appt.assigned_to = staff
+            try:
+                uuid.UUID(str(assigned_to_id))
+            except ValueError:
+                return Response({'error': 'Invalid staff member id.'}, status=status.HTTP_400_BAD_REQUEST)
+            staff = User.objects.filter(id=assigned_to_id, practice_id=appt.practice_id, is_active=True).first()
+            if not staff:
+                return Response({'error': 'Staff member not found in this practice.'}, status=status.HTTP_400_BAD_REQUEST)
+            appt.assigned_to = staff
 
         appt.save()
         return Response({'status': appt.status, 'priority': appt.priority, 'assigned_to': str(appt.assigned_to.id) if appt.assigned_to else None})

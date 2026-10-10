@@ -4,7 +4,7 @@ URL routing for the users app.
 from django.urls import path
 from .views import (
     RegisterView, LoginView, LogoutView, CurrentUserView,
-    SeedUsersView, ChangePasswordView,
+    SeedUsersView, ChangePasswordView, AuthConfigView,
 )
 
 urlpatterns = [
@@ -14,4 +14,5 @@ urlpatterns = [
     path('me/', CurrentUserView.as_view(), name='current-user'),
     path('change-password/', ChangePasswordView.as_view(), name='change-password'),
     path('seed/', SeedUsersView.as_view(), name='seed-users'),
+    path('config/', AuthConfigView.as_view(), name='auth-config'),
 ]

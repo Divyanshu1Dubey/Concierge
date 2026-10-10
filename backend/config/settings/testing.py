@@ -1,6 +1,15 @@
 from .base import *
 
-DEBUG = True
+DEBUG = False
+DEMO_ACCOUNTS_ENABLED = False
+ALLOWED_HOSTS = ['testserver', 'localhost', '127.0.0.1']
+REST_FRAMEWORK = {
+    **REST_FRAMEWORK,
+    'DEFAULT_THROTTLE_RATES': {
+        'login': '1000/min', 'auth': '1000/min', 'widget': '1000/min', 'widget_submit': '1000/min',
+    },
+}
+CHANNEL_LAYERS = {'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}}
 
 DATABASES = {
     'default': {

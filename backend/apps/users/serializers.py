@@ -3,6 +3,7 @@ Serializers for the users app.
 """
 from rest_framework import serializers
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
 from .models import User
 
 
@@ -23,7 +24,11 @@ class UserSerializer(serializers.ModelSerializer):
             'practice', 'practice_name', 'practice_slug',
             'avatar_url', 'is_verified', 'last_login', 'created_at',
         ]
-        read_only_fields = ['id', 'last_login', 'created_at']
+        # Identity, role and tenant membership are managed by administrators only;
+        # a user must never be able to change them through the self-service profile.
+        read_only_fields = [
+            'id', 'email', 'role', 'practice', 'is_verified', 'last_login', 'created_at',
+        ]
 
     def get_practice_name(self, obj):
         return obj.practice.name if obj.practice else ("HeyJarvis Platform" if obj.is_agency_admin else "No Practice Assigned")
@@ -51,13 +56,14 @@ class UserCreateSerializer(serializers.ModelSerializer):
             request and request.user and request.user.is_authenticated and
             (request.user.is_agency_admin or request.user.is_superuser)
         )
-        if not is_authenticated_admin and value in ['AGENCY_ADMIN', 'ADMIN', 'OWNER']:
+        if not is_authenticated_admin and value in ['AGENCY_ADMIN', 'ADMIN', 'OWNER', 'PRACTICE_ADMIN']:
             raise serializers.ValidationError("Administrative roles can only be assigned by a platform administrator.")
         return value
 
     def validate(self, data):
         if data['password'] != data['password_confirm']:
             raise serializers.ValidationError("Passwords don't match.")
+        validate_password(data['password'], user=User(email=data.get('email', '')))
         return data
 
     def create(self, validated_data):
@@ -71,12 +77,13 @@ class UserCreateSerializer(serializers.ModelSerializer):
         )
         if not is_authenticated_admin:
             role = validated_data.get('role', 'FRONT_DESK')
-            if role in ['AGENCY_ADMIN', 'ADMIN', 'OWNER']:
+            if role in ['AGENCY_ADMIN', 'ADMIN', 'OWNER', 'PRACTICE_ADMIN']:
                 role = 'FRONT_DESK'
             validated_data['role'] = role
             validated_data['is_staff'] = False
             validated_data['is_superuser'] = False
 
+        validated_data.setdefault('username', validated_data.get('email'))
         user = User(**validated_data)
         user.set_password(password)
         user.save()
@@ -121,6 +128,8 @@ class ChangePasswordSerializer(serializers.Serializer):
     def validate(self, data):
         if data['new_password'] != data['new_password_confirm']:
             raise serializers.ValidationError("New passwords do not match.")
+        request = self.context.get('request')
+        validate_password(data['new_password'], user=getattr(request, 'user', None))
         return data
 
 

@@ -5,7 +5,10 @@ from rest_framework import generics, status, permissions
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth import authenticate
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework.throttling import ScopedRateThrottle
+from django.conf import settings
+from apps.core.permissions import IsAgencyAdmin
 from .models import User
 from .serializers import (
     UserSerializer, UserCreateSerializer, LoginSerializer,
@@ -14,15 +17,31 @@ from .serializers import (
 
 
 class RegisterView(generics.CreateAPIView):
-    """Register a new user."""
+    """
+    Self-service registration. Disabled unless ALLOW_PUBLIC_REGISTRATION is set:
+    staff accounts are provisioned by agency or practice administrators.
+    """
     queryset = User.objects.all()
     serializer_class = UserCreateSerializer
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
+
+    def create(self, request, *args, **kwargs):
+        if not getattr(settings, 'ALLOW_PUBLIC_REGISTRATION', False):
+            return Response(
+                {'detail': 'Self-service registration is disabled. Ask your practice administrator for an account.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().create(request, *args, **kwargs)
 
 
 class LoginView(TokenObtainPairView):
     """Login endpoint - returns JWT tokens."""
     permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'login'
 
     def post(self, request, *args, **kwargs):
         serializer = LoginSerializer(data=request.data)
@@ -42,13 +61,17 @@ class LogoutView(generics.GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        refresh_token = request.data.get('refresh')
+        if not refresh_token:
+            return Response({'error': 'Refresh token is required.'}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            refresh_token = request.data.get('refresh')
             token = RefreshToken(refresh_token)
+            if str(token.get('user_id')) != str(request.user.id):
+                return Response({'error': 'Invalid token.'}, status=status.HTTP_400_BAD_REQUEST)
             token.blacklist()
-            return Response({'message': 'Logged out successfully.'}, status=status.HTTP_200_OK)
-        except Exception:
-            return Response({'error': 'Invalid token.'}, status=status.HTTP_400_BAD_REQUEST)
+        except TokenError:
+            return Response({'error': 'Invalid or expired token.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'message': 'Logged out successfully.'}, status=status.HTTP_200_OK)
 
 
 class CurrentUserView(generics.RetrieveUpdateAPIView):
@@ -80,11 +103,13 @@ class ChangePasswordView(generics.GenericAPIView):
 
 
 class SeedUsersView(generics.GenericAPIView):
-    """Seed / verify baseline practice accounts (Restricted to Superusers / Staff)."""
-    permission_classes = [permissions.IsAdminUser]
+    """Seed / verify baseline demo accounts (agency admins only, demo mode only)."""
+    permission_classes = [permissions.IsAuthenticated, IsAgencyAdmin]
 
     def post(self, request):
-        from .seed_data import seed_all_demo_data
+        from .seed_data import seed_all_demo_data, demo_accounts_enabled
+        if not demo_accounts_enabled():
+            return Response({'error': 'Demo accounts are disabled in this environment.'}, status=status.HTTP_403_FORBIDDEN)
         accounts = seed_all_demo_data()
         # Sanitize output: never return plain text passwords over API
         sanitized = [{'email': a.get('email'), 'role': a.get('role')} for a in accounts]
@@ -95,4 +120,16 @@ class SeedUsersView(generics.GenericAPIView):
         }, status=status.HTTP_200_OK)
 
 
+class AuthConfigView(generics.GenericAPIView):
+    """Public, non-sensitive auth configuration consumed by the login page."""
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
+    def get(self, request):
+        from .seed_data import demo_accounts_enabled, public_demo_accounts
+        enabled = demo_accounts_enabled()
+        return Response({
+            'demo_accounts_enabled': enabled,
+            'demo_accounts': public_demo_accounts() if enabled else [],
+            'registration_enabled': bool(getattr(settings, 'ALLOW_PUBLIC_REGISTRATION', False)),
+        })

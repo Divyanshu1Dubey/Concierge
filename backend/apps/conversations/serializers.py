@@ -29,36 +29,41 @@ class ConversationSerializer(serializers.ModelSerializer):
             'assigned_to', 'status', 'started_at', 'ended_at',
             'last_activity_at', 'messages', 'message_count',
         ]
-        read_only_fields = ['id', 'started_at', 'last_activity_at']
+        # Tenant ownership, session identity and the transcript are server-controlled.
+        read_only_fields = [
+            'id', 'practice', 'practice_name', 'session_id', 'started_at', 'last_activity_at',
+            'response_sent_at', 'source_url', 'intent_confidence',
+        ]
+
+    def validate_assigned_to(self, user):
+        conversation = self.instance
+        if user and conversation and user.practice_id != conversation.practice_id:
+            raise serializers.ValidationError('Assignee must belong to the same practice.')
+        return user
 
     def get_message_count(self, obj):
         return obj.messages.count()
 
 
 class ConversationCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating a new conversation."""
+    """Serializer for creating a new conversation (practice is set by the view, never by the client)."""
     class Meta:
         model = Conversation
-        fields = ['patient_email', 'patient_name', 'patient_phone', 'intent', 'practice']
-
-    def create(self, validated_data):
-        user = self.context.get('request').user if self.context.get('request') else None
-        if user and user.is_authenticated and user.practice and 'practice' not in validated_data:
-            validated_data['practice'] = user.practice
-        return Conversation.objects.create(**validated_data)
+        fields = ['id', 'patient_email', 'patient_name', 'patient_phone', 'intent', 'practice']
+        read_only_fields = ['id', 'practice']
 
 
 class ChatRequestSerializer(serializers.Serializer):
     """Serializer for incoming chat messages from widget or hosted concierge."""
-    message = serializers.CharField(required=False, default="")
+    message = serializers.CharField(required=False, default="", allow_blank=True, max_length=4000)
     conversation_id = serializers.UUIDField(required=False, allow_null=True)
     client_key = serializers.CharField(required=False, allow_blank=True)
     practice_slug = serializers.CharField(required=False, allow_blank=True)
     session_id = serializers.CharField(required=False, allow_blank=True)
-    name = serializers.CharField(required=False, allow_blank=True)
+    name = serializers.CharField(required=False, allow_blank=True, max_length=200)
     email = serializers.EmailField(required=False, allow_blank=True)
-    phone = serializers.CharField(required=False, allow_blank=True)
-    url = serializers.CharField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
+    url = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
 
 class ChatResponseSerializer(serializers.Serializer):

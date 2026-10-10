@@ -1,6 +1,9 @@
 from .base import *
 
 DEBUG = True
+DEMO_ACCOUNTS_ENABLED = env_flag('ENABLE_DEMO_ACCOUNTS', default=True)
+if 'testserver' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('testserver')
 
 # Debug toolbar disabled in development to prevent UI interference with widget and demo pages
 # if needed, can be toggled via DJANGO_ENABLE_DEBUG_TOOLBAR=True

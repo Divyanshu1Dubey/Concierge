@@ -5,13 +5,14 @@ from channels.auth import AuthMiddlewareStack
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 
+django_asgi_app = get_asgi_application()
+
 import config.signals  # noqa
+from apps.conversations.routing import websocket_urlpatterns  # noqa: E402
 
 application = ProtocolTypeRouter({
-    'http': get_asgi_application(),
+    'http': django_asgi_app,
     'websocket': AuthMiddlewareStack(
-        URLRouter(
-            apps.conversations.routing.websocket_urlpatterns
-        )
+        URLRouter(websocket_urlpatterns)
     ),
 })

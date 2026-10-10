@@ -354,7 +354,7 @@ class ConciergeStateMachine:
         """Create or update corresponding Appointment / Lead record."""
         srv = Service.objects.filter(practice=self.practice).first() if self.practice else None
 
-        appt, _ = Appointment.objects.get_or_create(
+        appt, created = Appointment.objects.get_or_create(
             conversation=self.conversation,
             defaults={
                 'practice': self.practice,
@@ -373,4 +373,7 @@ class ConciergeStateMachine:
                 'source_website': self.conversation.source_url or (self.practice.website if self.practice else ''),
             }
         )
+        if created:
+            from apps.emails.services import notify_practice_of_request
+            notify_practice_of_request(appt)
         return appt

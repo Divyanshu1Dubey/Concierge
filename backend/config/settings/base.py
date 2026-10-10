@@ -4,14 +4,22 @@ from datetime import timedelta
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY') or os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+INSECURE_DEV_SECRET_KEY = 'dev-secret-key-change-in-production'
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY') or os.environ.get('SECRET_KEY') or INSECURE_DEV_SECRET_KEY
 
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() in ('true', '1')
+
+
+def env_flag(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ('true', '1', 'yes', 'on')
 
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'SAMEORIGIN'
 
-_raw_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS') or os.environ.get('ALLOWED_HOSTS') or 'localhost,127.0.0.1,testserver,*'
+_raw_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS') or os.environ.get('ALLOWED_HOSTS') or 'localhost,127.0.0.1,testserver'
 ALLOWED_HOSTS = [h.strip() for h in _raw_hosts.split(',') if h.strip()]
 _app_public = os.environ.get('APP_PUBLIC_URL', '')
 if _app_public:
@@ -36,6 +44,7 @@ INSTALLED_APPS = [
     # Third party
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'drf_spectacular',
     'corsheaders',
     'django_filters',
@@ -168,7 +177,21 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'DEFAULT_THROTTLE_RATES': {
+        'login': os.environ.get('THROTTLE_LOGIN_RATE', '10/min'),
+        'auth': os.environ.get('THROTTLE_AUTH_RATE', '20/hour'),
+        'widget': os.environ.get('THROTTLE_WIDGET_RATE', '60/min'),
+        'widget_submit': os.environ.get('THROTTLE_WIDGET_SUBMIT_RATE', '10/min'),
+    },
 }
+
+# Request size limits (JSON APIs; no file uploads are accepted)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000
+
+# Demo accounts have well-known passwords: only provision/show them when explicitly enabled.
+DEMO_ACCOUNTS_ENABLED = env_flag('ENABLE_DEMO_ACCOUNTS', default=DEBUG)
+ALLOW_PUBLIC_REGISTRATION = env_flag('ALLOW_PUBLIC_REGISTRATION', default=False)
 
 # JWT Settings
 SIMPLE_JWT = {
@@ -245,9 +268,8 @@ for _public_url in [os.environ.get('APP_PUBLIC_URL'), os.environ.get('FRONTEND_U
         if _clean_url not in CSRF_TRUSTED_ORIGINS:
             CSRF_TRUSTED_ORIGINS.append(_clean_url)
 
-# Always trust Railway domains for CSRF in production
-if not any('*.up.railway.app' in u for u in CSRF_TRUSTED_ORIGINS):
-    CSRF_TRUSTED_ORIGINS.append('https://*.up.railway.app')
+# NOTE: no wildcard *.up.railway.app CSRF origin — any Railway-hosted site could
+# then forge session-authenticated requests. Set APP_PUBLIC_URL / CSRF_TRUSTED_ORIGINS.
 
 CORS_ALLOW_CREDENTIALS = True
 
