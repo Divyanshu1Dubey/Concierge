@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HeyJarvis widget test page</title>
+<style>
+  body { margin: 0; font: 15px/1.6 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #1f2937; background: #faf9f6; }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 20px 140px; }
+  h1 { font: 400 30px/1.2 Georgia, serif; margin: 0 0 8px; }
+  form { display: grid; gap: 10px; background: #fff; border: 1px solid #e7e5df; border-radius: 14px; padding: 18px; margin: 22px 0; }
+  label { font-size: 13px; font-weight: 600; color: #374151; }
+  input { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid #d6d3cc; border-radius: 9px; font: inherit; }
+  button { justify-self: start; padding: 9px 16px; border: 0; border-radius: 999px; background: #1f2937; color: #fff; font-weight: 600; cursor: pointer; }
+  code { background: #f1efe9; padding: 2px 6px; border-radius: 6px; font-size: 13px; }
+  .note { color: #6b7280; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Widget test page</h1>
+  <p class="note">Loads the widget and talks to the real Concierge backend you choose below. Nothing here is mocked.</p>
+  <form id="cfg">
+    <div><label for="src">Widget script</label><input id="src" name="src" placeholder="./heyjarvis-widget.js"></div>
+    <div><label for="api">Concierge server (data-api-url)</label><input id="api" name="api" placeholder="http://localhost:8000"></div>
+    <div><label for="key">Client key (data-heyjarvis-client, from Plugin &amp; Embed Code)</label><input id="key" name="key"></div>
+    <button type="submit">Load widget</button>
+    <p class="note">Settings are read from the address bar, e.g. <code>widget-test.html?api=http://localhost:8000&amp;key=YOUR_KEY</code></p>
+  </form>
+  <p>Scroll and click the chat button at the bottom right.</p>
+</main>
+<script>
+  (function () {
+    var q = new URLSearchParams(location.search);
+    var src = q.get('src') || './heyjarvis-widget.js';
+    var api = q.get('api') || 'http://localhost:8000';
+    var key = q.get('key') || '';
+    document.getElementById('src').value = src;
+    document.getElementById('api').value = api;
+    document.getElementById('key').value = key;
+    if (!key) return;
+    var s = document.createElement('script');
+    s.async = true;
+    s.src = src;
+    s.setAttribute('data-api-url', api);
+    s.setAttribute('data-heyjarvis-client', key);
+    document.body.appendChild(s);
+  })();
+</script>
+</body>
+</html>
