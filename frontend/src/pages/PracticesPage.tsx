@@ -48,25 +48,25 @@ export default function PracticesPage() {
   // New practice form
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('919-555-0100');
-  const [address, setAddress] = useState('100 Medical Park Blvd');
-  const [city, setCity] = useState('Raleigh');
-  const [state, setState] = useState('NC');
+  const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
   const [adminName, setAdminName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
-  const [adminPassword, setAdminPassword] = useState('Password123!');
+  const [adminPassword, setAdminPassword] = useState('');
 
   // New staff / doctor form
   const [newStaffFirstName, setNewStaffFirstName] = useState('');
   const [newStaffLastName, setNewStaffLastName] = useState('');
   const [newStaffEmail, setNewStaffEmail] = useState('');
-  const [newStaffPassword, setNewStaffPassword] = useState('DoctorPass123!');
+  const [newStaffPassword, setNewStaffPassword] = useState('');
   const [newStaffRole, setNewStaffRole] = useState<'PRACTICE_ADMIN' | 'FRONT_DESK'>('PRACTICE_ADMIN');
   const [newStaffPhone, setNewStaffPhone] = useState('');
 
   // Reset password state
   const [resetTargetUser, setResetTargetUser] = useState<any | null>(null);
-  const [newResetPassword, setNewResetPassword] = useState('NewPass123!');
+  const [newResetPassword, setNewResetPassword] = useState('');
 
   // Copy feedback state
   const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
@@ -149,7 +149,7 @@ export default function PracticesPage() {
       setNewStaffFirstName('');
       setNewStaffLastName('');
       setNewStaffPhone('');
-      setNewStaffPassword('DoctorPass123!');
+      setNewStaffPassword('');
       refetchStaff();
       queryClient.invalidateQueries({ queryKey: ['agency-practices'] });
     },
@@ -643,6 +643,7 @@ export default function PracticesPage() {
                           required
                           value={newStaffPassword}
                           onChange={(e) => setNewStaffPassword(e.target.value)}
+                          placeholder="Min. 8 characters"
                           className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
                         />
                       </div>
@@ -795,7 +796,7 @@ export default function PracticesPage() {
                                 <button
                                   onClick={() => {
                                     setResetTargetUser(u);
-                                    setNewResetPassword('DoctorPass2026!');
+                                    setNewResetPassword('');
                                   }}
                                   className="px-2 py-1 rounded-lg border border-gray-200 hover:bg-gray-100 text-gray-700 font-semibold text-[11px] flex items-center gap-1 transition"
                                   title="Reset password"
@@ -1214,8 +1215,10 @@ export default function PracticesPage() {
                       </label>
                       <input
                         type="text"
+                        required
                         value={adminPassword}
                         onChange={(e) => setAdminPassword(e.target.value)}
+                        placeholder="Min. 8 characters"
                         className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:outline-none font-mono"
                       />
                     </div>

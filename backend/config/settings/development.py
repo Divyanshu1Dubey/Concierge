@@ -43,11 +43,3 @@ CHANNEL_LAYERS = {
         'BACKEND': 'channels.layers.InMemoryChannelLayer',
     },
 }
-
-# DRF - allow any in dev
-REST_FRAMEWORK = {
-    **REST_FRAMEWORK,
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
-    ],
-}

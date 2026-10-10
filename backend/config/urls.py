@@ -27,8 +27,8 @@ def serve_spa_favicon(request):
         return serve(request, 'favicon.svg', document_root=dist_dir)
     return HttpResponse(status=404)
 
-def mock_api_view(request, *args, **kwargs):
-    return JsonResponse({"count": 0, "next": None, "previous": None, "results": []})
+def api_not_found(request, *args, **kwargs):
+    return JsonResponse({"detail": "Not found."}, status=404)
 
 urlpatterns = [
     # Gateway Root
@@ -57,6 +57,7 @@ urlpatterns = [
 
     # Authentication (email+password)
     path('api/auth/', include('apps.users.urls')),
+    path('api/users/', include('apps.users.urls')),
     path('api/auth/token/', LoginView.as_view(), name='token_obtain_pair'),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/auth/google/', include('allauth.socialaccount.providers.google.urls')),
@@ -83,8 +84,8 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/docs/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 
-    # Fallback for undefined API endpoints
-    re_path(r'^api/.*$', mock_api_view),
+    # Fallback for undefined API endpoints (404)
+    re_path(r'^api/.*$', api_not_found),
 
     # Frontend SPA Static Assets
     re_path(r'^assets/(?P<path>.*)$', serve_spa_asset, name='spa-assets'),

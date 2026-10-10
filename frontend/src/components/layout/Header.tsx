@@ -91,13 +91,13 @@ export default function Header({ onMenuToggle }: HeaderProps) {
         )}
 
         <a
-          href="/concierge/raleigh-dentistry"
+          href={user?.practice_slug ? `/concierge/${user.practice_slug}` : "/concierge/raleigh-dentistry"}
           target="_blank"
           rel="noopener noreferrer"
           className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold transition"
-          title="Open live hosted concierge page"
+          title="Open live patient concierge page"
         >
-          <span>Live Demo</span>
+          <span>Patient Concierge</span>
         </a>
 
         {/* User Pill */}

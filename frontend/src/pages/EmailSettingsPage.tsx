@@ -12,9 +12,9 @@ export default function EmailSettingsPage() {
 
   // Form State
   const [providerType, setProviderType] = useState<'MANAGED' | 'SMTP'>('MANAGED');
-  const [fromName, setFromName] = useState('Raleigh Comprehensive Dentistry Front Desk');
-  const [fromEmail, setFromEmail] = useState('frontdesk@raleighdentistry.com');
-  const [replyTo, setReplyTo] = useState('frontdesk@raleighdentistry.com');
+  const [fromName, setFromName] = useState('');
+  const [fromEmail, setFromEmail] = useState('');
+  const [replyTo, setReplyTo] = useState('');
 
   // SMTP Settings
   const [smtpHost, setSmtpHost] = useState('');
@@ -25,10 +25,10 @@ export default function EmailSettingsPage() {
   const [useSsl, setUseSsl] = useState(false);
 
   // Routing Destinations
-  const [leadNotificationEmail, setLeadNotificationEmail] = useState('frontdesk@raleighdentistry.com');
-  const [emergencyNotificationEmail, setEmergencyNotificationEmail] = useState('emergency@raleighdentistry.com');
-  const [appointmentNotificationEmail, setAppointmentNotificationEmail] = useState('appointments@raleighdentistry.com');
-  const [handoffNotificationEmail, setHandoffNotificationEmail] = useState('frontdesk@raleighdentistry.com');
+  const [leadNotificationEmail, setLeadNotificationEmail] = useState('');
+  const [emergencyNotificationEmail, setEmergencyNotificationEmail] = useState('');
+  const [appointmentNotificationEmail, setAppointmentNotificationEmail] = useState('');
+  const [handoffNotificationEmail, setHandoffNotificationEmail] = useState('');
 
   // Fetch email config
   const { data: configData } = useQuery({

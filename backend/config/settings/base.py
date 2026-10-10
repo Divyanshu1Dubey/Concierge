@@ -4,9 +4,12 @@ from datetime import timedelta
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-production')
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY') or os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
+
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'SAMEORIGIN'
 
 _raw_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS') or os.environ.get('ALLOWED_HOSTS') or 'localhost,127.0.0.1,testserver,*'
 ALLOWED_HOSTS = [h.strip() for h in _raw_hosts.split(',') if h.strip()]

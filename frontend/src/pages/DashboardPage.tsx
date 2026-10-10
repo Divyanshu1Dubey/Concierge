@@ -385,7 +385,7 @@ export default function DashboardPage() {
 
         {reqList.length === 0 ? (
           <div className="p-8 text-center text-gray-400 text-sm">
-            No inquiries recorded yet. Test the widget or demo page to submit a request.
+            No inquiries recorded yet. Patient requests submitted via the concierge widget will appear here.
           </div>
         ) : (
           <div className="divide-y divide-gray-100">

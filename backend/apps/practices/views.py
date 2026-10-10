@@ -725,17 +725,25 @@ class TenantMetricsView(APIView):
 
 class WordPressDownloadView(APIView):
     """Dynamically build and return the configured WordPress plugin zip."""
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
 
     def get(self, request, tenant_id=None):
         if tenant_id:
-            practice = get_object_or_404(Practice, id=tenant_id)
-        elif request.user and request.user.is_authenticated and request.user.practice:
+            if request.user.is_agency_admin or request.user.is_superuser:
+                practice = get_object_or_404(Practice, id=tenant_id)
+            elif request.user.practice and str(request.user.practice.id) == str(tenant_id):
+                practice = request.user.practice
+            else:
+                return Response({'error': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+        elif request.user.practice:
             practice = request.user.practice
-        else:
+        elif request.user.is_agency_admin or request.user.is_superuser:
             practice = Practice.objects.first()
-            if not practice:
-                return Response({'error': 'No practice found.'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            return Response({'error': 'No practice associated with your account.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not practice:
+            return Response({'error': 'No practice found.'}, status=status.HTTP_404_NOT_FOUND)
 
         client_key = practice.api_key
         slug = practice.slug
@@ -827,6 +835,16 @@ class ExportDataView(APIView):
 
     def get(self, request, export_type):
         practice = request.user.practice
+        if not practice and (request.user.is_agency_admin or request.user.is_superuser):
+            practice_id = request.headers.get('X-Practice-ID') or request.query_params.get('practice_id')
+            if practice_id:
+                practice = Practice.objects.filter(id=practice_id).first()
+            else:
+                practice = Practice.objects.first()
+
+        if not practice:
+            return Response({'error': 'No practice selected or found for export.'}, status=status.HTTP_400_BAD_REQUEST)
+
         response = HttpResponse(content_type='text/csv')
 
         if export_type == 'leads':

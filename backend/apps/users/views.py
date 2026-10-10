@@ -9,7 +9,7 @@ from django.contrib.auth import authenticate
 from .models import User
 from .serializers import (
     UserSerializer, UserCreateSerializer, LoginSerializer,
-    TokenResponseSerializer,
+    TokenResponseSerializer, ChangePasswordSerializer,
 )
 
 
@@ -60,21 +60,39 @@ class CurrentUserView(generics.RetrieveUpdateAPIView):
         return self.request.user
 
 
-class SeedUsersView(generics.GenericAPIView):
-    """Ensure all demo practices and user accounts exist."""
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request):
-        from .seed_data import seed_all_demo_data
-        accounts = seed_all_demo_data()
-        return Response({
-            'status': 'success',
-            'message': 'Demo practices and users ensured successfully.',
-            'accounts': accounts,
-        }, status=status.HTTP_200_OK)
+class ChangePasswordView(generics.GenericAPIView):
+    """Secure endpoint for authenticated users to update their password."""
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ChangePasswordSerializer
 
     def post(self, request):
-        return self.get(request)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = request.user
+        if not user.check_password(serializer.validated_data['old_password']):
+            return Response(
+                {'old_password': ['Current password is incorrect.']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        user.set_password(serializer.validated_data['new_password'])
+        user.save()
+        return Response({'message': 'Password updated successfully.'}, status=status.HTTP_200_OK)
+
+
+class SeedUsersView(generics.GenericAPIView):
+    """Seed / verify baseline practice accounts (Restricted to Superusers / Staff)."""
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request):
+        from .seed_data import seed_all_demo_data
+        accounts = seed_all_demo_data()
+        # Sanitize output: never return plain text passwords over API
+        sanitized = [{'email': a.get('email'), 'role': a.get('role')} for a in accounts]
+        return Response({
+            'status': 'success',
+            'message': 'Baseline practices and accounts verified successfully.',
+            'accounts': sanitized,
+        }, status=status.HTTP_200_OK)
 
 
 

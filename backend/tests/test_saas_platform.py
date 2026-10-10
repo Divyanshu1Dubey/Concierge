@@ -18,6 +18,8 @@ class TestHeyJarvisSaaSPlatform(TestCase):
 
     def setUp(self):
         self.client = APIClient()
+        Practice.objects.all().delete()
+        User.objects.all().delete()
 
         # Create Tenant A (Raleigh Dentistry)
         self.practice_a = Practice.objects.create(
