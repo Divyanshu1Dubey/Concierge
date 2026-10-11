@@ -417,7 +417,7 @@ export default function PracticesPage() {
         {search && (
           <button
             onClick={() => setSearch('')}
-            className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 bg-gray-100 rounded-md"
+            className="text-xs text-gray-500 hover:text-gray-600 px-2 py-1 bg-gray-100 rounded-md"
           >
             Clear
           </button>

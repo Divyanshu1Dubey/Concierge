@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
+  BookOpen,
   Home,
   Bot,
   MessageSquare,
@@ -18,6 +19,12 @@ import {
   FileText,
   UserPlus,
   UserCog,
+  ListChecks,
+  TrendingUp,
+  Globe,
+  Plug,
+  CalendarClock,
+  Activity,
   LucideIcon
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
@@ -74,6 +81,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
             title: 'AGENCY PLATFORM',
             items: [
               { to: '/dashboard/practices', label: 'Dental Practices', icon: Building2, badge: 'All Clinics' },
+              { to: '/dashboard/system', label: 'System Status', icon: Activity },
             ],
           },
         ]
@@ -82,10 +90,19 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
       title: 'INBOUND FRONT DESK',
       items: [
         { to: '/dashboard/requests', label: 'Appointment Requests', icon: CalendarCheck, badge: 'Inbox', badgeColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
+        { to: '/dashboard/follow-ups', label: 'Follow-ups', icon: ListChecks, badge: 'To do', badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
         { to: '/dashboard/conversations', label: 'Patient Conversations', icon: MessageSquare },
         { to: '/dashboard/leads', label: 'Captured Leads', icon: UserPlus },
         { to: '/dashboard/patients', label: 'Patients Directory', icon: Users },
         { to: '/dashboard/email', label: 'Email Log', icon: Mail },
+      ],
+    },
+    {
+      title: 'GROWTH',
+      items: [
+        { to: '/dashboard/growth', label: 'Growth & Briefing', icon: TrendingUp },
+        { to: '/dashboard/visibility', label: 'Website Check', icon: Globe },
+        { to: '/dashboard/recall', label: 'Recall List', icon: CalendarClock },
       ],
     },
     {
@@ -100,13 +117,15 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
             title: 'INTEGRATIONS & WIDGET',
             items: [
               { to: '/dashboard/installation', label: 'Plugin & Embed Code', icon: Code2, badge: 'WordPress', badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
-              { to: '/dashboard/widget-settings', label: 'Widget Customizer', icon: Palette },
+              { to: '/dashboard/widget-settings', label: 'Branding & Widget', icon: Palette },
+              { to: '/dashboard/integrations', label: 'Integrations', icon: Plug },
             ],
           },
           {
             title: 'CLINIC & DENTIST ADMIN',
             items: [
               { to: '/dashboard/business-rules', label: 'Hours & Services', icon: Clock },
+              { to: '/dashboard/knowledge', label: 'Practice Knowledge', icon: BookOpen },
               { to: '/dashboard/email-settings', label: 'Email & SMTP Delivery', icon: Mail },
               { to: '/dashboard/templates', label: 'Email Templates', icon: FileText },
               { to: '/dashboard/team', label: 'Dentists & Staff', icon: Users },

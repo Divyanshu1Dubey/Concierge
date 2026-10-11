@@ -45,8 +45,8 @@ const stone = {
   100: '#F3F0E8',
   200: '#E7E2D7',
   300: '#D4CDBF',
-  400: '#A9A193',
-  500: '#7D776B',
+  400: '#8A8477', // darkened from #A9A193 for legibility (WCAG non-text contrast)
+  500: '#6B655A', // darkened from #7D776B so body text meets WCAG AA 4.5:1 on every surface
   600: '#5F5A50',
   700: '#49453D',
   800: '#302D28',

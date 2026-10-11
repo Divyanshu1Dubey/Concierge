@@ -87,6 +87,7 @@ class Email(models.Model):
     is_ai_draft = models.BooleanField(default=False)
     is_staff_reply = models.BooleanField(default=False)
     provider_message_id = models.CharField(max_length=200, blank=True)
+    error_message = models.CharField(max_length=300, blank=True)  # plain-language reason when sending failed
     provider = models.CharField(max_length=50, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)

@@ -29,6 +29,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
     practice_name = serializers.ReadOnlyField(source='practice.name')
     practice_phone = serializers.ReadOnlyField(source='practice.phone')
     assigned_name = serializers.SerializerMethodField()
+    source = serializers.SerializerMethodField()
 
     class Meta:
         model = Appointment
@@ -42,7 +43,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'source_website', 'notes', 'internal_notes',
             'response_draft', 'response_sent_at',
             'confirmation_code', 'confirmed_at', 'cancelled_at',
-            'assigned_to', 'assigned_name',
+            'assigned_to', 'assigned_name', 'source',
             'created_at', 'updated_at',
         ]
         # Tenant ownership and lifecycle timestamps are server-controlled.
@@ -67,6 +68,10 @@ class AppointmentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Assignee must belong to the same practice.')
         return user
 
+    def get_source(self, obj):
+        from apps.growth.attribution import attribution_for_appointment
+        return attribution_for_appointment(obj)
+
     def get_service_title(self, obj):
         if obj.service_name:
             return obj.service_name
@@ -88,7 +93,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
         from apps.emails.models import Email
         rows = (Email.objects.filter(thread__practice=obj.practice, thread__metadata__appointment_id=str(obj.id))
                 .exclude(direction=Email.DIRECTION_INTERNAL).order_by('created_at')
-                .values('id', 'direction', 'status', 'from_email', 'to_email', 'subject', 'body', 'sent_at', 'created_at'))
+                .values('id', 'direction', 'status', 'from_email', 'to_email', 'subject', 'body', 'sent_at', 'created_at', 'error_message'))
         return list(rows[:100])
 
     def get_transcript(self, obj):

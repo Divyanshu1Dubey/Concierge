@@ -27,17 +27,40 @@ OUR_MSGID = re.compile(r"<[^<>@\s]+@[^<>\s]*heyjarvis\.ai>", re.I)
 QUOTE_HEADER = re.compile(r"^\s*On .+wrote:\s*$")
 
 
+def _decode(part) -> str:
+    payload = part.get_payload(decode=True) or b""
+    try:
+        return payload.decode(part.get_content_charset() or "utf-8", "replace")
+    except LookupError:  # unknown charset label in the message
+        return payload.decode("utf-8", "replace")
+
+
+def _html_to_text(html: str) -> str:
+    from django.utils.html import strip_tags
+    import html as html_lib
+    html = re.sub(r"(?is)<(script|style|head)[^>]*>.*?</\1>", " ", html)
+    html = re.sub(r"(?i)<br\s*/?>|</p>|</div>", "\n", html)
+    html = re.sub(r'(?is)<blockquote.*', '', html)  # quoted history
+    return html_lib.unescape(strip_tags(html))
+
+
 def _plain_body(msg) -> str:
     text = ""
     if msg.is_multipart():
+        html = ""
         for part in msg.walk():
-            if part.get_content_type() == "text/plain" and "attachment" not in str(part.get("Content-Disposition", "")):
-                payload = part.get_payload(decode=True) or b""
-                text = payload.decode(part.get_content_charset() or "utf-8", "replace")
-                break
+            if "attachment" in str(part.get("Content-Disposition", "")):
+                continue
+            if part.get_content_type() == "text/plain" and not text:
+                text = _decode(part)
+            elif part.get_content_type() == "text/html" and not html:
+                html = _decode(part)
+        if not text.strip() and html:
+            text = _html_to_text(html)
     else:
-        payload = msg.get_payload(decode=True) or b""
-        text = payload.decode(msg.get_content_charset() or "utf-8", "replace")
+        text = _decode(msg)
+        if msg.get_content_type() == "text/html":
+            text = _html_to_text(text)
     # Keep only the new text: drop quoted history ("> ..." and "On ... wrote:").
     lines = []
     for line in text.splitlines():
@@ -90,8 +113,10 @@ def ingest_email_message(msg) -> dict:
         appt = thread_appointment(thread)
         if appt is not None:
             notes = list(appt.internal_notes or [])
-            notes.append({"author": "Concierge", "text": "Patient replied by email. Review the reply and draft a response.",
-                          "created_at": now.isoformat()})
+            note = "Patient replied by email. Review the reply and draft a response."
+            if sender and thread.patient_email and sender != thread.patient_email.lower():
+                note += f" Note: it came from a different address ({sender[:120]}) than the one on the request."
+            notes.append({"author": "Concierge", "text": note, "created_at": now.isoformat()})
             appt.internal_notes = notes
             fields = ["internal_notes"]
             if appt.status == "contacted":

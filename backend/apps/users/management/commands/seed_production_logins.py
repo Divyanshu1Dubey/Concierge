@@ -1,102 +1,77 @@
 """
-Management command to seed production demo accounts and practice for HeyJarvis Concierge.
-Ensures:
-- Practice: 'heyjarvis-demo-dental' (HeyJarvis Demo Dental)
-- Agency Admin: divyanshu@heyjarvis.ai / avisirheyjarvis2026
-- Practice Admin: doctor@heyjarvis-demo.com / DemoDoctor#2026
-- Front Desk: frontdesk@heyjarvis-demo.com / DemoFrontDesk#2026
+Seed the "HeyJarvis Demo Dental" practice and its demo staff accounts - demo mode only.
+
+Runs only when ENABLE_DEMO_ACCOUNTS=true. No password is stored in code: demo accounts get
+DEMO_ACCOUNT_PASSWORD when it is set (keep it private), otherwise new accounts get an unusable
+password and existing passwords are left unchanged. The agency administrator is never created
+here; use `python manage.py create_agency_admin --email ...` (one-time set-password link).
 """
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from apps.practices.models import Practice, BookingRules, PracticeSettings, Domain
 from apps.users.models import User
 
+# Accounts whose earlier passwords were published; `lock_demo_accounts` disables them.
+EXPOSED_ACCOUNTS = ['divyanshu@heyjarvis.ai', 'doctor@heyjarvis-demo.com', 'frontdesk@heyjarvis-demo.com']
+
 ACCOUNTS_DATA = [
     {
-        'email': 'divyanshu@heyjarvis.ai',
-        'password': 'avisirheyjarvis2026',
-        'role': 'AGENCY_ADMIN',
-        'first_name': 'Divyanshu',
-        'last_name': 'Admin',
-        'superuser': True,
-        'practice_slug': None,
-    },
-    {
         'email': 'doctor@heyjarvis-demo.com',
-        'password': 'DemoDoctor#2026',
         'role': 'PRACTICE_ADMIN',
         'first_name': 'Demo',
         'last_name': 'Doctor',
-        'superuser': False,
-        'practice_slug': 'heyjarvis-demo-dental',
     },
     {
         'email': 'frontdesk@heyjarvis-demo.com',
-        'password': 'DemoFrontDesk#2026',
         'role': 'FRONT_DESK',
         'first_name': 'Demo',
         'last_name': 'FrontDesk',
-        'superuser': False,
-        'practice_slug': 'heyjarvis-demo-dental',
     },
 ]
 
 
 def seed_production_accounts(stdout=None):
+    if not getattr(settings, 'DEMO_ACCOUNTS_ENABLED', False):
+        if stdout:
+            stdout.write("Demo mode is off (ENABLE_DEMO_ACCOUNTS=false): nothing seeded.")
+        return
     practice, _ = Practice.objects.get_or_create(
         slug="heyjarvis-demo-dental",
         defaults=dict(
             name="HeyJarvis Demo Dental",
-            email="divyanshu@heyjarvis.ai",
+            email="demo@heyjarvis-demo.com",
             phone="(919) 555-0100",
             address="123 Demo Street",
             city="Raleigh",
             state="NC",
             zip_code="27601",
             timezone="America/New_York",
-            website="https://web-production-41fc3c.up.railway.app",
         ),
     )
-    practice.active = True
-    practice.save()
-
     BookingRules.objects.get_or_create(practice=practice)
-    PracticeSettings.objects.get_or_create(
-        practice=practice,
-        defaults={
-            'default_from_name': practice.name,
-            'default_from_email': practice.email,
-        }
-    )
+    PracticeSettings.objects.get_or_create(practice=practice)
+    for domain_name in ['localhost', '127.0.0.1']:
+        Domain.objects.get_or_create(practice=practice, hostname=domain_name, defaults={'status': 'CONNECTED'})
 
-    # Ensure allowed domains for widget verification
-    allowed_domains = ['web-production-41fc3c.up.railway.app', 'localhost', '127.0.0.1']
-    for domain_name in allowed_domains:
-        Domain.objects.get_or_create(
-            practice=practice,
-            hostname=domain_name,
-            defaults={'status': 'CONNECTED'}
-        )
-
+    password = getattr(settings, 'DEMO_ACCOUNT_PASSWORD', '') or ''
     for item in ACCOUNTS_DATA:
-        p = practice if item['practice_slug'] else None
-        u = User.objects.filter(email__iexact=item['email']).first() or User(email=item['email'], username=item['email'])
-        u.first_name = item['first_name']
-        u.last_name = item['last_name']
-        u.role = item['role']
-        u.practice = p
-        u.is_active = True
-        u.is_superuser = item['superuser']
-        u.is_staff = item['superuser']
-        u.set_password(item['password'])
+        u = User.objects.filter(email__iexact=item['email']).first()
+        created = u is None
+        if created:
+            u = User(email=item['email'], username=item['email'], first_name=item['first_name'],
+                     last_name=item['last_name'], role=item['role'], practice=practice, is_active=True)
+        if password:
+            u.set_password(password)
+        elif created:
+            u.set_unusable_password()
         u.save()
         if stdout:
-            stdout.write(f"  OK {item['role']} {item['email']}")
+            note = '' if (password or not created) else ' (no password set)'
+            stdout.write(f"  OK {item['role']} {item['email']}{note}")
 
 
 class Command(BaseCommand):
-    help = "Seed production demo accounts and practice for HeyJarvis Demo Dental"
+    help = "Seed the HeyJarvis Demo Dental practice and demo staff accounts (demo mode only)"
 
     def handle(self, *args, **options):
-        self.stdout.write("Seeding HeyJarvis Demo Dental and production test accounts...")
         seed_production_accounts(self.stdout)
-        self.stdout.write(self.style.SUCCESS("Production demo accounts verified successfully!"))

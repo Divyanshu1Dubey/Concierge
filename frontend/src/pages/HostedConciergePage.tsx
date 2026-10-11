@@ -182,7 +182,7 @@ export default function HostedConciergePage() {
           ))}
 
           {isSending && (
-            <div className="flex gap-2 items-center text-xs text-gray-400 pl-11">
+            <div className="flex gap-2 items-center text-xs text-gray-500 pl-11">
               <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" />
               <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce delay-100" />
               <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce delay-200" />
@@ -229,7 +229,7 @@ export default function HostedConciergePage() {
         </div>
 
         {/* Privacy Footer */}
-        <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-[10px] text-gray-400 text-center">
+        <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-[10px] text-gray-500 text-center">
           Powered by HeyJarvis Concierge • HIPAA-Aware Communication
         </div>
       </div>

@@ -59,7 +59,7 @@ export default function PatientsPage() {
           <div className="p-12 text-center">
             <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-500 font-medium">No patients yet</p>
-            <p className="text-sm text-gray-400 mt-1">Patients will appear here as they interact</p>
+            <p className="text-sm text-gray-500 mt-1">Patients will appear here as they interact</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -88,7 +88,7 @@ export default function PatientsPage() {
                         {patient.intent === 'new_patient' ? 'New Patient' : 'Returning'}
                       </span>
                       {patient._requestCount > 1 && (
-                        <span className="ml-2 text-xs text-gray-400">{patient._requestCount} requests</span>
+                        <span className="ml-2 text-xs text-gray-500">{patient._requestCount} requests</span>
                       )}
                     </td>
                     <td className="px-6 py-3 text-sm text-gray-500">

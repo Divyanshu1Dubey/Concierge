@@ -69,7 +69,7 @@ export default function LeadsPage() {
           <div className="p-12 text-center">
             <UserPlus className="w-12 h-12 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-500 font-medium">No leads yet</p>
-            <p className="text-sm text-gray-400 mt-1">Leads will appear when patients share contact info via the widget</p>
+            <p className="text-sm text-gray-500 mt-1">Leads will appear when patients share contact info via the widget</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -92,7 +92,7 @@ export default function LeadsPage() {
                     </td>
                     <td className="px-6 py-3 text-sm text-gray-600">
                       <div>{lead.patient_email || lead.email || '—'}</div>
-                      {lead.patient_phone && <div className="text-xs text-gray-400">{lead.patient_phone}</div>}
+                      {lead.patient_phone && <div className="text-xs text-gray-500">{lead.patient_phone}</div>}
                     </td>
                     <td className="px-6 py-3 text-sm text-gray-600 capitalize">
                       {lead.intent || lead.service_name || lead.service || 'General Inquiry'}

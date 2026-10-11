@@ -92,7 +92,7 @@ function WidgetPreview() {
           </span>
         </div>
 
-        <div className="grid sm:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_300px]">
           {/* The practice's own website behind the widget */}
           <div className="hidden sm:flex flex-col bg-cream p-5 gap-4 min-w-0">
             <div className="flex items-center gap-2">
@@ -393,7 +393,7 @@ export default function LandingPage() {
                 Concierge gives every inquiry a prompt, consistent first response and puts the follow-up in front of the right person.
               </p>
             </Reveal>
-            <div className="grid sm:grid-cols-2 gap-x-10 gap-y-10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-10">
               {PROBLEMS.map((p, i) => (
                 <Reveal key={p.title} delay={i * 80}>
                   <span className="font-display text-[15px] text-forest-600">0{i + 1}</span>

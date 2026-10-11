@@ -13,7 +13,7 @@ ENV_FILE_KEYS = {
     'CONCIERGE_MODEL', 'CONCIERGE_FALLBACK_MODEL', 'CONCIERGE_GROQ_MODEL',
     'EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_HOST_USER', 'EMAIL_HOST_PASSWORD', 'EMAIL_USE_TLS', 'EMAIL_USE_SSL',
     'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'DEFAULT_FROM_EMAIL', 'FRONT_DESK_EMAIL',
-    'SENTRY_DSN', 'IMAP_HOST', 'IMAP_USER', 'IMAP_PASSWORD',
+    'SENTRY_DSN', 'IMAP_HOST', 'IMAP_USER', 'IMAP_PASSWORD', 'RESEND_API_KEY',
 }
 
 
@@ -100,6 +100,7 @@ INSTALLED_APPS = [
     'apps.ai_service',
     'apps.dashboard',
     'apps.practices',
+    'apps.growth',
 ]
 
 MIDDLEWARE = [
@@ -342,6 +343,15 @@ if _REDIS_URL and not os.environ.get('USE_LOCAL_CACHE'):
             },
         }
     }
+elif os.environ.get('CACHE_BACKEND', '').lower() == 'database':
+    # Shared across gunicorn workers without Redis: rate limits and short-lived locks hold for the whole
+    # server instead of per worker. Requires `manage.py createcachetable` (start.sh runs it).
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+            'LOCATION': 'heyjarvis_cache',
+        }
+    }
 else:
     CACHES = {
         'default': {
@@ -396,6 +406,11 @@ EMAIL_BACKEND = (
     'django.core.mail.backends.smtp.EmailBackend' if EMAIL_CONFIGURED
     else 'django.core.mail.backends.console.EmailBackend'
 )
+# HTTPS email API (works where outbound SMTP ports are blocked). When set, it is used for platform mail.
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
+if RESEND_API_KEY:
+    EMAIL_BACKEND = 'apps.emails.backends.ResendEmailBackend'
+    EMAIL_CONFIGURED = True
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL') or (
     f'HeyJarvis Concierge <{EMAIL_HOST_USER}>' if EMAIL_HOST_USER else 'HeyJarvis Concierge <noreply@heyjarvis.ai>'
 )
@@ -409,6 +424,22 @@ IMAP_USER = os.environ.get('IMAP_USER') or (EMAIL_HOST_USER if IMAP_HOST else ''
 IMAP_PASSWORD = (os.environ.get('IMAP_PASSWORD') or (EMAIL_HOST_PASSWORD if IMAP_HOST else '')).replace(' ', '')
 # Shared secret for scheduled jobs (e.g. a Railway cron calling the reply check).
 CRON_SECRET = os.environ.get('CRON_SECRET', '')
+
+# Growth & integrations (all optional; features report "needs setup" when unset).
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN', '')
+TWILIO_FROM_NUMBER = os.environ.get('TWILIO_FROM_NUMBER', '')
+SMS_BACKEND = os.environ.get('SMS_BACKEND', '')  # 'console' records texts without sending (development)
+PAGESPEED_API_KEY = os.environ.get('PAGESPEED_API_KEY', '')
+PAGESPEED_ENABLED = os.environ.get('PAGESPEED_ENABLED', '').lower() in ('1', 'true', 'yes')
+GOOGLE_BUSINESS_CLIENT_ID = os.environ.get('GOOGLE_BUSINESS_CLIENT_ID', '')
+GOOGLE_BUSINESS_CLIENT_SECRET = os.environ.get('GOOGLE_BUSINESS_CLIENT_SECRET', '')
+BACKUP_DIR = os.environ.get('BACKUP_DIR', '')
+BACKUP_KEEP = int(os.environ.get('BACKUP_KEEP', '7') or 7)
+GROWTH_SYNC_BACKGROUND = False  # tests run background work inline
+# Widget requests from file:// pages, sandboxed iframes (Origin: null) and localhost bypass the practice's allowed
+# domains. Default on to keep local demo pages working; set false in production for a strict domain list.
+WIDGET_ALLOW_LOCAL_ORIGINS = env_flag('WIDGET_ALLOW_LOCAL_ORIGINS', default=True)
 
 # AI Configuration
 # AI_PROVIDER: gemini | groq | openai | anthropic | none. When unset, the first provider

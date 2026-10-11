@@ -5,19 +5,13 @@ import { api, apiErrorMessage } from '@/utils/api';
 import type { User } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 
+// Local development convenience only: fills the email of a demo account (never a password).
+// Production builds do not render this panel, and no password is stored in the frontend.
+const SHOW_DEMO_LOGINS = import.meta.env.DEV;
 const DEMO_LOGINS = [
-  {
-    role: 'Agency Admin',
-    email: 'divyanshu@heyjarvis.ai',
-    password: 'avisirheyjarvis2026',
-    description: 'Every practice, onboarding, access requests',
-    badge: 'Superuser',
-    badgeColor: 'bg-purple-100 text-purple-800 border-purple-200',
-  },
   {
     role: 'Doctor (Practice Admin)',
     email: 'doctor@heyjarvis-demo.com',
-    password: 'DemoDoctor#2026',
     description: '"HeyJarvis Demo Dental": settings, team, requests',
     badge: 'Demo Dental',
     badgeColor: 'bg-teal-100 text-teal-800 border-teal-200',
@@ -25,7 +19,6 @@ const DEMO_LOGINS = [
   {
     role: 'Front Desk',
     email: 'frontdesk@heyjarvis-demo.com',
-    password: 'DemoFrontDesk#2026',
     description: 'Requests, conversations, replies',
     badge: 'Care Staff',
     badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
@@ -75,10 +68,10 @@ export default function LoginPage() {
     signIn(email.trim(), password);
   };
 
-  const fillDemoAccount = (demoEmail: string, demoPassword: string) => {
+  const fillDemoAccount = (demoEmail: string) => {
     setEmail(demoEmail);
-    setPassword(demoPassword);
     setError('');
+    document.getElementById('login-password')?.focus();
   };
 
   return (
@@ -112,7 +105,7 @@ export default function LoginPage() {
             </p>
           </div>
         </div>
-        <p className="text-[12.5px] text-forest-400">A HeyJarvis.ai product · Made for care teams</p>
+        <p className="text-[12.5px] text-forest-300">A HeyJarvis.ai product · Made for care teams</p>
       </aside>
 
       {/* Sign-in form */}
@@ -189,14 +182,15 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Quick Demo Credentials Panel for Production Testing */}
+          {/* Demo logins: local development builds only (fills the email, never a password) */}
+          {SHOW_DEMO_LOGINS && (
           <div className="mt-7 pt-5 border-t border-stone-200/80">
             <div className="flex items-center justify-between mb-2.5">
               <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-500">
-                Demo & Testing Logins
+                Local demo accounts
               </span>
               <span className="text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                1-Click Preset
+                Dev only
               </span>
             </div>
 
@@ -207,7 +201,7 @@ export default function LoginPage() {
                   <button
                     key={demo.email}
                     type="button"
-                    onClick={() => fillDemoAccount(demo.email, demo.password)}
+                    onClick={() => fillDemoAccount(demo.email)}
                     className={`w-full text-left p-2.5 rounded-xl border transition-all text-xs group ${
                       isSelected
                         ? 'border-forest-700 bg-forest-50/70 shadow-sm ring-1 ring-forest-700'
@@ -242,6 +236,7 @@ export default function LoginPage() {
               })}
             </div>
           </div>
+          )}
 
           <p className="mt-6 text-[13px] text-stone-500 text-center">
             New to Concierge? <Link to="/request-access" className="link-quiet text-forest-800 font-medium">Request access for your practice</Link>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import BrandingPanel from '@/components/branding/BrandingPanel';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { practicesApi } from '@/services/api';
@@ -101,17 +102,19 @@ export default function WidgetSettingsPage() {
         </button>
       </div>
 
-      <div className="grid lg:grid-cols-12 gap-8 items-start">
+      <BrandingPanel />
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left Column: Form Controls (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
           {/* Visual Customization Card */}
           <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
             <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
               <Palette className="w-5 h-5 text-teal-600" />
-              Theme & Branding
+              Widget appearance
             </h2>
 
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-semibold text-gray-700 block mb-1">Widget Title</label>
                 <input
@@ -135,7 +138,7 @@ export default function WidgetSettingsPage() {
               </div>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-semibold text-gray-700 block mb-1">Primary Color</label>
                 <div className="flex gap-2 items-center">
@@ -210,7 +213,7 @@ export default function WidgetSettingsPage() {
               <label className="flex items-center justify-between cursor-pointer">
                 <div>
                   <span className="text-sm font-semibold text-gray-800">Auto-Open on Page Load</span>
-                  <p className="text-xs text-gray-400">Automatically open chat window for new visitors after a short delay</p>
+                  <p className="text-xs text-gray-500">Automatically open chat window for new visitors after a short delay</p>
                 </div>
                 <input
                   type="checkbox"
@@ -255,7 +258,7 @@ export default function WidgetSettingsPage() {
                   <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
                   <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
                 </div>
-                <div className="bg-white px-3 py-0.5 rounded text-[10px] text-gray-400 flex-1 truncate font-mono border border-gray-200 text-center">
+                <div className="bg-white px-3 py-0.5 rounded text-[10px] text-gray-500 flex-1 truncate font-mono border border-gray-200 text-center">
                   your-practice-website.com
                 </div>
               </div>

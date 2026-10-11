@@ -121,7 +121,7 @@ export default function AppointmentResponsePage() {
               placeholder="e.g. Weekday afternoons after 2 pm"
               className="w-full px-4 py-3 bg-white border border-stone-300 rounded-xl text-[15px] focus:outline-none focus:ring-2 focus:ring-stone-400/40" />
             <p className="text-[12px] text-stone-500">Please don't include medical details. The front desk will contact you.</p>
-            <div className="grid sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button type="button" disabled={busy} onClick={() => act('reschedule')}
                 className="w-full px-5 py-3.5 rounded-full font-semibold text-[15px] disabled:opacity-60" style={accent}>
                 {busy ? 'Sending…' : 'Send request'}

@@ -1,5 +1,6 @@
 from django.contrib import admin
 from apps.appointments.views import PublicOfferView, PublicOfferRespondView
+from apps.practices.views import PublicBrandAssetView
 from django.urls import path, include, re_path
 from django.conf import settings
 from django.conf.urls.static import static
@@ -76,11 +77,15 @@ urlpatterns = [
     path('api/dashboard/', include('apps.dashboard.urls')),
 
     # Public Widget and Hosted Concierge API
+    re_path(r'^api/v1/brand-assets/(?P<asset_id>[0-9a-f-]{36})/(?P<digest>[0-9a-f]{16})\.(?P<ext>png|jpg)$',
+            PublicBrandAssetView.as_view(), name='public-brand-asset'),
     path('api/v1/appointment-offers/<str:token>/', PublicOfferView.as_view(), name='public-offer'),
     path('api/v1/appointment-offers/<str:token>/confirm/',
          PublicOfferRespondView.as_view(action='confirm'), name='public-offer-confirm'),
     path('api/v1/appointment-offers/<str:token>/reschedule/',
          PublicOfferRespondView.as_view(action='reschedule'), name='public-offer-reschedule'),
+    path('api/v1/growth/', include('apps.growth.urls')),
+    path('api/growth/', include('apps.growth.urls')),
     path('api/v1/widget/', include('apps.conversations.urls')),
     path('api/v1/concierge/', include('apps.conversations.urls')),
     path('api/concierge/', include('apps.conversations.urls')),

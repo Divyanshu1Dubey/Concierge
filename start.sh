@@ -8,6 +8,7 @@ if [ -f "backend/manage.py" ]; then
     echo "==> Detected project root (backend/manage.py found)"
     echo "==> Running database migrations..."
     python backend/manage.py migrate --noinput
+    python backend/manage.py createcachetable || true
     echo "==> Running demo seed (if enabled)..."
     python backend/manage.py seed_raleigh || true
     echo "==> Ensuring HeyJarvis demo & testing logins exist..."
@@ -18,6 +19,7 @@ elif [ -f "manage.py" ]; then
     echo "==> Detected backend directory (manage.py found)"
     echo "==> Running database migrations..."
     python manage.py migrate --noinput
+    python manage.py createcachetable || true
     echo "==> Running demo seed (if enabled)..."
     python manage.py seed_raleigh || true
     echo "==> Ensuring HeyJarvis demo & testing logins exist..."

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Weekly briefing</title>
+<style>@media (max-width:600px){.card{border-radius:0!important}.pad{padding-left:20px!important;padding-right:20px!important}.stat{display:block!important;width:100%!important}}</style>
+</head>
+<body style="margin:0;padding:0;background:#f4f2ec;-webkit-text-size-adjust:100%;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f2ec;">
+<tr><td align="center" style="padding:28px 12px;">
+  <table role="presentation" class="card" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e7e3d9;">
+    <tr><td style="height:4px;background:#0d9488;font-size:0;line-height:0;">&nbsp;</td></tr>
+    <tr><td class="pad" style="padding:24px 32px 8px 32px;font:600 12px/1 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#0d9488;">Weekly briefing</td></tr>
+    <tr><td class="pad" style="padding:0 32px 4px 32px;font:600 22px/1.3 Georgia,'Times New Roman',serif;color:#1c2b24;">{{ b.practice }}</td></tr>
+    <tr><td class="pad" style="padding:0 32px 18px 32px;font:13px/1.5 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#7a847f;">{{ b.period_start }} to {{ b.period_end }}</td></tr>
+    <tr><td class="pad" style="padding:0 26px 8px 26px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td class="stat" width="33%" style="padding:6px;"><table role="presentation" width="100%" style="background:#f6f8f7;border-radius:12px;"><tr><td style="padding:14px 16px;font:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+          <div style="font:600 26px/1.1 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c2b24;">{{ b.numbers.requests }}</div>
+          <div style="font:12.5px/1.4 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#5b6b65;">appointment requests{% if b.numbers.requests_change is not None %}<br><span style="color:{% if b.numbers.requests_change >= 0 %}#1f7a43{% else %}#a3322a{% endif %};">{% if b.numbers.requests_change >= 0 %}+{% endif %}{{ b.numbers.requests_change }} vs last week</span>{% endif %}</div>
+        </td></tr></table></td>
+        <td class="stat" width="33%" style="padding:6px;"><table role="presentation" width="100%" style="background:#f6f8f7;border-radius:12px;"><tr><td style="padding:14px 16px;">
+          <div style="font:600 26px/1.1 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c2b24;">{{ b.numbers.confirmed }}</div>
+          <div style="font:12.5px/1.4 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#5b6b65;">confirmed visits<br>{{ b.numbers.contacted }} contacted</div>
+        </td></tr></table></td>
+        <td class="stat" width="33%" style="padding:6px;"><table role="presentation" width="100%" style="background:#f6f8f7;border-radius:12px;"><tr><td style="padding:14px 16px;">
+          <div style="font:600 26px/1.1 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c2b24;">{% if b.numbers.median_first_reply_minutes is not None %}{% if b.numbers.median_first_reply_minutes >= 120 %}{% widthratio b.numbers.median_first_reply_minutes 60 1 %}h{% else %}{{ b.numbers.median_first_reply_minutes }}m{% endif %}{% else %}&ndash;{% endif %}</div>
+          <div style="font:12.5px/1.4 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#5b6b65;">typical first reply<br>{{ b.numbers.conversations }} website chats</div>
+        </td></tr></table></td>
+      </tr></table>
+    </td></tr>
+    {% if b.numbers.after_hours_requests %}
+    <tr><td class="pad" style="padding:4px 32px 0 32px;font:14px/1.6 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#2f3a35;">{{ b.numbers.after_hours_requests }} request{{ b.numbers.after_hours_requests|pluralize }} arrived while the office was closed.</td></tr>
+    {% endif %}
+    <tr><td class="pad" style="padding:20px 32px 6px 32px;font:600 15px/1.4 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c2b24;">Waiting on your team</td></tr>
+    <tr><td class="pad" style="padding:0 32px;font:14px/1.7 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#2f3a35;">
+      {{ b.waiting.open_follow_ups }} follow-up{{ b.waiting.open_follow_ups|pluralize }}{% if b.waiting.waiting_first_reply %} ({{ b.waiting.waiting_first_reply }} still waiting for a first reply){% endif %}<br>
+      {{ b.waiting.unanswered_questions }} patient question{{ b.waiting.unanswered_questions|pluralize }} the concierge could not answer
+      {% if b.waiting.failed_emails %}<br><span style="color:#a3322a;">{{ b.waiting.failed_emails }} email{{ b.waiting.failed_emails|pluralize }} failed to send</span>{% endif %}
+    </td></tr>
+    {% if b.channels %}
+    <tr><td class="pad" style="padding:20px 32px 6px 32px;font:600 15px/1.4 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c2b24;">Where requests came from</td></tr>
+    <tr><td class="pad" style="padding:0 32px;font:14px/1.7 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#2f3a35;">
+      {% for c in b.channels %}{{ c.label }}: {{ c.requests }} request{{ c.requests|pluralize }} from {{ c.conversations }} chat{{ c.conversations|pluralize }}<br>{% endfor %}
+    </td></tr>
+    {% endif %}
+    {% if b.recommendations %}
+    <tr><td class="pad" style="padding:20px 32px 6px 32px;font:600 15px/1.4 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c2b24;">This week</td></tr>
+    {% for r in b.recommendations %}
+    <tr><td class="pad" style="padding:4px 32px;">
+      <table role="presentation" width="100%" style="background:#e3f1ed;border-radius:10px;"><tr><td style="padding:12px 14px;font:14px/1.55 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c2b24;">
+        {{ r.text }} <a href="{{ r.link }}" style="color:#0e6a5a;font-weight:600;">Open</a>
+      </td></tr></table>
+    </td></tr>
+    {% endfor %}
+    {% endif %}
+    <tr><td class="pad" style="padding:22px 32px 28px 32px;">
+      <a href="{{ b.dashboard_link }}" style="display:inline-block;background:#0d9488;color:#ffffff;text-decoration:none;font:600 14px/1 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;padding:13px 20px;border-radius:10px;">Open the dashboard</a>
+    </td></tr>
+  </table>
+  <p style="margin:14px 0 0 0;font:11px/1.5 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#a3aaa6;">Sent by HeyJarvis to your practice team. Change or turn off this briefing in Growth settings.</p>
+</td></tr>
+</table>
+</body>
+</html>

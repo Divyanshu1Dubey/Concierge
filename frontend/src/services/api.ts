@@ -28,6 +28,24 @@ export const practicesApi = {
   getTenant: () => apiClient.get('/practices/').then((r) => r.data),
   updateTenant: (data: Record<string, unknown>) => apiClient.put('/practices/', data).then((r) => r.data),
   metrics: () => apiClient.get('/practices/metrics/').then((r) => r.data),
+  insights: () => apiClient.get('/practices/insights/').then((r) => r.data),
+  branding: () => apiClient.get('/practices/branding/').then((r) => r.data),
+  updateBranding: (data: Record<string, unknown>) => apiClient.patch('/practices/branding/', data).then((r) => r.data),
+  uploadLogo: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return apiClient.post('/practices/branding/logo/', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
+  },
+  removeLogo: () => apiClient.delete('/practices/branding/logo/').then((r) => r.data),
+  createBrandTeamMember: (data: Record<string, unknown>) => apiClient.post('/practices/branding/team/', data).then((r) => r.data),
+  updateBrandTeamMember: (id: number, data: Record<string, unknown>) => apiClient.patch(`/practices/branding/team/${id}/`, data).then((r) => r.data),
+  deleteBrandTeamMember: (id: number) => apiClient.delete(`/practices/branding/team/${id}/`).then((r) => r.data),
+  uploadBrandTeamPhoto: (id: number, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return apiClient.post(`/practices/branding/team/${id}/photo/`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
+  },
+  brandEmailPreview: () => apiClient.post('/practices/branding/email-preview/', {}).then((r) => r.data),
   regenerateKey: () => apiClient.post('/practices/key/regenerate/').then((r) => r.data),
   domains: () => apiClient.get('/practices/domains/').then((r) => r.data),
   addDomain: (hostname: string) => apiClient.post('/practices/domains/', { hostname }).then((r) => r.data),
@@ -58,6 +76,13 @@ export const practicesApi = {
   createPractice: (data: Record<string, unknown>) => apiClient.post('/practices/all/', data).then((r) => r.data),
   toggleStatus: (id: number | string) => apiClient.post(`/practices/${id}/toggle-status/`).then((r) => r.data),
   listAccessRequests: () => apiClient.get('/practices/access-requests/').then((r) => r.data),
+  knowledge: () => apiClient.get('/practices/knowledge/').then((r) => r.data),
+  createKnowledge: (data: Record<string, unknown>) => apiClient.post('/practices/knowledge/', data).then((r) => r.data),
+  updateKnowledge: (id: number, data: Record<string, unknown>) => apiClient.patch(`/practices/knowledge/${id}/`, data).then((r) => r.data),
+  deleteKnowledge: (id: number) => apiClient.delete(`/practices/knowledge/${id}/`).then((r) => r.data),
+  unansweredQuestions: () => apiClient.get('/practices/knowledge/unanswered/').then((r) => r.data),
+  resolveUnanswered: (id: number, data: Record<string, string>) =>
+    apiClient.post(`/practices/knowledge/unanswered/${id}/`, data).then((r) => r.data),
   updateAccessRequest: (id: number, status: string) =>
     apiClient.patch(`/practices/access-requests/${id}/`, { status }).then((r) => r.data),
   getPracticeUsers: (practiceId: number | string) =>

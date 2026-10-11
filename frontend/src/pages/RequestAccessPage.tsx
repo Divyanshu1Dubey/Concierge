@@ -72,7 +72,7 @@ export default function RequestAccessPage() {
               {field('practice_name', 'Practice name', { required: true, autoComplete: 'organization', maxLength: 200 })}
               {field('contact_name', 'Your name', { required: true, autoComplete: 'name', maxLength: 200 })}
               {field('email', 'Work email', { required: true, type: 'email', autoComplete: 'email', maxLength: 254 })}
-              <div className="grid sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {field('phone', 'Phone (optional)', { type: 'tel', autoComplete: 'tel', maxLength: 40 })}
                 {field('website', 'Website (optional)', { autoComplete: 'url', maxLength: 300, placeholder: 'yourpractice.com' })}
               </div>

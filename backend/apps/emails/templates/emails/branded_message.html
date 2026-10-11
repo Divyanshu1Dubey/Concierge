@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>{{ brand.name }}</title>
+<style>@media (max-width:600px){.card{border-radius:0!important}.pad{padding-left:22px!important;padding-right:22px!important}}</style>
+</head>
+<body style="margin:0;padding:0;background:#f4f2ec;-webkit-text-size-adjust:100%;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f2ec;">
+<tr><td align="center" style="padding:28px 12px;">
+  <table role="presentation" class="card" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e7e3d9;">
+    <tr><td style="height:4px;background:{{ brand.color }};font-size:0;line-height:0;">&nbsp;</td></tr>
+    <tr><td class="pad" style="padding:22px 32px;border-bottom:1px solid #eeeae0;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td valign="middle" style="padding-right:12px;">
+          {% if brand.logo_url %}
+            <img src="{{ brand.logo_url }}" alt="{{ brand.name }}" height="40" style="display:block;height:40px;max-width:180px;border:0;">
+          {% else %}
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="40" height="40" align="center" valign="middle" style="width:40px;height:40px;border-radius:10px;background:{{ brand.color }};color:{{ brand.button_text_color }};font:600 18px/40px Georgia,'Times New Roman',serif;">{{ brand.initial }}</td></tr></table>
+          {% endif %}
+        </td>
+        <td valign="middle" style="font:600 16px/1.3 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c2b24;">
+          {% if not brand.logo_url %}{{ brand.name }}{% endif %}
+          {% if brand.tagline %}<div style="font:400 12.5px/1.4 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#7a847f;margin-top:2px;">{{ brand.tagline }}</div>{% endif %}
+        </td>
+      </tr></table>
+    </td></tr>
+    <tr><td class="pad" style="padding:28px 32px 10px 32px;font:15px/1.65 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#2f3a35;">
+      {{ message|linebreaksbr }}
+    </td></tr>
+    <tr><td class="pad" style="padding:18px 32px 26px 32px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #eeeae0;"><tr><td style="padding-top:16px;font:12px/1.6 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#8b938f;">
+        <strong style="color:#3d4a44;">{{ brand.name }}</strong><br>
+        {% if brand.address %}{{ brand.address }}<br>{% endif %}
+        {% if brand.phone %}<a href="tel:{{ brand.phone }}" style="color:#8b938f;text-decoration:none;">{{ brand.phone }}</a>{% endif %}{% if brand.phone and brand.email %} &middot; {% endif %}{% if brand.email %}<a href="mailto:{{ brand.email }}" style="color:#8b938f;">{{ brand.email }}</a>{% endif %}
+        {% if brand.links %}<br>{% for link in brand.links %}<a href="{{ link.url }}" style="color:{{ brand.color }};text-decoration:none;font-weight:600;">{{ link.label }}</a>{% if not forloop.last %} &nbsp;&middot;&nbsp; {% endif %}{% endfor %}{% endif %}
+      </td></tr></table>
+    </td></tr>
+  </table>
+  <p style="margin:14px 0 0 0;font:11px/1.5 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#a3aaa6;">You can reply to this email to reach {{ brand.name }}.</p>
+</td></tr>
+</table>
+</body>
+</html>

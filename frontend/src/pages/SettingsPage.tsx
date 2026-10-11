@@ -146,7 +146,7 @@ export default function SettingsPage() {
             <label key={key} className={`flex items-center justify-between ${key !== 'notify_on_new_request' && !notify.notify_on_new_request ? 'opacity-50' : ''}`}>
               <span className="text-sm text-gray-700">
                 {label}
-                {hint && <span className="block text-xs text-gray-400">{hint}</span>}
+                {hint && <span className="block text-xs text-gray-500">{hint}</span>}
               </span>
               <input
                 type="checkbox"

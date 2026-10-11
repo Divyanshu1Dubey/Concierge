@@ -41,6 +41,9 @@ Rules you must always follow:
 - Answer only the question asked. Do not greet the patient again and do not end with a follow-up question;
   the website adds its own next-step prompt."""
 
+SAFE_FALLBACK = ("I'm not able to answer that here, but our front desk can help. "
+                 "You can call the office, or leave your details and the team will get back to you.")
+
 STAFF_SYSTEM_PROMPT = """You help a dental front-desk team write replies to patients. Keep the practice's tone
 warm and professional. Never claim an appointment is booked unless the staff member's text says so, and never
 invent prices, insurance details or clinical advice."""
@@ -85,6 +88,20 @@ def build_practice_facts(practice) -> str:
     guidance = (getattr(rules, 'custom_instructions', '') or '').strip() if rules is not None else ''
     if guidance:
         lines.append("Additional practice guidance: " + guidance[:2000])
+    try:
+        team = [d for d in practice.doctors.filter(is_active=True)[:8]]
+    except Exception:
+        team = []
+    if team:
+        lines.append("Team: " + '; '.join(
+            d.name + (f" ({d.credentials})" if d.credentials else '') + (f" - {d.bio}" if d.bio else '') for d in team))
+    try:
+        from apps.practices.knowledge import knowledge_facts
+        knowledge = knowledge_facts(practice)
+    except Exception:
+        knowledge = ''
+    if knowledge:
+        lines.append("Practice knowledge (approved by the practice; answer only from this):\n" + knowledge)
     return '\n'.join(lines)
 
 
@@ -145,8 +162,14 @@ class AIEngine:
             logger.info("AI daily limit reached for practice %s", getattr(practice, 'id', None))
             return {'content': None, 'intent': 'limit_reached', 'confidence': 0.0}
 
+        facts = build_practice_facts(practice) if audience == 'patient' else ''
         if audience == 'patient':
-            system = GUARDRAILS + "\n\nPRACTICE FACTS:\n" + (build_practice_facts(practice) or 'None provided.')
+            inbound = self.safety.check_message(message)
+            if inbound.get('reason') == 'prompt_injection_detected':
+                # Obvious attempts to rewrite the assistant's rules get a fixed answer; the model is not called.
+                self._log_interaction('blocked_input', 0, 0, int((time.time() - start_time) * 1000), practice)
+                return {'content': SAFE_FALLBACK, 'intent': 'blocked', 'confidence': 1.0}
+            system = GUARDRAILS + "\n\nPRACTICE FACTS:\n" + (facts or 'None provided.')
             if extra_instructions:
                 system += "\n\nAdditional notes:\n" + extra_instructions[:2000]
         else:
@@ -168,10 +191,14 @@ class AIEngine:
             return {'content': None, 'intent': 'error', 'confidence': 0.0}
 
         interaction_type = 'chat'
-        safety_check = self.safety.check_message(content)
-        if not safety_check.get('safe'):
-            content = "I'm not able to help with that here. Please contact our office directly and our team will assist you."
-            interaction_type = 'escalation'
+        if audience == 'patient':
+            verdict = self.safety.check_reply(content, facts + '\n' + (extra_instructions or ''))
+            if not verdict['ok']:
+                logger.info("AI reply withheld (%s) for practice %s", verdict['reason'], getattr(practice, 'id', None))
+                content = SAFE_FALLBACK
+                interaction_type = 'escalation'
+        elif not (content or '').strip():
+            content = None
 
         self._log_interaction(
             interaction_type,

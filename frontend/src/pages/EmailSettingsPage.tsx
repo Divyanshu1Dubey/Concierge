@@ -167,7 +167,7 @@ export default function EmailSettingsPage() {
           Email Delivery Engine
         </h2>
 
-        <div className="grid sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label className={`p-4 rounded-xl border-2 cursor-pointer flex items-start gap-3 transition ${
             providerType === 'MANAGED' ? 'border-teal-600 bg-teal-50/30' : 'border-gray-200 hover:bg-gray-50'
           }`}>
@@ -234,7 +234,7 @@ export default function EmailSettingsPage() {
             </div>
           </div>
 
-          <div className="grid sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="sm:col-span-2">
               <label className="text-xs font-semibold text-gray-700 block mb-1">SMTP Host</label>
               <input
@@ -256,7 +256,7 @@ export default function EmailSettingsPage() {
             </div>
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-semibold text-gray-700 block mb-1">Username / Email</label>
               <input
@@ -306,7 +306,7 @@ export default function EmailSettingsPage() {
       <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
         <h2 className="text-base font-bold text-gray-900">Outbound Email Headers</h2>
 
-        <div className="grid sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="text-xs font-semibold text-gray-700 block mb-1">From Name</label>
             <input
@@ -342,7 +342,7 @@ export default function EmailSettingsPage() {
         <h2 className="text-base font-bold text-gray-900">Notification Routing Destinations</h2>
         <p className="text-xs text-gray-500">Route alerts to different staff members or inboxes based on request intent.</p>
 
-        <div className="grid sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-xs font-semibold text-gray-700 block mb-1">New Patient Leads</label>
             <input

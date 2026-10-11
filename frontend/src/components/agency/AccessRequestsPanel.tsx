@@ -63,7 +63,7 @@ export default function AccessRequestsPanel({ onStartOnboarding }: { onStartOnbo
                 <p className="text-xs text-gray-600 break-all">{r.contact_name} · {r.email}{r.phone ? ` · ${r.phone}` : ''}</p>
                 {r.website && <p className="text-xs text-gray-500 break-all">{r.website}</p>}
                 {r.message && <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap">{r.message}</p>}
-                <p className="text-[11px] text-gray-400 mt-1">{new Date(r.created_at).toLocaleString()}</p>
+                <p className="text-[11px] text-gray-500 mt-1">{new Date(r.created_at).toLocaleString()}</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLE[r.status]}`}>{r.status}</span>

@@ -1,3 +1,4 @@
+import uuid
 """Practices app models - Tenant architecture, rules, domains, templates, and audit logs."""
 import secrets
 from django.db import models
@@ -216,6 +217,8 @@ class PracticeSettings(models.Model):
     widget_position = models.CharField(max_length=10, default='right') # 'left' or 'right'
     widget_auto_open = models.BooleanField(default=False)
     widget_auto_open_delay_sec = models.PositiveIntegerField(default=5)
+    brand_tagline = models.CharField(max_length=120, blank=True)
+    social_links = models.JSONField(default=dict, blank=True)  # {website, instagram, facebook, google_reviews}
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -421,3 +424,81 @@ class AccessRequest(models.Model):
 
     def __str__(self):
         return f"{self.practice_name} ({self.status})"
+
+
+class KnowledgeEntry(models.Model):
+    """A fact the practice approved for Concierge to share (FAQ answer, insurance, doctor, policy...)."""
+    CATEGORY_CHOICES = [
+        ('faq', 'Frequently asked question'),
+        ('insurance', 'Insurance & payment'),
+        ('doctor', 'Doctor & team'),
+        ('service', 'Service or treatment'),
+        ('policy', 'Policy'),
+        ('preparation', 'Visit preparation'),
+        ('other', 'Other'),
+    ]
+
+    practice = models.ForeignKey(Practice, on_delete=models.CASCADE, related_name='knowledge_entries')
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='faq')
+    title = models.CharField(max_length=200)
+    content = models.TextField(max_length=3000)
+    is_active = models.BooleanField(default=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='knowledge_edits'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['category', 'title']
+
+    def __str__(self):
+        return f"{self.practice_id}: {self.title}"
+
+
+class UnansweredQuestion(models.Model):
+    """A patient question Concierge had to pass to the front desk; the practice can answer it once."""
+    STATUS_CHOICES = [('open', 'Open'), ('answered', 'Answered'), ('dismissed', 'Dismissed')]
+
+    practice = models.ForeignKey(Practice, on_delete=models.CASCADE, related_name='unanswered_questions')
+    question = models.CharField(max_length=300)
+    normalized = models.CharField(max_length=300, db_index=True)
+    times_asked = models.PositiveIntegerField(default=1)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='open')
+    answer_entry = models.ForeignKey(KnowledgeEntry, on_delete=models.SET_NULL, null=True, blank=True, related_name='resolved_questions')
+    first_asked_at = models.DateTimeField(auto_now_add=True)
+    last_asked_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-times_asked', '-last_asked_at']
+        unique_together = [('practice', 'normalized')]
+
+
+class BrandAsset(models.Model):
+    """An optimized image (logo or team photo) stored in the database so it survives redeploys."""
+    KIND_CHOICES = [('logo', 'Logo'), ('photo', 'Team photo')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    practice = models.ForeignKey(Practice, on_delete=models.CASCADE, related_name='brand_assets')
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    content = models.BinaryField()
+    content_type = models.CharField(max_length=30)
+    digest = models.CharField(max_length=16)
+    width = models.PositiveIntegerField(default=0)
+    height = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class PracticeDoctor(models.Model):
+    """A doctor or team member the practice chooses to introduce to patients (as written by the practice)."""
+    practice = models.ForeignKey(Practice, on_delete=models.CASCADE, related_name='doctors')
+    name = models.CharField(max_length=120)
+    credentials = models.CharField(max_length=120, blank=True)
+    bio = models.TextField(max_length=400, blank=True)
+    photo = models.ForeignKey(BrandAsset, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    position = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['position', 'id']

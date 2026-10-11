@@ -231,7 +231,7 @@ export default function ConversationsPage() {
                       <span className="text-sm font-bold text-gray-900 truncate pr-2">
                         {conv.patient_name || conv.patient_email || 'Guest Patient'}
                       </span>
-                      <span className="text-[11px] text-gray-400 flex-shrink-0">
+                      <span className="text-[11px] text-gray-500 flex-shrink-0">
                         {conv.last_activity_at
                           ? new Date(conv.last_activity_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                           : 'Live'}
@@ -328,7 +328,7 @@ export default function ConversationsPage() {
               {/* Message Timeline */}
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 {(selectedConversation.messages || []).length === 0 ? (
-                  <div className="text-center py-12 text-gray-400 text-sm">
+                  <div className="text-center py-12 text-gray-500 text-sm">
                     No messages recorded in this conversation yet.
                   </div>
                 ) : (
@@ -433,7 +433,7 @@ export default function ConversationsPage() {
             <div className="flex-1 flex flex-col items-center justify-center text-gray-500">
               <MessageSquare className="w-12 h-12 text-gray-300 mb-3" />
               <p className="text-base font-semibold text-gray-800">No conversation selected</p>
-              <p className="text-xs text-gray-400 mt-1">Select a conversation from the left to view details.</p>
+              <p className="text-xs text-gray-500 mt-1">Select a conversation from the left to view details.</p>
             </div>
           )}
         </div>

@@ -65,17 +65,19 @@ def is_allowed_origin(origin: str, allowed_hostnames: list) -> bool:
     if not origin:
         return True
     
-    # Always allow local file protocol or null origin from local browser HTML previews
+    # Local previews (file:// pages, sandboxed "null" origins, localhost). On by default so local demo pages keep
+    # working; set WIDGET_ALLOW_LOCAL_ORIGINS=false in production to make the allowed-domain list strict.
+    from django.conf import settings
+    allow_local = getattr(settings, 'WIDGET_ALLOW_LOCAL_ORIGINS', True)
     origin_clean = origin.strip().lower()
     if origin_clean in ('null', 'file://', 'file:', 'none') or origin_clean.startswith('file:'):
-        return True
+        return allow_local
 
     parsed = urlparse(origin)
     hostname = (parsed.hostname or origin).lower().strip()
-    
-    # Always allow local development
+
     if hostname in ('localhost', '127.0.0.1', 'null'):
-        return True
+        return allow_local
     
     if not allowed_hostnames:
         return True

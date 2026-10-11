@@ -25,7 +25,9 @@ class Command(BaseCommand):
                             help='Also mark the accounts inactive (blocks existing access tokens immediately).')
 
     def handle(self, *args, **opts):
-        users = list(User.objects.filter(email__in=list(DEMO_ACCOUNTS)))
+        from apps.users.management.commands.seed_production_logins import EXPOSED_ACCOUNTS
+        emails = {e.lower() for e in list(DEMO_ACCOUNTS) + EXPOSED_ACCOUNTS}
+        users = [u for u in User.objects.all() if (u.email or '').lower() in emails]
         if not users:
             self.stdout.write('No demo accounts found.')
             return

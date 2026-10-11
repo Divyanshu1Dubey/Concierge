@@ -145,6 +145,15 @@
     '.head{background:var(--c);color:var(--ct);padding:16px 14px 16px 18px;display:flex;align-items:center;gap:12px}',
     '.avatar{width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font:600 18px Georgia,serif;flex-shrink:0}',
     '.dark .avatar{background:rgba(0,0,0,.08)}',
+    '.avatar.has-logo{background:#fff;padding:4px;width:auto;min-width:42px;max-width:120px}',
+    '.avatar img{max-height:34px;max-width:112px;display:block;object-fit:contain}',
+    '.team{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #ecebe6;border-radius:12px;padding:9px 11px;margin-bottom:14px}',
+    '.faces{display:flex;flex-shrink:0}',
+    '.face{width:30px;height:30px;border-radius:50%;border:2px solid #fff;margin-left:-8px;background:var(--c);color:var(--ct);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;overflow:hidden}',
+    '.face:first-child{margin-left:0}',
+    '.face img{width:100%;height:100%;object-fit:cover;display:block}',
+    '.team-text{font-size:12.5px;color:#374151;line-height:1.35;min-width:0}',
+    '.team-text b{color:#111827}',
     '.who{min-width:0;flex:1}',
     '.who b{display:block;font-size:15px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.status{display:flex;align-items:center;gap:6px;font-size:12px;opacity:.9;margin-top:3px}',
@@ -197,7 +206,7 @@
     '.wrap.is-open .launcher,.wrap.is-open .teaser{display:none}',
     '.panel{width:100vw;height:100%;max-height:none;border-radius:0}',
     '.head{padding-top:calc(14px + env(safe-area-inset-top))}.foot{padding-bottom:calc(8px + env(safe-area-inset-bottom))}',
-    '.launcher{height:54px}}',
+    '.launcher{height:54px}.avatar.has-logo{max-width:84px}.avatar img{max-width:76px;max-height:30px}}',
     '@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}'
   ].join('\n');
 
@@ -295,7 +304,18 @@
     var b = state.brand;
     if (!b) return;
     el.name.textContent = b.practice_name || 'Our office';
-    el.avatar.textContent = (b.practice_name || '?').trim().charAt(0).toUpperCase();
+    var initial = (b.practice_name || '?').trim().charAt(0).toUpperCase();
+    el.avatar.textContent = initial;
+    el.avatar.classList.remove('has-logo');
+    if (b.logo_url && /^https?:\/\//.test(b.logo_url)) {
+      var img = document.createElement('img');
+      img.alt = '';
+      img.src = b.logo_url;
+      img.onerror = function () { el.avatar.classList.remove('has-logo'); el.avatar.textContent = initial; };
+      el.avatar.textContent = '';
+      el.avatar.appendChild(img);
+      el.avatar.classList.add('has-logo');
+    }
     el.panel.setAttribute('aria-label', 'Chat with ' + (b.practice_name || 'the practice'));
     var open = b.is_open !== false;
     el.dot.classList.toggle('off', !open);
@@ -399,6 +419,40 @@
     el.body.appendChild(t);
   }
 
+  function teamStrip() {
+    var team = (state.brand && state.brand.team) || [];
+    if (!team.length) return;
+    var box = document.createElement('div');
+    box.className = 'team';
+    var faces = document.createElement('div');
+    faces.className = 'faces';
+    faces.setAttribute('aria-hidden', 'true');
+    team.slice(0, 4).forEach(function (m) {
+      var f = document.createElement('span');
+      f.className = 'face';
+      var letter = (m.name || '?').replace(/^dr\.?\s+/i, '').charAt(0).toUpperCase();
+      if (m.photo_url && /^https?:\/\//.test(m.photo_url)) {
+        var img = document.createElement('img');
+        img.alt = '';
+        img.loading = 'lazy';
+        img.src = m.photo_url;
+        img.onerror = function () { f.textContent = letter; };
+        f.appendChild(img);
+      } else {
+        f.textContent = letter;
+      }
+      faces.appendChild(f);
+    });
+    var names = team.slice(0, 3).map(function (m) { return m.name; });
+    var text = document.createElement('div');
+    text.className = 'team-text';
+    text.innerHTML = '<b>' + esc(names.join(', ')) + (team.length > 3 ? ' and team' : '') + '</b><br>' +
+      esc((state.brand.practice_name || 'Our team') + ' will follow up personally.');
+    box.appendChild(faces);
+    box.appendChild(text);
+    el.body.appendChild(box);
+  }
+
   // ── Conversation flow (all replies come from the practice's Concierge) ─────
   function loadConfig() {
     return api('/api/v1/widget/config/').then(function (data) {
@@ -417,12 +471,13 @@
     if (state.initPromise) return state.initPromise;   // one conversation per visitor, even on double clicks
     el.body.innerHTML = '<div class="skeleton-box"><div class="skeleton" style="width:70%"></div><div class="skeleton" style="width:45%"></div></div>';
     state.initPromise = (state.brand ? Promise.resolve(state.brand) : loadConfig()).then(function () {
-      return api('/api/v1/widget/conversation/', { session_id: state.sessionId, url: window.location.href });
+      return api('/api/v1/widget/conversation/', { session_id: state.sessionId, url: window.location.href, referrer: document.referrer || '' });
     }).then(function (data) {
       state.started = true;
       if (data.conversation_id) state.conversationId = data.conversation_id;
       el.body.innerHTML = '';
       trustLine();
+      teamStrip();
       if (state.transcript.length) {
         state.transcript.forEach(function (m) { addBubble(m.r, m.t, { save: false }); });
         if (state.complete) showDone(); else showChips(data.quick_replies);

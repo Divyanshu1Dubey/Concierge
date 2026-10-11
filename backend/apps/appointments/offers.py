@@ -63,7 +63,21 @@ def branding(practice) -> dict:
         'address': address,
         'website': practice.website or '',
         'timezone': practice.timezone or '',
+        'tagline': (getattr(ps, 'brand_tagline', '') or '') if ps is not None else '',
+        'links': _brand_links(practice),
     }
+
+
+LINK_LABELS = (('website', 'Website'), ('google_reviews', 'Google reviews'), ('instagram', 'Instagram'), ('facebook', 'Facebook'))
+
+
+def _brand_links(practice):
+    try:
+        from apps.practices.branding import social_links
+        links = social_links(practice)
+    except Exception:
+        return []
+    return [{'label': label, 'url': links[key]} for key, label in LINK_LABELS if links.get(key)]
 
 
 def display_date(d) -> str:

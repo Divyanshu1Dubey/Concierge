@@ -77,11 +77,16 @@ class ConfirmationRequestTests(TestCase):
         self.assertEqual(len(mail.outbox), 0)
         self.assertFalse(AppointmentOffer.objects.exists())
 
-    def test_plain_reply_unchanged_without_confirmation(self):
+    def test_plain_reply_has_no_confirmation_buttons(self):
         res = self.send(request_confirmation=False, offered_date='')
         self.assertEqual(res.status_code, 200)
         self.assertFalse(res.json()['confirmation_requested'])
-        self.assertEqual(mail.outbox[-1].alternatives, [])
+        msg = mail.outbox[-1]
+        self.assertIn('We can see you then.', msg.body)  # plain-text part is the staff's own text
+        html = msg.alternatives[0][0]                    # branded layout, but no confirmation actions
+        self.assertIn('Alpha Family Dental', html)
+        self.assertNotIn('Confirm appointment', html)
+        self.assertNotIn('/appointment/', html)
         self.assertFalse(AppointmentOffer.objects.exists())
 
     def test_preview_renders_without_side_effects(self):

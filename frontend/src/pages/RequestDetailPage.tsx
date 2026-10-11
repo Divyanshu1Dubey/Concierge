@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiErrorMessage } from '@/utils/api';
+import { RequestSource, TextMessagesCard } from '@/components/requests/GrowthPanels';
+import PracticeOpenings from '@/components/requests/PracticeOpenings';
 import { useAuthStore } from '@/stores/authStore';
 
 export default function RequestDetailPage() {
@@ -187,7 +189,9 @@ export default function RequestDetailPage() {
       setTimeout(() => setSendSuccessMessage(''), 8000);
     },
     onError: (err: any) => {
-      toast.error(err?.response?.data?.message || apiErrorMessage(err, 'Failed to send reply to patient'));
+      const reason = err?.response?.data?.message || apiErrorMessage(err, 'Failed to send reply to patient');
+      toast.error(`${reason} Your message is still in the editor, so you can send it again.`, { duration: 9000 });
+      refetch();
     },
   });
 
@@ -291,6 +295,7 @@ export default function RequestDetailPage() {
             <p className="text-sm text-gray-500 mt-0.5">
               Ref: <span className="font-mono">{request.confirmation_code}</span> • Received {new Date(request.created_at).toLocaleString()}
             </p>
+            <RequestSource source={request.source} />
           </div>
         </div>
 
@@ -480,7 +485,7 @@ export default function RequestDetailPage() {
               </button>
             </div>
             {(request.email_history || []).length === 0 ? (
-              <p className="text-xs text-gray-400 italic">No emails yet. Replies you send from this page appear here.</p>
+              <p className="text-xs text-gray-500 italic">No emails yet. Replies you send from this page appear here.</p>
             ) : (
               <ul className="space-y-2 max-h-72 overflow-y-auto">
                 {(request.email_history || []).map((m: any) => (
@@ -490,17 +495,22 @@ export default function RequestDetailPage() {
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2 text-[10.5px] mb-1">
                       <span className="font-semibold">
-                        {m.direction === 'incoming' ? 'Patient replied' : 'Sent by practice'}
-                        {m.status === 'failed' && <span className="ml-1 text-red-700">· delivery failed</span>}
+                        {m.direction === 'incoming' ? 'Patient replied' : m.status === 'failed' ? <span className="text-red-700">Not sent</span> : 'Sent by practice'}
+                        {m.direction !== 'incoming' && m.status === 'sent' && <span className="ml-1 font-normal text-gray-500">· accepted by mail server</span>}
                       </span>
                       <span className="text-gray-500">{new Date(m.sent_at || m.created_at).toLocaleString()}</span>
                     </div>
                     <p className="whitespace-pre-wrap break-words line-clamp-6">{m.body}</p>
+                    {m.status === 'failed' && m.error_message && (
+                      <p className="mt-1.5 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">{m.error_message}</p>
+                    )}
                   </li>
                 ))}
               </ul>
             )}
           </div>
+
+          <TextMessagesCard requestId={request.id} phone={request.patient_phone} />
 
           {/* Internal Staff Notes */}
           <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
@@ -516,7 +526,7 @@ export default function RequestDetailPage() {
                 </div>
               ))}
               {(!request.internal_notes || request.internal_notes.length === 0) && (
-                <p className="text-xs text-gray-400 italic">No internal staff notes yet.</p>
+                <p className="text-xs text-gray-500 italic">No internal staff notes yet.</p>
               )}
             </div>
 
@@ -695,6 +705,9 @@ export default function RequestDetailPage() {
                   </span>
                 )}
               </div>
+
+              <PracticeOpenings selected={selectedTime || undefined}
+                onPick={(date, time) => { setOfferedDate(date); handleSelectTimeSlot(time, date); }} />
 
               {/* Morning Slots */}
               <div className="flex flex-wrap items-center gap-1.5">

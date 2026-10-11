@@ -1146,3 +1146,466 @@ class AccessRequestDetailView(APIView):
         req.handled_by = request.user
         req.save(update_fields=['status', 'handled_by', 'updated_at'])
         return Response({'id': req.id, 'status': req.status})
+
+
+# ── Practice knowledge ────────────────────────────────────────────────────────
+
+def _knowledge_row(e):
+    return {
+        'id': e.id, 'category': e.category, 'title': e.title, 'content': e.content, 'is_active': e.is_active,
+        'updated_at': e.updated_at, 'updated_by': (e.updated_by.get_full_name() or e.updated_by.email) if e.updated_by else '',
+    }
+
+
+def _clean_knowledge(data, partial=False):
+    from .models import KnowledgeEntry
+    out, errors = {}, {}
+    if 'category' in data or not partial:
+        cat = str(data.get('category') or 'faq')
+        if cat not in dict(KnowledgeEntry.CATEGORY_CHOICES):
+            errors['category'] = 'Unknown category.'
+        out['category'] = cat
+    if 'title' in data or not partial:
+        title = str(data.get('title') or '').strip()
+        if not title:
+            errors['title'] = 'Add a short question or title.'
+        out['title'] = title[:200]
+    if 'content' in data or not partial:
+        content = str(data.get('content') or '').strip()
+        if not content:
+            errors['content'] = 'Add the answer patients should get.'
+        out['content'] = content[:3000]
+    if 'is_active' in data:
+        out['is_active'] = bool(data.get('is_active'))
+    return out, errors
+
+
+class KnowledgeListView(APIView):
+    """Practice knowledge entries: everyone on the team can read; practice admins edit."""
+    permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
+
+    def get(self, request):
+        from .models import KnowledgeEntry
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        rows = KnowledgeEntry.objects.filter(practice=practice).select_related('updated_by')
+        return Response({'results': [_knowledge_row(e) for e in rows]})
+
+    def post(self, request):
+        from .models import KnowledgeEntry
+        if not is_practice_admin_user(request.user):
+            return Response({'error': 'Only practice administrators can edit knowledge.'}, status=status.HTTP_403_FORBIDDEN)
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        data, errors = _clean_knowledge(request.data)
+        if errors:
+            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+        entry = KnowledgeEntry.objects.create(practice=practice, updated_by=request.user, **data)
+        audit(practice, request, 'KNOWLEDGE_ADDED', {'id': entry.id, 'category': entry.category})
+        return Response(_knowledge_row(entry), status=status.HTTP_201_CREATED)
+
+
+class KnowledgeDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
+
+    def _entry(self, request, id):
+        from .models import KnowledgeEntry
+        practice, error = practice_or_404(request)
+        if error:
+            return None, error
+        return get_object_or_404(KnowledgeEntry, pk=id, practice=practice), None
+
+    def patch(self, request, id):
+        if not is_practice_admin_user(request.user):
+            return Response({'error': 'Only practice administrators can edit knowledge.'}, status=status.HTTP_403_FORBIDDEN)
+        entry, error = self._entry(request, id)
+        if error:
+            return error
+        data, errors = _clean_knowledge(request.data, partial=True)
+        if errors:
+            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+        for k, v in data.items():
+            setattr(entry, k, v)
+        entry.updated_by = request.user
+        entry.save()
+        return Response(_knowledge_row(entry))
+
+    def delete(self, request, id):
+        if not is_practice_admin_user(request.user):
+            return Response({'error': 'Only practice administrators can edit knowledge.'}, status=status.HTTP_403_FORBIDDEN)
+        entry, error = self._entry(request, id)
+        if error:
+            return error
+        audit(entry.practice, request, 'KNOWLEDGE_DELETED', {'id': entry.id})
+        entry.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class UnansweredQuestionListView(APIView):
+    """Questions patients asked that Concierge had to pass to the front desk."""
+    permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
+
+    def get(self, request):
+        from .models import UnansweredQuestion
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        rows = UnansweredQuestion.objects.filter(practice=practice, status='open')[:100]
+        return Response({'results': [
+            {'id': q.id, 'question': q.question, 'times_asked': q.times_asked, 'last_asked_at': q.last_asked_at}
+            for q in rows
+        ]})
+
+
+class UnansweredQuestionActionView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
+
+    def post(self, request, id):
+        from .models import KnowledgeEntry, UnansweredQuestion
+        if not is_practice_admin_user(request.user):
+            return Response({'error': 'Only practice administrators can answer questions.'}, status=status.HTTP_403_FORBIDDEN)
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        q = get_object_or_404(UnansweredQuestion, pk=id, practice=practice)
+        action = request.data.get('action')
+        if action == 'dismiss':
+            q.status = 'dismissed'
+            q.save(update_fields=['status'])
+            return Response({'id': q.id, 'status': q.status})
+        if action == 'answer':
+            data, errors = _clean_knowledge({
+                'category': request.data.get('category') or 'faq',
+                'title': request.data.get('title') or q.question,
+                'content': request.data.get('content'),
+            })
+            if errors:
+                return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+            entry = KnowledgeEntry.objects.create(practice=practice, updated_by=request.user, **data)
+            q.status, q.answer_entry = 'answered', entry
+            q.save(update_fields=['status', 'answer_entry'])
+            audit(practice, request, 'KNOWLEDGE_ADDED', {'id': entry.id, 'from_question': q.id})
+            return Response({'id': q.id, 'status': q.status, 'entry': _knowledge_row(entry)})
+        return Response({'error': 'Unknown action.'}, status=status.HTTP_400_BAD_REQUEST)
+
+class PracticeInsightsView(APIView):
+    """What needs attention, what is not set up yet, and the last 30 days - all from real records."""
+    permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
+
+    def get(self, request):
+        from datetime import timedelta
+        from statistics import median
+        from apps.appointments.models import AppointmentOffer
+        from apps.conversations.state_machine import office_open_at
+        from apps.emails.models import Email
+        from .models import KnowledgeEntry, UnansweredQuestion
+
+        practice = resolve_user_practice(request)
+        if not practice:
+            return Response({})
+        now = timezone.now()
+        since = now - timedelta(days=30)
+        appts = Appointment.objects.filter(practice=practice).exclude(status='spam')
+
+        # Needs attention
+        stale_qs = appts.filter(status='pending', response_sent_at__isnull=True,
+                                created_at__lt=now - timedelta(hours=24)).order_by('created_at')
+        stale = [{
+            'id': str(a.id), 'name': (a.patient_name or 'Patient').split(' ')[0],
+            'hours_waiting': int((now - a.created_at).total_seconds() // 3600),
+        } for a in stale_qs[:5]]
+        attention = {
+            'waiting_over_24h': stale_qs.count(),
+            'waiting_examples': stale,
+            'asked_for_new_time': AppointmentOffer.objects.filter(
+                practice=practice, status=AppointmentOffer.STATUS_RESCHEDULE, appointment__status='pending').count(),
+            'failed_emails_7d': Email.objects.filter(thread__practice=practice, direction=Email.DIRECTION_OUTGOING,
+                                                     status=Email.STATUS_FAILED, created_at__gte=now - timedelta(days=7)).count(),
+            'unanswered_questions': UnansweredQuestion.objects.filter(practice=practice, status='open').count(),
+        }
+
+        # Setup checklist
+        provider = practice.email_providers.filter(is_active=True).first()
+        custom = bool(provider and provider.provider_type == 'smtp' and provider.smtp_host)
+        if custom:
+            email_ok = provider.last_test_status == 'SUCCESS'
+            email_detail = 'Your mail server passed its last test.' if email_ok else (
+                'Your mail server failed its last test.' if provider.last_test_status == 'FAILED'
+                else 'Send a test email to confirm your mail server works.')
+        else:
+            email_ok = bool(getattr(settings, 'EMAIL_CONFIGURED', False))
+            email_detail = 'Platform email is ready.' if email_ok else 'Email is not set up yet, so patient replies cannot be sent.'
+        hours_set = office_open_at(practice) is not None
+        knowledge_count = KnowledgeEntry.objects.filter(practice=practice, is_active=True).count()
+        widget_chats = Conversation.objects.filter(practice=practice, started_at__gte=since).count()
+        team_size = User.objects.filter(practice=practice, is_active=True).count()
+        replies_on = bool(getattr(settings, 'IMAP_HOST', ''))
+        setup = [
+            {'key': 'email', 'label': 'Email can be sent', 'done': email_ok, 'detail': email_detail, 'link': '/dashboard/email-settings'},
+            {'key': 'hours', 'label': 'Office hours are set', 'done': hours_set,
+             'detail': 'Concierge knows when you are open.' if hours_set else 'Add your hours so patients get accurate answers.',
+             'link': '/dashboard/business-rules'},
+            {'key': 'knowledge', 'label': 'Patient answers added', 'done': knowledge_count >= 3,
+             'detail': f'{knowledge_count} approved answer{"" if knowledge_count == 1 else "s"}.' + ('' if knowledge_count >= 3 else ' Add at least 3 common questions.'),
+             'link': '/dashboard/knowledge'},
+            {'key': 'widget', 'label': 'Chat is live on your website', 'done': widget_chats > 0,
+             'detail': f'{widget_chats} conversation{"" if widget_chats == 1 else "s"} in the last 30 days.' if widget_chats else 'Add the chat script to your website.',
+             'link': '/dashboard/installation'},
+            {'key': 'team', 'label': 'Front desk invited', 'done': team_size >= 2,
+             'detail': f'{team_size} team member{"" if team_size == 1 else "s"}.' if team_size >= 2 else 'Invite the person who answers patient requests.',
+             'link': '/dashboard/team'},
+            {'key': 'replies', 'label': 'Patient email replies are collected', 'done': replies_on,
+             'detail': 'Replies appear on each request automatically.' if replies_on else 'Ask your HeyJarvis agency to turn on reply collection.',
+             'link': None},
+        ]
+
+        # Last 30 days
+        recent = list(appts.filter(created_at__gte=since).values('created_at', 'response_sent_at'))
+        after_hours = None
+        if hours_set:
+            after_hours = sum(1 for a in recent if office_open_at(practice, a['created_at']) is False)
+        waits = [(a['response_sent_at'] - a['created_at']).total_seconds() / 60 for a in recent if a['response_sent_at']]
+        results = {
+            'inquiries': widget_chats,
+            'requests': len(recent),
+            'after_hours_requests': after_hours,
+            'replied': len(waits),
+            'median_minutes_to_reply': round(median(waits)) if waits else None,
+            'patient_confirmations': AppointmentOffer.objects.filter(
+                practice=practice, status=AppointmentOffer.STATUS_CONFIRMED, responded_at__gte=since).count(),
+        }
+        return Response({'attention': attention, 'setup': setup, 'results_30d': results,
+                         'setup_complete': all(item['done'] for item in setup)})
+
+# ── Practice branding ─────────────────────────────────────────────────────────
+
+def _branding_payload(practice, request):
+    from .branding import doctors_payload, social_links
+    ps = getattr(practice, 'settings', None)
+    logo = practice.brand_assets.filter(kind='logo').order_by('-created_at').first()
+    return {
+        'practice_name': practice.name,
+        'logo_url': practice.logo_url,
+        'logo_uploaded': bool(logo and practice.logo_url and str(logo.id) in practice.logo_url),
+        'tagline': getattr(ps, 'brand_tagline', '') if ps else '',
+        'primary_color': getattr(ps, 'widget_primary_color', '#0d9488') if ps else '#0d9488',
+        'social_links': social_links(practice),
+        'doctors': doctors_payload(practice, request),
+    }
+
+
+class BrandingView(APIView):
+    """Practice identity used across the widget, patient emails and patient pages."""
+    permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
+
+    def get(self, request):
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        return Response(_branding_payload(practice, request))
+
+    def patch(self, request):
+        from .branding import SOCIAL_KEYS, clean_link
+        if not is_practice_admin_user(request.user):
+            return Response({'error': 'Only practice administrators can change branding.'}, status=status.HTTP_403_FORBIDDEN)
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        ps, _ = PracticeSettings.objects.get_or_create(practice=practice)
+        if 'tagline' in request.data:
+            ps.brand_tagline = str(request.data.get('tagline') or '').strip()[:120]
+        if 'social_links' in request.data:
+            raw = request.data.get('social_links') or {}
+            if not isinstance(raw, dict):
+                return Response({'social_links': 'Invalid links.'}, status=status.HTTP_400_BAD_REQUEST)
+            links, errors = {}, {}
+            for key in SOCIAL_KEYS:
+                try:
+                    value = clean_link(str(raw.get(key) or ''))
+                except ValueError as exc:
+                    errors[key] = str(exc)
+                    continue
+                if value:
+                    links[key] = value
+            if errors:
+                return Response({'social_links': errors}, status=status.HTTP_400_BAD_REQUEST)
+            ps.social_links = links
+        ps.save()
+        audit(practice, request, 'BRANDING_UPDATED', {'fields': sorted(k for k in request.data.keys())})
+        return Response(_branding_payload(practice, request))
+
+
+class _AdminUploadMixin:
+    from rest_framework.parsers import MultiPartParser as _MP, FormParser as _FP, JSONParser as _JP
+    parser_classes = [_MP, _FP, _JP]
+    permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
+
+    def admin_practice(self, request):
+        if not is_practice_admin_user(request.user):
+            return None, Response({'error': 'Only practice administrators can change branding.'}, status=status.HTTP_403_FORBIDDEN)
+        return practice_or_404(request)
+
+
+class BrandLogoView(_AdminUploadMixin, APIView):
+    def post(self, request):
+        from .branding import ImageError, asset_url, process_logo, store_asset
+        practice, error = self.admin_practice(request)
+        if error:
+            return error
+        try:
+            asset = store_asset(practice, 'logo', process_logo(request.FILES.get('file')))
+        except ImageError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        practice.brand_assets.filter(kind='logo').exclude(pk=asset.pk).delete()
+        practice.logo_url = asset_url(asset, request)
+        practice.save(update_fields=['logo_url'])
+        audit(practice, request, 'LOGO_UPDATED', {'width': asset.width, 'height': asset.height})
+        return Response(_branding_payload(practice, request), status=status.HTTP_201_CREATED)
+
+    def delete(self, request):
+        practice, error = self.admin_practice(request)
+        if error:
+            return error
+        practice.brand_assets.filter(kind='logo').delete()
+        practice.logo_url = ''
+        practice.save(update_fields=['logo_url'])
+        audit(practice, request, 'LOGO_REMOVED', {})
+        return Response(_branding_payload(practice, request))
+
+
+def _doctor_fields(data, partial=False):
+    out, errors = {}, {}
+    if 'name' in data or not partial:
+        name = str(data.get('name') or '').strip()[:120]
+        if not name:
+            errors['name'] = 'Add the name patients should see.'
+        out['name'] = name
+    if 'credentials' in data:
+        out['credentials'] = str(data.get('credentials') or '').strip()[:120]
+    if 'bio' in data:
+        out['bio'] = str(data.get('bio') or '').strip()[:400]
+    if 'is_active' in data:
+        out['is_active'] = bool(data.get('is_active'))
+    return out, errors
+
+
+class BrandTeamListView(_AdminUploadMixin, APIView):
+    def get(self, request):
+        from .branding import doctors_payload
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        return Response({'results': doctors_payload(practice, request)})
+
+    def post(self, request):
+        from .models import PracticeDoctor
+        practice, error = self.admin_practice(request)
+        if error:
+            return error
+        if practice.doctors.count() >= 12:
+            return Response({'error': 'You can introduce up to 12 team members.'}, status=status.HTTP_400_BAD_REQUEST)
+        data, errors = _doctor_fields(request.data)
+        if errors:
+            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+        doc = PracticeDoctor.objects.create(practice=practice, position=practice.doctors.count(), **data)
+        return Response({'id': doc.id}, status=status.HTTP_201_CREATED)
+
+
+class BrandTeamMemberView(_AdminUploadMixin, APIView):
+    def _doc(self, request, id):
+        from .models import PracticeDoctor
+        practice, error = self.admin_practice(request)
+        if error:
+            return None, error
+        return get_object_or_404(PracticeDoctor, pk=id, practice=practice), None
+
+    def patch(self, request, id):
+        doc, error = self._doc(request, id)
+        if error:
+            return error
+        data, errors = _doctor_fields(request.data, partial=True)
+        if errors:
+            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+        for k, v in data.items():
+            setattr(doc, k, v)
+        doc.save()
+        return Response({'id': doc.id})
+
+    def delete(self, request, id):
+        doc, error = self._doc(request, id)
+        if error:
+            return error
+        if doc.photo_id:
+            doc.photo.delete()
+        doc.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class BrandTeamMemberPhotoView(_AdminUploadMixin, APIView):
+    def post(self, request, id):
+        from .branding import ImageError, asset_url, process_photo, store_asset
+        from .models import PracticeDoctor
+        practice, error = self.admin_practice(request)
+        if error:
+            return error
+        doc = get_object_or_404(PracticeDoctor, pk=id, practice=practice)
+        try:
+            asset = store_asset(practice, 'photo', process_photo(request.FILES.get('file')))
+        except ImageError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        old = doc.photo
+        doc.photo = asset
+        doc.save(update_fields=['photo'])
+        if old:
+            old.delete()
+        return Response({'id': doc.id, 'photo_url': asset_url(asset, request)})
+
+    def delete(self, request, id):
+        from .models import PracticeDoctor
+        practice, error = self.admin_practice(request)
+        if error:
+            return error
+        doc = get_object_or_404(PracticeDoctor, pk=id, practice=practice)
+        if doc.photo_id:
+            old = doc.photo
+            doc.photo = None
+            doc.save(update_fields=['photo'])
+            old.delete()
+        return Response({'id': doc.id, 'photo_url': ''})
+
+
+class BrandEmailPreviewView(APIView):
+    """The branded email a patient receives for a normal staff reply (sample text, nothing is sent)."""
+    permission_classes = [permissions.IsAuthenticated, IsTenantViewer]
+
+    def post(self, request):
+        from apps.emails.branded import render_branded_message
+        practice, error = practice_or_404(request)
+        if error:
+            return error
+        body = str(request.data.get('body') or '').strip() or (
+            "Hi Alex,\n\nThank you for reaching out to us. We'd be happy to help you schedule your visit.\n\n"
+            "Please reply to this email with a couple of days and times that suit you, and our team will confirm "
+            "an appointment with you.")
+        return Response({'html': render_branded_message(practice, body[:4000])})
+
+
+class PublicBrandAssetView(APIView):
+    """Public, cacheable logo/team images (branding is public by nature; IDs are random)."""
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request, asset_id, digest, ext):
+        from django.http import Http404
+        from .models import BrandAsset
+        asset = BrandAsset.objects.select_related('practice').filter(pk=asset_id, digest=digest).first()
+        if not asset or not asset.practice.active:
+            raise Http404()
+        resp = HttpResponse(bytes(asset.content), content_type=asset.content_type)
+        resp['Cache-Control'] = 'public, max-age=31536000, immutable'
+        resp['X-Content-Type-Options'] = 'nosniff'
+        resp['Access-Control-Allow-Origin'] = '*'
+        resp['Cross-Origin-Resource-Policy'] = 'cross-origin'
+        return resp

@@ -26,6 +26,13 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import RequestAccessPage from './pages/RequestAccessPage';
 import AppointmentResponsePage from './pages/AppointmentResponsePage';
+import KnowledgePage from './pages/KnowledgePage';
+import FollowUpsPage from './pages/FollowUpsPage';
+import GrowthPage from './pages/GrowthPage';
+import VisibilityPage from './pages/VisibilityPage';
+import IntegrationsPage from './pages/IntegrationsPage';
+import RecallPage from './pages/RecallPage';
+import SystemStatusPage from './pages/SystemStatusPage';
 import { useAuthStore } from './stores/authStore';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -146,7 +153,13 @@ function App() {
         <Route path="patients" element={<PatientsPage />} />
         <Route path="leads" element={<LeadsPage />} />
         <Route path="email" element={<EmailComposerPage />} />
-        <Route path="knowledge" element={<Navigate to="/dashboard/templates" replace />} />
+        <Route path="knowledge" element={<KnowledgePage />} />
+        <Route path="follow-ups" element={<FollowUpsPage />} />
+        <Route path="growth" element={<GrowthPage />} />
+        <Route path="visibility" element={<VisibilityPage />} />
+        <Route path="integrations" element={<IntegrationsPage />} />
+        <Route path="recall" element={<RecallPage />} />
+        <Route path="system" element={<RoleRoute allowedRoles={['AGENCY_ADMIN']}><SystemStatusPage /></RoleRoute>} />
 
         {/* Practice Admin & Agency Admin Only: Configuration, Security, Team, Integrations */}
         <Route

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
+import PracticeInsights from '@/components/dashboard/PracticeInsights';
 
 export default function DashboardPage() {
   const user = useAuthStore((state) => state.user);
@@ -120,6 +121,8 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {!isAgencyAdmin && <PracticeInsights isAdmin={isPracticeAdmin} />}
 
       {/* Today's Key Focus Metrics */}
       <div>
@@ -318,7 +321,7 @@ export default function DashboardPage() {
               className="p-3.5 bg-gray-50 hover:bg-white border border-gray-200 hover:border-teal-300 hover:shadow-card rounded-xl transition group text-left block"
             >
               <Palette className="w-5 h-5 text-cyan-700 mb-2 transition-colors" />
-              <div className="text-[13px] font-semibold text-gray-900">Widget Customizer</div>
+              <div className="text-[13px] font-semibold text-gray-900">Branding & Widget</div>
               <div className="text-[10px] text-gray-500 mt-0.5">Colors &amp; greeting</div>
             </Link>
 
@@ -386,7 +389,7 @@ export default function DashboardPage() {
         </div>
 
         {reqList.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 text-sm">
+          <div className="p-8 text-center text-gray-500 text-sm">
             No inquiries recorded yet. Patient requests submitted via the concierge widget will appear here.
           </div>
         ) : (

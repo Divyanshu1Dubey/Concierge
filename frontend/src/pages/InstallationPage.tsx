@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { practicesApi } from '@/services/api';
 import { apiErrorMessage, downloadFile } from '@/utils/api';
+import InstallCheckCard from '@/components/installation/InstallCheckCard';
 import {
   Key, Globe, Download, Copy, Check, RefreshCw, AlertTriangle,
   Code2, ExternalLink, ShieldCheck, Plus, Trash2, CheckCircle2
@@ -216,8 +217,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </p>
       </div>
 
+      <InstallCheckCard defaultUrl={(tenantData as any)?.website || ''} />
+
       {/* Client Key & Hosted Concierge Cards */}
-      <div className="grid md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Client Key */}
         <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
@@ -237,6 +240,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <input
               type="text"
               readOnly
+              aria-label="Client key"
               value={clientKey}
               className="w-full font-mono text-xs bg-gray-50 border border-gray-200 px-3 py-2 rounded-lg text-gray-700 select-all"
             />
@@ -248,7 +252,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {copiedKey ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             </button>
           </div>
-          <p className="text-xs text-gray-400 mt-2">
+          <p className="text-xs text-gray-500 mt-2">
             Safe for public browser usage. Binds incoming conversations to your tenant.
           </p>
         </div>
@@ -274,6 +278,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <input
               type="text"
               readOnly
+              aria-label="Hosted concierge link"
               value={hostedConciergeUrl}
               className="w-full font-mono text-xs bg-gray-50 border border-gray-200 px-3 py-2 rounded-lg text-gray-700 select-all"
             />
@@ -285,7 +290,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {copiedHosted ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             </button>
           </div>
-          <p className="text-xs text-gray-400 mt-2">
+          <p className="text-xs text-gray-500 mt-2">
             Share directly on Google My Business, SMS, social media, or bio links.
           </p>
         </div>
@@ -357,7 +362,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </div>
 
         {/* Code Display */}
-        <div className="p-6 bg-gray-950 text-gray-100 font-mono text-xs overflow-x-auto">
+        <div className="p-6 bg-gray-950 text-gray-100 font-mono text-xs overflow-x-auto" tabIndex={0} aria-label="Embed code">
           <pre>{getActiveSnippet()}</pre>
         </div>
 
@@ -402,7 +407,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Domains List */}
         <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
           {domains.length === 0 ? (
-            <div className="p-6 text-center text-gray-400 text-xs">
+            <div className="p-6 text-center text-gray-500 text-xs">
               No custom domains configured yet. All origins accepted in development.
             </div>
           ) : (

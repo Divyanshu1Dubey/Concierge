@@ -34,6 +34,15 @@ def send_practice_email(
     from_name = (provider.from_name if provider and provider.from_name else practice.name) or "HeyJarvis Concierge"
     from_email = (provider.from_email if provider and provider.from_email else practice.email) or getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@heyjarvis.ai')
     effective_reply_to = reply_to or (provider.reply_to if provider and provider.reply_to else practice.email)
+    uses_custom_smtp = bool(provider and provider.provider_type == 'smtp' and provider.smtp_host)
+    if not uses_custom_smtp:
+        # Platform ("managed") mail must be sent from the platform's own mailbox: mail servers reject or
+        # spam-filter messages whose From address belongs to a different domain (SPF/DMARC). The practice
+        # name is shown as the sender and patient replies still go to the practice (Reply-To).
+        from email.utils import parseaddr
+        platform_address = parseaddr(getattr(settings, 'DEFAULT_FROM_EMAIL', '') or '')[1] or getattr(settings, 'EMAIL_HOST_USER', '')
+        if platform_address:
+            from_email = platform_address
 
     # 2. Find or create email thread (callers may pass the request's existing thread)
     patient_name = appointment.patient_name if appointment else ""
@@ -50,6 +59,14 @@ def send_practice_email(
                 }
             }
         )
+
+    if not body_html:
+        try:
+            from .branded import render_branded_message
+            body_html = render_branded_message(practice, body)
+        except Exception:
+            logger.warning("Branded email rendering failed (practice=%s); sending plain text", practice.id)
+            body_html = None
 
     # The Message-ID goes on the actual email so patient replies (In-Reply-To/References)
     # can be matched back to this thread.
@@ -152,15 +169,56 @@ def send_practice_email(
     except Exception as e:
         # Log the failure class only: messages from SMTP servers can echo addresses/credentials.
         logger.error("Failed to send practice email (practice=%s): %s", practice.id, type(e).__name__)
+        reason = describe_send_error(e)
         email_record.status = Email.STATUS_FAILED
-        email_record.save(update_fields=['status'])
+        email_record.error_message = reason[:300]
+        email_record.save(update_fields=['status', 'error_message'])
         return {
             'success': False,
             'status': 'failed',
-            'error': 'Email delivery failed. Check the email provider settings and try again.',
+            'error': reason,
             'error_type': type(e).__name__,
             'provider': email_record.provider,
         }
+
+
+def describe_send_error(exc) -> str:
+    """Plain-language reason a send failed, written for front-desk staff (no technical details)."""
+    import smtplib
+    import socket
+    import ssl
+    import urllib.error
+    from .backends import EmailAPIError
+    if isinstance(exc, EmailAPIError):
+        if exc.status in (401, 403):
+            return "The email service rejected its API key. A practice administrator or your agency should check the email service settings."
+        if exc.status == 422:
+            return "The email service refused the sender address. The sending domain must be verified with the email service."
+        if exc.status == 429:
+            return "The email service is limiting how fast emails are sent. Please try again in a minute."
+        return "The email service could not send this email. Please try again in a few minutes."
+    if isinstance(exc, urllib.error.URLError):
+        return "Could not reach the email service. Please try again in a few minutes."
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return "The email account rejected the login. A practice administrator should check the username and app password in Email settings."
+    if isinstance(exc, smtplib.SMTPSenderRefused):
+        return "The mail server refused the sender address. Send from the address of the email account itself."
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return "The patient's email address was rejected. Check it for typos and try again."
+    if isinstance(exc, smtplib.SMTPServerDisconnected):
+        return "The mail server closed the connection. A practice administrator should check the port and SSL/TLS setting in Email settings."
+    if isinstance(exc, smtplib.SMTPDataError):
+        return "The mail server refused this message. Try again later, or contact your email provider."
+    if isinstance(exc, ssl.SSLError):
+        return "A secure connection to the mail server failed. Port 465 needs SSL; port 587 needs TLS."
+    if isinstance(exc, (socket.timeout, TimeoutError)):
+        return "The mail server did not respond in time. Please try again in a few minutes."
+    if isinstance(exc, (ConnectionRefusedError, socket.gaierror)):
+        return "Could not connect to the mail server. Email may not be set up yet; a practice administrator can check Email settings."
+    if isinstance(exc, smtplib.SMTPException):
+        return "The mail server could not send this email. Please try again; if it keeps failing, a practice administrator can check Email settings."
+    return "The email could not be sent. Please try again; if it keeps failing, a practice administrator can check Email settings."
+
 
 
 def get_or_create_thread(patient_email: str, patient_name: str, subject: str, practice=None, appointment=None) -> EmailThread:

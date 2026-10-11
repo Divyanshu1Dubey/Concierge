@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { apiErrorMessage } from '@/utils/api';
 
 interface EmailMessage {
+  error_message?: string;
   id: string;
   direction: 'incoming' | 'outgoing' | 'internal';
   subject: string;
@@ -145,11 +146,16 @@ export default function EmailComposerPage() {
                     </p>
                     <p className="text-sm text-gray-600">{email.subject}</p>
                     <p className={`text-xs text-gray-500 mt-1 whitespace-pre-wrap ${selectedThread === email.id.toString() ? '' : 'line-clamp-1'}`}>{email.body}</p>
+                    {email.status === 'failed' && email.error_message && (
+                      <p className="text-xs text-red-700 mt-1">{email.error_message}</p>
+                    )}
                   </div>
                 </div>
-                <span className="text-xs text-gray-400 flex-shrink-0 text-right ml-auto">
+                <span className="text-xs text-gray-500 flex-shrink-0 text-right ml-auto">
                   {new Date(email.created_at).toLocaleString()}
-                  <span className={`block mt-1 font-semibold uppercase ${email.status === 'failed' ? 'text-red-600' : email.status === 'sent' ? 'text-emerald-600' : 'text-gray-400'}`}>
+                  <span
+                    title={email.status === 'sent' ? 'Accepted by the mail server. Inbox delivery cannot be confirmed.' : undefined}
+                    className={`block mt-1 font-semibold uppercase ${email.status === 'failed' ? 'text-red-600' : email.status === 'sent' ? 'text-emerald-600' : 'text-gray-400'}`}>
                     {email.status}
                   </span>
                 </span>

@@ -150,7 +150,7 @@ export default function BusinessRulesPage() {
                       onChange={(e) => updateDay(day, 'open', e.target.value)}
                       className="px-2 py-1 text-xs border border-gray-200 rounded-lg"
                     />
-                    <span className="text-gray-400 text-xs">to</span>
+                    <span className="text-gray-500 text-xs">to</span>
                     <input
                       type="time"
                       value={config.close}
@@ -218,7 +218,7 @@ export default function BusinessRulesPage() {
           <label className="flex items-center justify-between cursor-pointer">
             <div>
               <span className="text-sm font-semibold text-gray-800">Enable Human Handoff Option</span>
-              <p className="text-xs text-gray-400">Allows visitors to ask for a human front desk coordinator at any time</p>
+              <p className="text-xs text-gray-500">Allows visitors to ask for a human front desk coordinator at any time</p>
             </div>
             <input
               type="checkbox"
@@ -250,7 +250,7 @@ export default function BusinessRulesPage() {
           Your team's booking rules. Financing options are shared with the assistant; other policies are not
           told to patients unless you add them to the instructions below. Staff always confirm real appointment times.
         </p>
-        <div className="grid sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="br-np-duration" className="text-xs font-semibold text-gray-700 block mb-1">New-patient visit length (minutes)</label>
             <input id="br-np-duration" type="number" min="15" max="240" value={newPatientDuration}

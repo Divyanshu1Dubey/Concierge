@@ -76,6 +76,7 @@
         <strong style="color:#3d4a44;">{{ brand.name }}</strong><br>
         {% if brand.address %}{{ brand.address }}<br>{% endif %}
         {% if brand.phone %}{{ brand.phone }}{% endif %}{% if brand.phone and brand.email %} &middot; {% endif %}{% if brand.email %}<a href="mailto:{{ brand.email }}" style="color:#8b938f;">{{ brand.email }}</a>{% endif %}
+        {% if brand.links %}<br>{% for link in brand.links %}<a href="{{ link.url }}" style="color:{{ brand.color }};text-decoration:none;font-weight:600;">{{ link.label }}</a>{% if not forloop.last %} &nbsp;&middot;&nbsp; {% endif %}{% endfor %}{% endif %}
         {% if reference %}<br>Reference {{ reference }}{% endif %}
       </td></tr></table>
     </td></tr>

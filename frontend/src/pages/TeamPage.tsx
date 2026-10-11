@@ -132,7 +132,7 @@ export default function TeamPage() {
         </button>
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-3 text-xs">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
         <div className="p-3 bg-blue-50/50 border border-blue-100 rounded-xl">
           <span className="font-bold text-blue-900 block mb-1">PRACTICE ADMIN</span>
           <p className="text-blue-700">Practice settings, business rules, widget, email delivery, templates, team and security.</p>
@@ -173,11 +173,11 @@ export default function TeamPage() {
         </div>
 
         {isLoading ? (
-          <div className="p-12 text-center text-gray-400 text-sm">Loading staff members...</div>
+          <div className="p-12 text-center text-gray-500 text-sm">Loading staff members...</div>
         ) : isError ? (
           <div className="p-12 text-center text-red-600 text-sm">Could not load the team. Please refresh.</div>
         ) : members.length === 0 ? (
-          <div className="p-12 text-center text-gray-400 text-sm">No team members yet.</div>
+          <div className="p-12 text-center text-gray-500 text-sm">No team members yet.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -199,7 +199,7 @@ export default function TeamPage() {
                     <tr key={m.id} className="hover:bg-gray-50 transition">
                       <td className="px-6 py-4 text-sm font-semibold text-gray-900">
                         {`${m.first_name || ''} ${m.last_name || ''}`.trim() || 'Staff Member'}
-                        {isSelf && <span className="ml-2 text-xs text-gray-400">(you)</span>}
+                        {isSelf && <span className="ml-2 text-xs text-gray-500">(you)</span>}
                       </td>
                       <td className="px-6 py-4 text-gray-600 font-mono text-xs">{m.email}</td>
                       <td className="px-6 py-4">

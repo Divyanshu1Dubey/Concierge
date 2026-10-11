@@ -181,6 +181,10 @@ class InboundReplyCheckView(APIView):
         if not inbound_mailbox_configured():
             return Response({'configured': False, 'new_replies': 0,
                              'message': 'Reply checking is not set up (IMAP_HOST). Replies are not being collected.'})
+        # The inbound mailbox is shared, so scan it at most once a minute however many staff are online.
+        from django.core.cache import cache
+        if not is_cron and not cache.add('inbound-reply-check-lock', 1, 60):
+            return Response({'configured': True, 'new_replies': 0, 'skipped': True})
         try:
             result = fetch_replies()
         except Exception as exc:

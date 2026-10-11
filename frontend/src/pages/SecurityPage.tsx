@@ -39,7 +39,7 @@ export default function SecurityPage() {
       </div>
 
       {/* Security Status Cards */}
-      <div className="grid sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-2">
             <Lock className="w-5 h-5 text-emerald-600" />
@@ -104,15 +104,15 @@ export default function SecurityPage() {
             <History className="w-5 h-5 text-gray-600" />
             Practice Audit Trail
           </h2>
-          <span className="text-xs text-gray-400">Strictly redacts secrets, passwords, and tokens</span>
+          <span className="text-xs text-gray-500">Strictly redacts secrets, passwords, and tokens</span>
         </div>
 
         {isLoading ? (
-          <div className="p-12 text-center text-gray-400 text-sm">Loading audit trail...</div>
+          <div className="p-12 text-center text-gray-500 text-sm">Loading audit trail...</div>
         ) : isError ? (
           <div className="p-12 text-center text-red-600 text-sm">Could not load the audit trail.</div>
         ) : logs.length === 0 ? (
-          <div className="p-12 text-center text-gray-400 text-sm">
+          <div className="p-12 text-center text-gray-500 text-sm">
             No audit records yet. All sensitive actions will be cataloged here automatically.
           </div>
         ) : (
@@ -144,7 +144,7 @@ export default function SecurityPage() {
                     <td className="px-6 py-3.5 text-gray-600 max-w-md truncate">
                       {log.details ? JSON.stringify(log.details) : '—'}
                     </td>
-                    <td className="px-6 py-3.5 text-gray-400 font-mono text-xs">
+                    <td className="px-6 py-3.5 text-gray-500 font-mono text-xs">
                       {log.ip_address || 'Internal'}
                     </td>
                   </tr>

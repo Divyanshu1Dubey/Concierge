@@ -140,7 +140,12 @@ class Appointment(models.Model):
     def save(self, *args, **kwargs):
         if not self.confirmation_code:
             import secrets
-            self.confirmation_code = f"APT-{secrets.token_hex(4).upper()}"
+            # 32-bit codes collide eventually at platform scale; retry instead of failing a patient's request.
+            for _ in range(8):
+                code = f"APT-{secrets.token_hex(4).upper()}"
+                if not Appointment.objects.filter(confirmation_code=code).exists():
+                    break
+            self.confirmation_code = code
         super().save(*args, **kwargs)
 
 

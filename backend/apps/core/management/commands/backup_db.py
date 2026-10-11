@@ -31,6 +31,10 @@ class Command(BaseCommand):
             out_dir = Path(opts['dir'])
             out_dir.mkdir(parents=True, exist_ok=True)
             target = out_dir / f"{source.stem}-{datetime.now():%Y%m%d-%H%M%S}.sqlite3"
+            n = 1
+            while target.exists():  # two backups in the same second must not overwrite each other
+                target = out_dir / f"{source.stem}-{datetime.now():%Y%m%d-%H%M%S}-{n}.sqlite3"
+                n += 1
             src = sqlite3.connect(str(source))
             dst = sqlite3.connect(str(target))
             try:

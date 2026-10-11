@@ -293,7 +293,18 @@ class WidgetConfigView(PublicWidgetThrottleMixin, APIView):
             'is_open': is_open,
             'after_hours_message': after_hours_msg,
             'quick_replies': QUICK_REPLIES_MAP['INITIAL'],
+            'logo_url': practice.logo_url or '',
+            'tagline': getattr(ps, 'brand_tagline', '') or '',
+            'team': _widget_team(practice, request),
         })
+
+
+def _widget_team(practice, request):
+    try:
+        from apps.practices.branding import doctors_payload
+        return doctors_payload(practice, request, with_bio=False)[:4]
+    except Exception:
+        return []
 
 
 class WidgetConversationInitView(PublicWidgetThrottleMixin, APIView):
@@ -320,6 +331,16 @@ class WidgetConversationInitView(PublicWidgetThrottleMixin, APIView):
                 session_id=session_id,
                 state=Conversation.STATE_IDENTIFYING_INTENT,
             )
+
+        page_url = str(request.data.get('url', '') or '')[:2000]
+        if page_url and not conv.source_url:
+            conv.source_url = page_url[:200]
+            conv.save(update_fields=['source_url'])
+        try:
+            from apps.growth.attribution import record_attribution
+            record_attribution(conv, page_url, str(request.data.get('referrer', '') or ''))
+        except Exception:
+            logger.warning("Could not record inquiry source for conversation %s", conv.id)
 
         ps = getattr(practice, 'settings', None)
         from .state_machine import is_office_open

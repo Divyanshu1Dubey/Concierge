@@ -34,7 +34,9 @@ SECURE_REFERRER_POLICY = 'same-origin'
 X_FRAME_OPTIONS = 'DENY'
 
 # Email: always real SMTP in production (EMAIL_* or SMTP_* variables, see base.py).
-EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
+EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND') or (
+    'apps.emails.backends.ResendEmailBackend' if RESEND_API_KEY else 'django.core.mail.backends.smtp.EmailBackend'
+)
 
 # Static files (Django admin, DRF) served by WhiteNoise with compression.
 STORAGES = {

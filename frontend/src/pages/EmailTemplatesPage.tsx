@@ -130,14 +130,14 @@ export default function EmailTemplatesPage() {
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Template List (4 cols) */}
         <div className="lg:col-span-4 bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
           <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 font-bold text-xs uppercase tracking-wider text-gray-500">
             Available Templates
           </div>
           {isLoading ? (
-            <div className="p-8 text-center text-sm text-gray-400">Loading templates...</div>
+            <div className="p-8 text-center text-sm text-gray-500">Loading templates...</div>
           ) : isError ? (
             <div className="p-8 text-center text-sm text-red-600">Could not load templates.</div>
           ) : (
@@ -155,7 +155,7 @@ export default function EmailTemplatesPage() {
                     <FileText className={`w-4 h-4 mt-0.5 flex-shrink-0 ${isSelected ? 'text-teal-600' : 'text-gray-400'}`} />
                     <div>
                       <span className="text-sm font-bold text-gray-900 block">{t.name}</span>
-                      <span className="text-xs text-gray-400 uppercase tracking-wider font-semibold">
+                      <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">
                         {t.exists ? (t.is_active ? 'Active' : 'Inactive') : 'Not set up yet'}
                       </span>
                     </div>

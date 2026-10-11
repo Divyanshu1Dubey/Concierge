@@ -116,6 +116,7 @@ export default function RequestsPage() {
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <Filter className="w-4 h-4 text-gray-400" />
           <select
+            aria-label="Filter requests by status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="text-xs border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
@@ -169,7 +170,7 @@ export default function RequestsPage() {
                         </span>
                       )}
                       {getStatusBadge(req.status)}
-                      <span className="text-xs text-gray-400 font-mono">
+                      <span className="text-xs text-gray-500 font-mono">
                         {req.confirmation_code}
                       </span>
                     </div>
@@ -188,7 +189,7 @@ export default function RequestsPage() {
                   </div>
 
                   <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-                    <span className="text-[11px] text-gray-400 whitespace-nowrap">
+                    <span className="text-[11px] text-gray-500 whitespace-nowrap">
                       {new Date(req.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                     </span>
                     <Link
