@@ -294,6 +294,22 @@ SOCIALACCOUNT_PROVIDERS = {
     },
 }
 
+# "Sign in with Google" for existing staff (see apps/users/google_auth.py).
+GOOGLE_OAUTH_CLIENT_ID = os.environ.get('GOOGLE_OAUTH_CLIENT_ID', '')
+GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get('GOOGLE_OAUTH_CLIENT_SECRET', '')
+if GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET:
+    SOCIALACCOUNT_PROVIDERS['google']['APPS'] = [
+        {'client_id': GOOGLE_OAUTH_CLIENT_ID, 'secret': GOOGLE_OAUTH_CLIENT_SECRET, 'key': ''},
+    ]
+SOCIALACCOUNT_ADAPTER = 'apps.users.google_auth.StaffOnlyGoogleAdapter'
+SOCIALACCOUNT_LOGIN_ON_GET = True       # the login button is a plain link; no intermediate allauth page
+SOCIALACCOUNT_AUTO_SIGNUP = False
+SOCIALACCOUNT_STORE_TOKENS = False      # we only need the identity, never Google API access
+LOGIN_REDIRECT_URL = '/api/auth/google/complete/'
+# Build https callback URLs behind the platform proxy (Google rejects http redirect URIs).
+ACCOUNT_DEFAULT_HTTP_PROTOCOL = 'https' if (os.environ.get('APP_PUBLIC_URL', '').startswith('https://')
+                                            or os.environ.get('RAILWAY_ENVIRONMENT')) else 'http'
+
 # CORS & CSRF
 _cors_env = os.environ.get('CORS_ALLOWED_ORIGINS', '')
 if _cors_env:

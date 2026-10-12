@@ -17,7 +17,7 @@ export const authApi = {
   google: () => {
     const isRemote = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
     const apiBase = isRemote ? window.location.origin : (import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000');
-    window.location.href = `${apiBase}/api/auth/google/`;
+    window.location.href = `${apiBase}/api/auth/google/login/`;
     return Promise.resolve(null);
   },
 };

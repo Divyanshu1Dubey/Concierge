@@ -97,3 +97,20 @@ risk assessment. Patient chat content is sent to the configured AI provider when
 - AI is only used for open questions; booking, emergencies and handoffs follow the deterministic flow.
 - The assistant receives only the practice's configured facts and is instructed never to quote prices, insurance, availability or clinical advice; failures fall back to an honest "our front desk will help" reply.
 - 15 s timeout per call, a model that fails is skipped for 10 minutes, a daily per-practice cap, and usage is logged per practice (token counts only, never message text).
+
+## Sign in with Google (staff only)
+
+Google sign-in works only for people who already have a HeyJarvis account with the same email; it never
+creates accounts. Setup:
+
+1. Google Cloud Console -> APIs & Services -> OAuth consent screen: User type "External" (or "Internal" for a
+   Workspace-only team), app name "HeyJarvis Concierge", support email, authorised domain `up.railway.app`
+   (or your own domain). Scopes: `openid`, `email`, `profile` only. Add test users while in "Testing" mode,
+   or publish the app.
+2. APIs & Services -> Credentials -> Create credentials -> OAuth client ID -> "Web application".
+   - Authorised JavaScript origins: `https://web-production-41fc3c.up.railway.app`
+   - Authorised redirect URIs: `https://web-production-41fc3c.up.railway.app/api/auth/google/login/callback/`
+3. Railway (service `web`) variables: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+   `APP_PUBLIC_URL=https://web-production-41fc3c.up.railway.app`. Redeploy.
+4. The login page shows "Sign in with Google" once both variables are set. Do not also create a Google
+   "Social application" in Django admin (two configurations for the same provider make allauth fail).

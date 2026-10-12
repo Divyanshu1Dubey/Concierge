@@ -120,6 +120,9 @@ class SeedUsersView(generics.GenericAPIView):
         }, status=status.HTTP_200_OK)
 
 
+from .google_auth import google_enabled  # noqa: E402
+
+
 class AuthConfigView(generics.GenericAPIView):
     """Public, non-sensitive auth configuration consumed by the login page."""
     permission_classes = [permissions.AllowAny]
@@ -129,6 +132,7 @@ class AuthConfigView(generics.GenericAPIView):
         # Never expose demo accounts or credentials here: this endpoint is public.
         return Response({
             'registration_enabled': bool(getattr(settings, 'ALLOW_PUBLIC_REGISTRATION', False)),
+            'google_enabled': google_enabled(),
             'access_requests_enabled': True,
         })
 

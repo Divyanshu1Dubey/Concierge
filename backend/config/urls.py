@@ -15,6 +15,7 @@ from apps.core.views import (
     serve_widget_js, serve_demo_html, RootIndexView, serve_spa, get_frontend_dist
 )
 from apps.users.views import LoginView
+from apps.users.google_auth import GoogleCompleteView, GoogleExchangeView
 from django.http import HttpResponse
 
 def serve_spa_asset(request, path):
@@ -62,7 +63,9 @@ urlpatterns = [
     path('api/users/', include('apps.users.urls')),
     path('api/auth/token/', LoginView.as_view(), name='token_obtain_pair'),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('api/auth/google/', include('allauth.socialaccount.providers.google.urls')),
+    path('api/auth/google/complete/', GoogleCompleteView.as_view(), name='google-complete'),
+    path('api/auth/google/exchange/', GoogleExchangeView.as_view(), name='google-exchange'),
+    path('api/auth/', include('allauth.socialaccount.providers.google.urls')),  # -> /api/auth/google/login/ and /callback/
 
     # Tenancy & Admin
     path('api/practices/', include('apps.practices.urls')),
